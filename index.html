@@ -6,16 +6,17 @@
     <title>Personal Car - Flota & Firebase Automático</title>
     <!-- Chart.js para gráficas -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase SDK Completo -->
+    <!-- Firebase SDK Completo (Database + Storage) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
     <style>
-        /* VARIABLES CSS DINÁMICAS (Para los Temas) */
+        /* VARIABLES CSS DINÁMICAS (Sistema de Temas) */
         :root {
             --bg-body: #f8fafc; --card-bg: #ffffff;
             --primary: #1e3a8a; --primary-light: #2563eb; --primary-dark: #0f172a;
             --text-dark: #0f172a; --text-muted: #64748b; --border: #cbd5e1;
+            --input-bg: #f8fafc; --input-text: #0f172a; --thead-bg: #f1f5f9;
             --success: #059669; --danger: #dc2626; --warning: #d97706; --info: #0284c7;
         }
 
@@ -28,7 +29,7 @@
 
         .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
 
-        nav.module-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card-bg); border-top: 1px solid var(--border); display: flex; overflow-x: auto; padding: 8px 0; z-index: 1000; box-shadow: 0 -4px 12px rgba(0,0,0,0.08); -webkit-overflow-scrolling: touch; transition: background 0.3s; }
+        nav.module-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card-bg); border-top: 1px solid var(--border); display: flex; overflow-x: auto; padding: 8px 0; z-index: 1000; box-shadow: 0 -4px 12px rgba(0,0,0,0.08); -webkit-overflow-scrolling: touch; transition: background 0.3s, border-color 0.3s; }
         .nav-btn { background: none; border: none; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 600; cursor: pointer; min-width: 72px; flex-shrink: 0; padding: 4px; transition: color 0.2s; }
         .nav-btn .icon { font-size: 1.25rem; margin-bottom: 2px; }
         .nav-btn.active { color: var(--primary-light); font-weight: 700; }
@@ -38,10 +39,10 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
         .card { background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: background 0.3s, border-color 0.3s; }
-        .card h2 { font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--bg-body); color: var(--primary); display: flex; align-items: center; justify-content: space-between; }
+        .card h2 { font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--border); color: var(--primary); display: flex; align-items: center; justify-content: space-between; }
 
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .stat-card { background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--border); text-align: center; }
+        .stat-card { background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--border); text-align: center; transition: background 0.3s, border-color 0.3s;}
         .stat-card p { font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
         .stat-card h3 { font-size: 1.25rem; margin-top: 4px; }
 
@@ -52,7 +53,7 @@
         .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
         .form-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-dark); margin-bottom: 4px; }
-        input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background-color: var(--bg-body); color: var(--text-dark); outline: none; transition: border-color 0.2s, background 0.3s; }
+        input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background-color: var(--input-bg); color: var(--input-text); outline: none; transition: border-color 0.2s, background 0.3s, color 0.3s; }
         input:focus, select:focus, textarea:focus { border-color: var(--primary-light); }
         input[readonly] { opacity: 0.7; cursor: not-allowed; }
 
@@ -65,7 +66,7 @@
         .table-responsive { overflow-x: auto; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text-dark); }
         th, td { padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
-        th { background: var(--bg-body); color: var(--text-dark); font-weight: 700; }
+        th { background: var(--thead-bg); color: var(--text-dark); font-weight: 700; transition: background 0.3s; }
 
         .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: bold; display: inline-block; color: #fff;}
         .badge-green { background: var(--success); } .badge-amber { background: var(--warning); } .badge-red { background: var(--danger); } .badge-gray { background: var(--text-muted); } .badge-info { background: var(--info); }
@@ -74,21 +75,21 @@
         .s-verde { background-color: #10b981; box-shadow: 0 0 6px #10b981; } .s-amarillo { background-color: #f59e0b; box-shadow: 0 0 6px #f59e0b; } .s-rojo { background-color: #ef4444; box-shadow: 0 0 6px #ef4444; }
 
         /* PORTAL CHOFER Y AVERÍAS */
-        .driver-portal { max-width: 550px; margin: 20px auto; background: var(--card-bg); padding: 25px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); }
+        .driver-portal { max-width: 550px; margin: 20px auto; background: var(--card-bg); padding: 25px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); transition: background 0.3s; }
         .alert-banner { display:flex; justify-content:space-between; align-items:center; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
         /* REDISEÑO DEL SEMÁFORO EN TARJETAS */
         .grid-semaforos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-        .card-semaforo { border: 1px solid var(--border); padding: 15px; border-radius: 10px; background: var(--bg-body); }
+        .card-semaforo { border: 1px solid var(--border); padding: 15px; border-radius: 10px; background: var(--bg-body); transition: background 0.3s; }
 
         /* MODALES */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; z-index: 2000; padding: 20px; }
         .modal.active { display: flex; }
         .modal-content { position: relative; max-width: 100%; max-height: 100%; }
         .modal-content img { max-width: 100%; max-height: 85vh; border-radius: 8px; object-fit: contain; }
-        .close-modal { position: absolute; top: -35px; right: 0; color: white; font-size: 35px; cursor: pointer; font-weight: bold; }
+        .close-modal { position: absolute; top: -35px; right: 0; color: white; font-size: 35px; cursor: pointer; font-weight: bold; z-index: 2001; }
         
-        .gestion-modal-box { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; color: var(--text-dark); border: 1px solid var(--border); }
+        .gestion-modal-box { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; color: var(--text-dark); border: 1px solid var(--border); transition: background 0.3s; }
         .gestion-modal-box h3 { border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-bottom: 18px; color: var(--primary); font-size: 1.2rem; }
 
         .progress-bar-container { background-color: var(--border); border-radius: 8px; width: 100%; height: 20px; overflow: hidden; margin-top: 5px; margin-bottom: 5px; }
@@ -185,15 +186,11 @@
                     <input type="number" id="driver-km" placeholder="Ej: 45200" required>
                 </div>
 
-                <!-- EL GPS SE CAPTURA SILENCIOSAMENTE -->
-                <div class="form-group" style="background:var(--bg-body); padding:10px; border-radius:8px; border:1px solid var(--border);">
-                    <label style="margin-bottom: 2px;">📍 Ubicación Segura</label>
-                    <small style="color:var(--primary); font-weight:600;">Se registrará automáticamente la hora y ubicación al presionar Enviar.</small>
-                    <input type="hidden" id="driver-lat"><input type="hidden" id="driver-lng">
-                </div>
+                <!-- INPUTS GPS INVISIBLES Y SILENCIOSOS -->
+                <input type="hidden" id="driver-lat"><input type="hidden" id="driver-lng">
 
                 <div class="form-group">
-                    <label>Observaciones (Ruidos, daños, etc.)</label>
+                    <label>Observaciones (Ruidos, daños nuevos, etc.)</label>
                     <textarea id="driver-nota" rows="3" placeholder="Escribe aquí cualquier novedad de tu jornada..."></textarea>
                 </div>
 
@@ -207,7 +204,7 @@
         <div class="gestion-modal-box" style="border: 2px solid var(--danger);">
             <span class="close-modal" onclick="document.getElementById('modalAveriaDriver').classList.remove('active')" style="color:var(--text-dark);">&times;</span>
             <h3 style="color:var(--danger);">🚨 Reporte de Avería Mecánica</h3>
-            <p style="font-size:0.85rem; margin-bottom:15px;">Usa este formulario SÓLO si el carro presenta una falla que te impida trabajar o requiera taller urgente.</p>
+            <p style="font-size:0.85rem; margin-bottom:15px; color:var(--text-muted);">Usa este formulario SÓLO si el carro presenta una falla que te impida trabajar o requiera taller urgente.</p>
             <form id="form-averia-driver">
                 <div class="form-group">
                     <label>¿Qué le pasa al vehículo?</label>
@@ -217,7 +214,7 @@
                     <label>Foto de la falla (Opcional)</label>
                     <input type="file" id="averia-foto" accept="image/*">
                 </div>
-                <button type="submit" class="btn-submit btn-red" id="btn-averia-submit">Enviar Alerta de Avería</button>
+                <button type="submit" class="btn-submit btn-red" id="btn-averia-submit">Enviar Alerta de Avería al Administrador</button>
             </form>
         </div>
     </div>
@@ -231,20 +228,20 @@
             <!-- BOTÓN LIMPIAR ALERTAS Y ZONA DE AVISOS -->
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;" class="no-print">
                 <h2 style="font-size:1.2rem; color:var(--primary); margin:0;">Panel de Control</h2>
-                <button class="btn-sm btn-dark" onclick="ocultarAlertasTemporales()">🔕 Limpiar Alertas</button>
+                <button class="btn-sm btn-dark" onclick="ocultarAlertasTemporales()">🔕 Ocultar Alertas</button>
             </div>
 
             <!-- ALERTA DE AVERÍAS (NUEVO) -->
             <div id="dashboard-alert-averias" class="alert-banner" style="display:none; background-color:#fef2f2; border: 2px solid var(--danger); cursor:pointer;" onclick="cambiarModulo('mod-historial')">
                 <div>
-                    <strong style="font-size: 1.1rem; color:var(--danger);">🚨 ¡ATENCIÓN! HAY VEHÍCULOS CON AVERÍAS REPORTADAS</strong>
+                    <strong style="font-size: 1.1rem; color:var(--danger);">🚨 ¡ATENCIÓN! HAY AVERÍAS URGENTES REPORTADAS</strong>
                     <p style="margin:0; font-size:0.8rem; color:var(--text-dark); margin-top:4px;">Haz clic aquí para revisar los detalles en la bandeja.</p>
                 </div>
                 <span style="font-size: 1.8rem;">🔧</span>
             </div>
 
             <!-- ALERTA DE NUEVOS REPORTES PAGOS -->
-            <div id="dashboard-alert-reportes" class="alert-banner" style="display:none; background-color:#e0f2fe; border: 2px solid var(--info); cursor:pointer;" onclick="cambiarModulo('mod-historial')">
+            <div id="dashboard-alert-reportes" class="alert-banner" style="display:none; background-color:var(--bg-body); border: 2px solid var(--info); cursor:pointer;" onclick="cambiarModulo('mod-historial')">
                 <div>
                     <strong style="font-size: 1.1rem; color:var(--info);">📥 Tienes <span id="num-rep"></span> reporte(s) de pago por revisar.</strong>
                     <p style="margin:0; font-size:0.8rem; color:var(--text-dark); margin-top:4px;">Haz clic para asignar el dinero a las billeteras.</p>
@@ -260,10 +257,10 @@
             </div>
 
             <div class="stats-grid">
-                <div class="stat-card"><p>Ingresos Reales</p><h3 style="color:var(--success)" id="stat-ingresos">$0.00</h3></div>
-                <div class="stat-card"><p>Gastos Mantenimiento</p><h3 style="color:var(--danger)" id="stat-gastos">$0.00</h3></div>
-                <div class="stat-card"><p>Utilidad Neta</p><h3 style="color:var(--primary-light)" id="stat-balance">$0.00</h3></div>
-                <div class="stat-card"><p>Cuentas x Cobrar</p><h3 style="color:var(--warning)" id="stat-pendientes">$0.00</h3></div>
+                <div class="stat-card"><p>Ingresos Reales</p><h3 class="text-green" id="stat-ingresos">$0.00</h3></div>
+                <div class="stat-card"><p>Gastos Mantenimiento</p><h3 class="text-red" id="stat-gastos">$0.00</h3></div>
+                <div class="stat-card"><p>Utilidad Neta</p><h3 class="text-blue" id="stat-balance">$0.00</h3></div>
+                <div class="stat-card"><p>Cuentas x Cobrar</p><h3 class="text-warning" id="stat-pendientes">$0.00</h3></div>
             </div>
 
             <!-- SEMÁFOROS DE FLOTA REDISEÑADOS A TARJETAS -->
@@ -304,7 +301,6 @@
         <section id="mod-ingresos" class="module">
             <div class="card">
                 <h2>💵 Registrar Ingreso / Cuota Diaria Manual</h2>
-                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Usa este módulo si el chofer te pagó en efectivo y no usó su enlace de reporte.</p>
                 <form id="form-ingreso">
                     <input type="hidden" id="edit-ingreso-id">
                     <div class="form-grid">
@@ -324,7 +320,7 @@
                         
                         <div class="form-group" id="group-leasing-libre" style="display:none; background:#fefce8; padding:10px; border-radius:6px; border:1px solid #fef08a; grid-column: span 2;">
                             <label style="color:#854d0e;">⚠️ El vehículo está en Opción a Compra y seleccionaste DÍA LIBRE.</label>
-                            <select id="pago-leasing-libre"><option value="Atrasar">No sumar como pago (Extiende el contrato 1 día)</option><option value="Sumar">Sumar como día pagado en el progreso</option></select>
+                            <select id="pago-leasing-libre" style="color:black;"><option value="Atrasar">No sumar como pago (Extiende el contrato 1 día)</option><option value="Sumar">Sumar como día pagado en el progreso</option></select>
                         </div>
                     </div>
                     <div class="form-group"><label>Observación o Detalle</label><input type="text" id="pago-nota" placeholder="Ej: Depósito por banca en línea o efectivo en mano"></div>
@@ -360,7 +356,6 @@
 
             <div class="card">
                 <h2>📋 Checklist de Inspección Semanal Administrador</h2>
-                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Usa este módulo para hacer tus propias revisiones y descontar piezas del inventario.</p>
                 <form id="form-checklist">
                     <div class="form-group"><label>Seleccionar Vehículo</label><select id="chk-auto" required></select></div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; background:var(--bg-body); padding:10px; border-radius:8px;">
@@ -374,7 +369,7 @@
                     <div class="form-group"><label>Observaciones de la Inspección</label><input type="text" id="chk-observaciones" placeholder="Ej: Se requiere alineación ligera"></div>
 
                     <div style="background:var(--bg-body); padding:12px; border-radius:8px; border:1px solid var(--border); margin-bottom:12px;">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:bold; color:var(--primary-dark);">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:bold; color:var(--primary-light);">
                             <input type="checkbox" id="chk-hizo-mantenimiento" onchange="document.getElementById('box-uso-inventario').style.display = this.checked ? 'block' : 'none';" style="width:18px; height:18px;">
                             ¿Se realizó mantenimiento y se utilizaron repuestos del inventario?
                         </label>
@@ -388,18 +383,20 @@
             </div>
         </section>
 
-        <!-- ================= MÓDULO 3B: ACTAS DE ENTREGA (FOTOS Y ESTADO) ================= -->
+        <!-- ================= MÓDULO 3B: ACTAS DE ENTREGA Y FOTOS ================= -->
         <section id="mod-entregas" class="module">
             <div class="card">
-                <h2>📸 Registrar Acta de Entrega (Checklist Inicial)</h2>
-                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Registra las condiciones físicas en las que le entregas el auto al conductor para tener la evidencia guardada en su portal.</p>
+                <h2>📸 Registrar Acta de Entrega Inicial</h2>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Registra las condiciones físicas en las que le entregas el auto al conductor.</p>
                 <form id="form-entrega">
                     <div class="form-grid">
                         <div class="form-group"><label>Vehículo</label><select id="entrega-auto" required></select></div>
                         <div class="form-group"><label>Conductor que recibe</label><select id="entrega-conductor" required></select></div>
                         <div class="form-group"><label>Kilometraje de Entrega</label><input type="number" id="entrega-km" required></div>
                         <div class="form-group"><label>Nivel de Combustible</label>
-                            <select id="entrega-combustible"><option value="Lleno">Lleno</option><option value="3/4">3/4</option><option value="Medio">Medio (1/2)</option><option value="1/4">1/4</option><option value="Reserva">Reserva</option></select>
+                            <select id="entrega-combustible">
+                                <option value="Lleno">Lleno</option><option value="3/4">3/4</option><option value="Medio">Medio (1/2)</option><option value="1/4">1/4</option><option value="Reserva">Reserva</option>
+                            </select>
                         </div>
                     </div>
                     <div class="form-group">
@@ -639,12 +636,15 @@
                     <h3 style="font-size:1rem; margin-bottom:12px; color:var(--primary-dark);">🎨 Apariencia de la App (Temas)</h3>
                     <div class="form-group">
                         <label>Selecciona un color o tema visual:</label>
-                        <select id="select-tema" onchange="cambiarTemaColor(this.value)">
+                        <select id="select-tema" onchange="cambiarTemaColor(this.value)" style="color:black;">
                             <option value="default">Original (Azul Corporativo)</option>
                             <option value="dark">Modo Oscuro (Dark Mode)</option>
+                            <option value="nightfall">Atardecer Nocturno (Púrpura Oscuro)</option>
                             <option value="forest">Esmeralda (Verde Naturaleza)</option>
                             <option value="sunset">Atardecer (Naranja/Rojo)</option>
                             <option value="royal">Real (Morado/Gris)</option>
+                            <option value="hacker">Matrix (Negro/Verde Neón)</option>
+                            <option value="ocean">Océano (Azul Claro)</option>
                         </select>
                     </div>
                 </div>
@@ -696,7 +696,7 @@
             <div id="gestion-detalles" style="font-size:0.9rem; margin-bottom: 12px; line-height: 1.8; background:var(--bg-body); padding:12px; border-radius:8px; border:1px solid var(--border);"></div>
             <div id="gestion-leasing-libre" style="display:none; background:#fefce8; padding:10px; border-radius:6px; border:1px solid #fef08a; margin-bottom:12px;">
                 <label style="font-size:0.85rem; font-weight:bold; color:#854d0e;">Auto en Leasing. Este Día Libre:</label>
-                <select id="gestion-leasing-select" style="width:100%; margin-top:5px; padding:8px;"><option value="Atrasar">NO Sumarlo (Atrasa plazo)</option><option value="Sumar">SUMARLO al progreso</option></select>
+                <select id="gestion-leasing-select" style="width:100%; margin-top:5px; padding:8px; color:black;"><option value="Atrasar">NO Sumarlo (Atrasa plazo)</option><option value="Sumar">SUMARLO al progreso</option></select>
             </div>
             <div class="gestion-img-container" id="gestion-img-box"></div>
             <div id="gestion-acciones-box" style="display:flex; flex-direction:column; gap:10px; margin-top:15px;"></div>
@@ -729,13 +729,16 @@
         const FB_API_FIJA = "AIzaSyDOCXNyxCK8zfzFUDvhu5N3jsNgMbcZgIQ"; 
         const FB_PROJECT_FIJO = "emzoom-67c6b";
 
-        // TEMAS VISUALES
+        // TEMAS VISUALES PROFUNDOS
         const paletas = {
-            'default': { primary: '#1e3a8a', light: '#2563eb', dark: '#0f172a', bg: '#f8fafc', card: '#ffffff', text: '#0f172a', border: '#cbd5e1' },
-            'dark': { primary: '#3b82f6', light: '#60a5fa', dark: '#1e293b', bg: '#0f172a', card: '#1e293b', text: '#f1f5f9', border: '#334155' },
-            'forest': { primary: '#064e3b', light: '#059669', dark: '#022c22', bg: '#ecfdf5', card: '#ffffff', text: '#064e3b', border: '#a7f3d0' },
-            'sunset': { primary: '#9a3412', light: '#ea580c', dark: '#7c2d12', bg: '#fff7ed', card: '#ffffff', text: '#431407', border: '#ffedd5' },
-            'royal': { primary: '#4c1d95', light: '#7c3aed', dark: '#2e1065', bg: '#f5f3ff', card: '#ffffff', text: '#2e1065', border: '#ede9fe' }
+            'default': { primary: '#1e3a8a', light: '#2563eb', dark: '#0f172a', bg: '#f8fafc', card: '#ffffff', text: '#0f172a', muted: '#64748b', border: '#cbd5e1', inputBg: '#f8fafc', inputText: '#0f172a', theadBg: '#f1f5f9' },
+            'dark': { primary: '#3b82f6', light: '#60a5fa', dark: '#1e293b', bg: '#0f172a', card: '#1e293b', text: '#f1f5f9', muted: '#94a3b8', border: '#334155', inputBg: '#0f172a', inputText: '#f1f5f9', theadBg: '#0f172a' },
+            'nightfall': { primary: '#8b5cf6', light: '#a78bfa', dark: '#0f172a', bg: '#020617', card: '#0f172a', text: '#f8fafc', muted: '#94a3b8', border: '#1e293b', inputBg: '#020617', inputText: '#f8fafc', theadBg: '#020617' },
+            'forest': { primary: '#064e3b', light: '#059669', dark: '#022c22', bg: '#ecfdf5', card: '#ffffff', text: '#064e3b', muted: '#4b5563', border: '#a7f3d0', inputBg: '#ffffff', inputText: '#064e3b', theadBg: '#d1fae5' },
+            'sunset': { primary: '#9a3412', light: '#ea580c', dark: '#7c2d12', bg: '#fff7ed', card: '#ffffff', text: '#431407', muted: '#78350f', border: '#ffedd5', inputBg: '#ffffff', inputText: '#431407', theadBg: '#ffedd5' },
+            'royal': { primary: '#4c1d95', light: '#7c3aed', dark: '#2e1065', bg: '#f5f3ff', card: '#ffffff', text: '#2e1065', muted: '#4c1d95', border: '#ede9fe', inputBg: '#ffffff', inputText: '#2e1065', theadBg: '#ede9fe' },
+            'hacker': { primary: '#22c55e', light: '#4ade80', dark: '#052e16', bg: '#000000', card: '#0a0a0a', text: '#22c55e', muted: '#166534', border: '#14532d', inputBg: '#000000', inputText: '#22c55e', theadBg: '#052e16' },
+            'ocean': { primary: '#0369a1', light: '#0ea5e9', dark: '#082f49', bg: '#f0f9ff', card: '#ffffff', text: '#0c4a6e', muted: '#0284c7', border: '#bae6fd', inputBg: '#ffffff', inputText: '#0c4a6e', theadBg: '#e0f2fe' }
         };
 
         // 1. ESTRUCTURA DE LA BASE DE DATOS LOCAL
@@ -747,7 +750,7 @@
             inventario: JSON.parse(localStorage.getItem('pc_inventario')) || [],
             checklists: JSON.parse(localStorage.getItem('pc_checklists')) || [],
             entregas: JSON.parse(localStorage.getItem('pc_entregas')) || [], 
-            averias: JSON.parse(localStorage.getItem('pc_averias')) || [], // NUEVO: Averias de choferes
+            averias: JSON.parse(localStorage.getItem('pc_averias')) || [], 
             ajustes: JSON.parse(localStorage.getItem('pc_ajustes')) || { autoPendientes: true, fondoDiario: 0, fbApi: '', fbProject: '', tema: 'default' }
         };
 
@@ -805,8 +808,13 @@
             document.documentElement.style.setProperty('--bg-body', t.bg);
             document.documentElement.style.setProperty('--card-bg', t.card);
             document.documentElement.style.setProperty('--text-dark', t.text);
+            document.documentElement.style.setProperty('--text-muted', t.muted);
             document.documentElement.style.setProperty('--border', t.border);
-            document.getElementById('select-tema').value = nombreTema;
+            document.documentElement.style.setProperty('--input-bg', t.inputBg);
+            document.documentElement.style.setProperty('--input-text', t.inputText);
+            document.documentElement.style.setProperty('--thead-bg', t.theadBg);
+            const selectEl = document.getElementById('select-tema');
+            if(selectEl) selectEl.value = nombreTema;
         }
 
         function cambiarModulo(id, btn) {
@@ -942,8 +950,8 @@
                         const entrega = db.entregas.slice().reverse().find(e => e.autoId === auto.id && e.conductorId === driverId);
                         if (entrega) {
                             document.getElementById('driver-entrega-box').style.display = 'block';
-                            document.getElementById('driver-entrega-content').innerHTML = `<p><strong>📅 Entregado:</strong> ${new Date(entrega.fecha).toLocaleDateString()}</p><p><strong>🛣️ Km:</strong> ${entrega.km} km</p><p><strong>⛽ Combustible:</strong> ${entrega.combustible}</p><p style="margin-top:5px;"><strong>📝 Detalles Registrados:</strong><br> ${entrega.notas || 'Ningún daño.'}</p>`;
-                            if(entrega.fotos && entrega.fotos.length > 0) document.getElementById('driver-entrega-fotos').innerHTML = entrega.fotos.map(f => `<img src="${f}" style="height:90px; border-radius:6px; cursor:pointer; border:1px solid #ccc;" onclick="verImagenGenerica('${f}')">`).join('');
+                            document.getElementById('driver-entrega-content').innerHTML = `<p><strong>📅 Entregado:</strong> ${new Date(entrega.fecha).toLocaleDateString()}</p><p><strong>🛣️️ Km:</strong> ${entrega.km} km</p><p><strong>⛽ Combustible:</strong> ${entrega.combustible}</p><p style="margin-top:5px;"><strong>📝 Detalles Registrados:</strong><br> ${entrega.notas || 'Ningún daño.'}</p>`;
+                            if(entrega.fotos && entrega.fotos.length > 0) document.getElementById('driver-entrega-fotos').innerHTML = entrega.fotos.map(f => `<img src="${f}" style="height:90px; border-radius:6px; cursor:pointer; border:1px solid var(--border);" onclick="verImagenGenerica('${f}')">`).join('');
                         }
                     }
 
@@ -1044,7 +1052,7 @@
                 navigator.geolocation.getCurrentPosition(
                     (pos) => { continuarEnvio(pos.coords.latitude, pos.coords.longitude); },
                     (err) => { continuarEnvio(null, null); },
-                    { enableHighAccuracy: false, timeout: 3000 }
+                    { enableHighAccuracy: false, timeout: 3500 }
                 );
             } else { continuarEnvio(null, null); }
         });
@@ -1102,7 +1110,12 @@
             if(auto && auto.isLeasing && m.estado === 'Dia Libre') document.getElementById('gestion-leasing-libre').style.display = 'block';
             else document.getElementById('gestion-leasing-libre').style.display = 'none';
 
-            const enlaceGPS = m.lat ? `<a href="https://www.google.com/maps?q=${m.lat},${m.lng}" target="_blank" style="color:var(--primary-light); font-weight:bold;">📍 Ver Ubicación en Maps</a>` : '<span style="color:var(--warning);">Sin GPS</span>';
+            let enlaceGPS = '<span style="color:var(--warning);">Sin GPS Registrado</span>';
+            let iframeMapa = '';
+            if (m.lat && m.lng) {
+                enlaceGPS = `<a href="https://www.google.com/maps?q=${m.lat},${m.lng}" target="_blank" style="color:var(--primary-light); font-weight:bold;">📍 Abrir en Google Maps</a>`;
+                iframeMapa = `<iframe width="100%" height="200" style="border:1px solid var(--border); border-radius:8px; margin-top:10px;" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=${parseFloat(m.lng)-0.005},${parseFloat(m.lat)-0.005},${parseFloat(m.lng)+0.005},${parseFloat(m.lat)+0.005}&amp;layer=mapnik&amp;marker=${m.lat},${m.lng}"></iframe>`;
+            }
 
             document.getElementById('gestion-detalles').innerHTML = `
                 <p><strong>Chofer Reporta:</strong> ${chofer.nombre}</p>
@@ -1110,8 +1123,9 @@
                 <p><strong>Tarifa Diaria Auto:</strong> $${tarifa}</p>
                 <p><strong>Monto Enviado:</strong> <span style="font-size:1.1rem; font-weight:bold; color:var(--success);">$${montoEnviado}</span></p>
                 <p><strong>Saldo Previo:</strong> <span style="font-weight:bold; color:${saldoPrevio>=0?'green':'red'}">$${saldoPrevio}</span></p>
-                <p><strong>GPS:</strong> ${enlaceGPS}</p>
                 <p><strong>Observaciones:</strong> <i>${m.nota || '-'}</i></p>
+                <p><strong>GPS:</strong> ${enlaceGPS}</p>
+                ${iframeMapa}
             `;
 
             const imgBox = document.getElementById('gestion-img-box');
@@ -1431,7 +1445,6 @@
             actualizarSelectsYListas();
             renderizarUI();
 
-            // Finanzas Totales Dashboard
             const socioFiltro = document.getElementById('filter-beneficiario').value;
             let autosFiltro = socioFiltro ? db.autos.filter(a => a.socioId === socioFiltro) : db.autos;
             const idsAutos = autosFiltro.map(a => a.id);
@@ -1470,13 +1483,12 @@
         }
 
         // =========================================================================
-        // 12. GENERACIÓN DE PDF Y CONTRATOS
+        // 12. GENERACIÓN DE CONTRATOS Y PDF
         // =========================================================================
         function generarVistaContrato() {
             const autoId = document.getElementById('contrato-auto').value;
             const auto = db.autos.find(a => a.id === autoId);
             const chofer = auto ? db.conductores.find(c => c.id === auto.conductorId) : null;
-
             document.getElementById('c-chofer-nombre').innerText = chofer ? chofer.nombre : '[NOMBRE CHOFER]';
             document.getElementById('c-chofer-cedula').innerText = chofer ? chofer.cedula : '[CÉDULA]';
             document.getElementById('c-chofer-licencia').innerText = chofer ? chofer.licencia : '[LICENCIA]';
@@ -1500,13 +1512,10 @@
 
             const movsChofer = db.movimientos.filter(m => m.conductorId === condId && !m.isDriverReport);
             let ing = 0, pen = 0;
-            movsChofer.forEach(m => {
-                if(m.estado === 'Pagado') ing += m.monto;
-                if(m.estado === 'Pendiente') pen += m.monto;
-            });
+            movsChofer.forEach(m => { if(m.estado === 'Pagado') ing += m.monto; if(m.estado === 'Pendiente') pen += m.monto; });
 
             const saldo = obtenerSaldoChofer(condId);
-            if (saldo < 0) { alertBox.innerHTML = `<div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:12px; border-radius:8px;"><strong>🚨 ALERTA DE MOROSIDAD:</strong> El conductor mantiene una deuda consolidada de <strong>$${Math.abs(saldo).toFixed(2)}</strong>.</div>`; } 
+            if (saldo < 0) { alertBox.innerHTML = `<div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:12px; border-radius:8px;"><strong>🚨 ALERTA DE MOROSIDAD:</strong> El conductor mantiene una deuda de <strong>$${Math.abs(saldo).toFixed(2)}</strong>.</div>`; } 
             else { alertBox.innerHTML = `<div style="background:#d1fae5; color:#065f46; padding:10px; border-radius:8px;">✅ <strong>ESTADO SOLVENTE:</strong> Sin deuda.</div>`; }
 
             document.getElementById('ec-total-ingresos').innerText = `$${ing.toFixed(2)}`;
@@ -1516,31 +1525,19 @@
                 const auto = db.autos.find(a => a.id === m.autoId);
                 let rowClass = m.estado === 'Pendiente' ? 'pdf-row-red' : (m.estado === 'Dia Libre' ? 'pdf-row-blue' : '');
                 return `<tr class="${rowClass}" style="text-align:center;">
-                    <td style="border:1px solid #cbd5e1;">${new Date(m.fecha).toLocaleDateString()}</td>
-                    <td style="border:1px solid #cbd5e1;">${auto ? auto.placa : 'N/A'}</td>
-                    <td style="border:1px solid #cbd5e1; font-weight:bold;">${m.estado}</td>
-                    <td style="border:1px solid #cbd5e1;">${m.concepto || m.nota || '-'}</td>
-                    <td style="border:1px solid #cbd5e1; font-weight:bold;">$${m.monto.toFixed(2)}</td>
+                    <td style="border:1px solid #ccc;">${new Date(m.fecha).toLocaleDateString()}</td>
+                    <td style="border:1px solid #ccc;">${auto ? auto.placa : 'N/A'}</td>
+                    <td style="border:1px solid #ccc; font-weight:bold;">${m.estado}</td>
+                    <td style="border:1px solid #ccc;">${m.concepto || m.nota || '-'}</td>
+                    <td style="border:1px solid #ccc; font-weight:bold;">$${m.monto.toFixed(2)}</td>
                 </tr>`;
             }).join('') || '<tr><td colspan="5" style="text-align:center;">Sin registros.</td></tr>';
         }
 
         // =========================================================================
-        // 13. UTILIDADES EXTRAS Y EVENTO INICIAL
+        // 13. AJUSTES FINALES Y FIREBASE 
         // =========================================================================
-        function enviarWhatsApp(tel, msg) {
-            if(!tel) return alert('Sin teléfono registrado.');
-            window.open(`https://wa.me/${tel.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }
-
-        function guardarAjustes() {
-            db.ajustes.autoPendientes = document.getElementById('chk-auto-pendientes').checked;
-            db.ajustes.fondoDiario = parseFloat(document.getElementById('cfg-fondo-diario').value || 0);
-            guardarLocal(); alert('Ajustes guardados. Caja Chica y Automatización Actualizadas.');
-        }
-
         function renderizarDashboard() { actualizarUI(); }
-
         window.onload = initApp;
     </script>
 </body>
