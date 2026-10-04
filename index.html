@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Personal Car - Flota & Firebase Automatizado</title>
+    <title>Personal Car - Sistema Integral de Flota Automático</title>
     <!-- Chart.js para gráficas -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase SDK Completo (Database + Storage) -->
+    <!-- Firebase SDK Completo -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
@@ -452,7 +452,7 @@
                         <label>Fotos de la Condición del Vehículo (Puedes seleccionar varias)</label>
                         <input type="file" id="entrega-fotos" accept="image/*" multiple>
                     </div>
-                    <button type="submit" class="btn-submit btn-blue" id="btn-submit-entrega">Subir Acta y Guardar Fotos</button>
+                    <button type="submit" class="btn-submit btn-blue" id="btn-submit-entrega">Subir Acta y Comprimir Fotos</button>
                 </form>
             </div>
 
@@ -484,8 +484,12 @@
                 <form id="form-auto">
                     <input type="hidden" id="edit-auto-id">
                     <div class="form-grid">
+                        <!-- CAMPOS REPARADOS: AÑO Y VIN AGREGADOS -->
                         <div class="form-group"><label>Placa del Vehículo *</label><input type="text" id="auto-placa" required placeholder="Ej: BK8932"></div>
                         <div class="form-group"><label>Marca y Modelo *</label><input type="text" id="auto-modelo" required placeholder="Ej: GAC GS3 Emzoom"></div>
+                        <div class="form-group"><label>Año</label><input type="number" id="auto-anio" placeholder="Ej: 2024"></div>
+                        <div class="form-group"><label>VIN / Chasis</label><input type="text" id="auto-vin" placeholder="Opcional"></div>
+                        
                         <div class="form-group"><label>Tarifa de Alquiler Diaria ($) *</label><input type="number" step="0.01" id="auto-tarifa" required placeholder="Ej: 25.00"></div>
                         <div class="form-group"><label>Próximo Mantenimiento (km límite)</label><input type="number" id="auto-mant-km" placeholder="Ej: 50000"></div>
                         <div class="form-group"><label>Vencimiento Seguro / Placa</label><input type="date" id="auto-venc-doc"></div>
@@ -941,6 +945,30 @@
         let chartOrigenInstance = null;
         const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
+        // Función para comprimir imágenes antes de guardarlas localmente (Evita saturar la memoria)
+        function comprimirImagen(file, maxWidth = 800, maxHeight = 800, quality = 0.7) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = event => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width; let height = img.height;
+                        if (width > height) { if (width > maxWidth) { height = Math.round((height * maxWidth) / width); width = maxWidth; } } 
+                        else { if (height > maxHeight) { width = Math.round((width * maxHeight) / height); height = maxHeight; } }
+                        canvas.width = width; canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', quality)); 
+                    };
+                    img.onerror = error => reject(error);
+                };
+                reader.onerror = error => reject(error);
+            });
+        }
+
         // Función Maestra para guardar en el navegador (y en Firebase si está conectado)
         function guardarLocal() {
             localStorage.setItem('pc_autos', JSON.stringify(db.autos));
@@ -952,7 +980,7 @@
             localStorage.setItem('pc_entregas', JSON.stringify(db.entregas)); 
             localStorage.setItem('pc_ajustes', JSON.stringify(db.ajustes));
             
-            // Subir a Firebase si está habilitado
+            // Subir a Firebase si está habilitado y online
             if(firebaseDB && isOnline) {
                 firebaseDB.ref('flota_personal_car').set(db);
             }
@@ -1013,7 +1041,7 @@
             if(firebaseDB && isOnline) firebaseDB.ref('flota_personal_car/movimientos').set(db.movimientos);
         }
 
-        // 5. FIREBASE: CONEXIÓN EN VIVO
+        // 5. FIREBASE: CONEXIÓN EN VIVO Y PROTECCIÓN DE AJUSTES
         function desbloquearAjustesFB() {
             document.getElementById('fb-api').removeAttribute('readonly');
             document.getElementById('fb-project').removeAttribute('readonly');
@@ -1164,7 +1192,7 @@
         }
 
         // =========================================================================
-        // 7. FUNCIONES DEL PORTAL DEL CHOFER (GPS, FOTO STORAGE)
+        // 7. FUNCIONES DEL PORTAL DEL CHOFER (GPS, FOTO STORAGE O COMPRESIÓN LOCAL)
         // =========================================================================
         function toggleDriverCampos(val) {
             document.getElementById('driver-monto-box').style.display = (val === 'Pagado') ? 'block' : 'none';
@@ -1192,6 +1220,7 @@
                 );
             } else {
                 status.innerText = "❌ GPS no soportado.";
+                status.style.color = "var(--danger)";
             }
         }
 
@@ -1218,14 +1247,18 @@
 
             const kmIngresado = parseInt(document.getElementById('driver-km').value || 0);
 
-            // Subida a Storage si hay foto
+            // Subida a Storage si hay foto, o compresión local si no hay Firebase
             if (estado === 'Pagado' && fileInput.files[0]) {
                 if(!firebaseStorage) {
-                    alert('El Administrador no ha conectado Firebase Storage. Se guardará localmente (Base64).');
-                    const reader = new FileReader();
-                    reader.onload = function(ev) { procesarEnvioChofer(auto, driverId, estado, kmIngresado, lat, lng, ev.target.result); };
-                    reader.readAsDataURL(fileInput.files[0]);
+                    // MODO LOCAL: Usar compresión inteligente Base64
+                    comprimirImagen(fileInput.files[0], 800, 800, 0.7).then(compressedBase64 => {
+                        procesarEnvioChofer(auto, driverId, estado, kmIngresado, lat, lng, compressedBase64);
+                    }).catch(err => {
+                        alert("Error al comprimir la foto.");
+                        btnSubmit.disabled = false; btnSubmit.innerText = "🚀 Enviar Reporte al Administrador";
+                    });
                 } else {
+                    // MODO NUBE: Subir a Firebase Storage
                     const file = fileInput.files[0];
                     const storageRef = firebaseStorage.ref(`comprobantes_pago/${Date.now()}_${file.name}`);
                     storageRef.put(file).then(snapshot => {
@@ -1234,7 +1267,7 @@
                         procesarEnvioChofer(auto, driverId, estado, kmIngresado, lat, lng, downloadURL);
                     }).catch(error => {
                         alert('Error subiendo la imagen: ' + error.message);
-                        btnSubmit.disabled = false; btnSubmit.innerText = "Enviar Reporte y Evidencias";
+                        btnSubmit.disabled = false; btnSubmit.innerText = "🚀 Enviar Reporte al Administrador";
                     });
                 }
             } else {
@@ -1259,27 +1292,30 @@
         }
 
         // =========================================================================
-        // 8. ACTAS DE ENTREGA Y CHECKLIST ADMIN (FOTOS STORAGE)
+        // 8. ACTAS DE ENTREGA Y CHECKLIST ADMIN (COMPRESIÓN O STORAGE)
         // =========================================================================
         document.getElementById('form-entrega').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('btn-submit-entrega');
+            const files = document.getElementById('entrega-fotos').files;
             
+            btn.disabled = true; btn.innerText = 'Subiendo fotos, espera...';
+
             if(!firebaseStorage) {
-                alert('Aviso: Firebase no está conectado. Las fotos se guardarán en el navegador localmente.');
-                // Lógica de fallback local
-                const files = document.getElementById('entrega-fotos').files;
-                const promesasBase64 = Array.from(files).map(file => {
-                    return new Promise(resolve => { const r = new FileReader(); r.onload = ev => resolve(ev.target.result); r.readAsDataURL(file); });
-                });
-                const fotosBase64 = await Promise.all(promesasBase64);
-                guardarActaDefinitiva(fotosBase64);
+                // MODO LOCAL COMPRIMIDO
+                try {
+                    const promesasBase64 = Array.from(files).map(file => comprimirImagen(file, 800, 800, 0.7));
+                    const fotosBase64 = await Promise.all(promesasBase64);
+                    guardarActaDefinitiva(fotosBase64);
+                    btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
+                } catch(err) {
+                    alert('Error al comprimir las fotos locales.');
+                    btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
+                }
                 return;
             }
 
-            btn.disabled = true; btn.innerText = 'Subiendo fotos a Firebase, espera...';
-            const files = document.getElementById('entrega-fotos').files;
-            
+            // MODO NUBE STORAGE
             try {
                 const promesasFotos = Array.from(files).map(async (file) => {
                     const storageRef = firebaseStorage.ref(`entregas_autos/${Date.now()}_${file.name}`);
@@ -1288,10 +1324,10 @@
                 });
                 const urlsFotos = await Promise.all(promesasFotos);
                 guardarActaDefinitiva(urlsFotos);
-                btn.disabled = false; btn.innerText = 'Guardar Acta de Entrega';
+                btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
             } catch (error) {
                 alert('Error al subir fotos: ' + error.message);
-                btn.disabled = false; btn.innerText = 'Guardar Acta de Entrega';
+                btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
             }
         });
 
@@ -1407,7 +1443,10 @@
 
         function rechazarReporte() {
             const m = db.movimientos.find(x => x.id === idReporteEnRevision);
-            m.estadoRevision = 'Rechazado'; m.estado = 'Rechazado'; m.monto = 0; m.isDriverReport = false; 
+            m.estadoRevision = 'Rechazado';
+            m.estado = 'Rechazado';
+            m.monto = 0; 
+            m.isDriverReport = false; 
             guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active');
         }
 
@@ -1418,32 +1457,42 @@
         // =========================================================================
         document.getElementById('form-auto').addEventListener('submit', (e) => {
             e.preventDefault();
-            try {
-                const editId = document.getElementById('edit-auto-id').value;
-                const autoData = {
-                    id: editId || Date.now().toString(),
-                    placa: document.getElementById('auto-placa').value.toUpperCase().trim(),
-                    modelo: document.getElementById('auto-modelo').value,
-                    tarifaDiaria: parseFloat(document.getElementById('auto-tarifa').value || 0),
-                    anio: document.getElementById('auto-anio').value,
-                    vin: document.getElementById('auto-vin').value,
-                    limiteMant: parseInt(document.getElementById('auto-mant-km').value || 0),
-                    vencDoc: document.getElementById('auto-venc-doc').value,
-                    conductorId: document.getElementById('auto-conductor').value,
-                    socioId: document.getElementById('auto-socio').value,
-                    isLeasing: document.getElementById('auto-is-leasing').checked,
-                    leasingTotalDias: parseInt(document.getElementById('auto-leasing-total').value || 0),
-                    leasingDiasPrevios: parseInt(document.getElementById('auto-leasing-pagados').value || 0),
-                    kmActual: editId ? (db.autos.find(a=>a.id===editId).kmActual||0) : 0
-                };
-                if (editId) { db.autos[db.autos.findIndex(a => a.id === editId)] = autoData; } else { db.autos.push(autoData); }
-                guardarLocal(); e.target.reset(); document.getElementById('edit-auto-id').value = ''; 
-                document.getElementById('leasing-fields').style.display = 'none';
-                alert('Vehículo guardado correctamente.');
-            } catch(error) {
-                alert('Error al guardar vehículo: Verifica que los campos estén completos.');
-                console.error(error);
+            const editId = document.getElementById('edit-auto-id').value;
+            
+            // Reparación del error: Extracción segura del kmActual
+            let kmAct = 0;
+            if (editId) {
+                const autoEx = db.autos.find(a => a.id === editId);
+                if(autoEx) kmAct = autoEx.kmActual || 0;
             }
+
+            const autoData = {
+                id: editId || Date.now().toString(),
+                placa: document.getElementById('auto-placa').value.toUpperCase().trim(),
+                modelo: document.getElementById('auto-modelo').value,
+                anio: document.getElementById('auto-anio').value,
+                vin: document.getElementById('auto-vin').value,
+                tarifaDiaria: parseFloat(document.getElementById('auto-tarifa').value || 0),
+                limiteMant: parseInt(document.getElementById('auto-mant-km').value || 0),
+                vencDoc: document.getElementById('auto-venc-doc').value,
+                conductorId: document.getElementById('auto-conductor').value,
+                socioId: document.getElementById('auto-socio').value,
+                isLeasing: document.getElementById('auto-is-leasing').checked,
+                leasingTotalDias: parseInt(document.getElementById('auto-leasing-total').value || 0),
+                leasingDiasPrevios: parseInt(document.getElementById('auto-leasing-pagados').value || 0),
+                kmActual: kmAct
+            };
+            
+            if (editId) { 
+                const idx = db.autos.findIndex(a => a.id === editId);
+                if (idx !== -1) db.autos[idx] = autoData;
+            } else { 
+                db.autos.push(autoData); 
+            }
+            
+            guardarLocal(); e.target.reset(); document.getElementById('edit-auto-id').value = ''; 
+            document.getElementById('leasing-fields').style.display = 'none';
+            alert('Vehículo guardado correctamente.');
         });
 
         document.getElementById('form-conductor').addEventListener('submit', (e) => {
@@ -1469,6 +1518,7 @@
             const estado = document.getElementById('pago-estado').value;
             const auto = db.autos.find(a => a.id === autoId);
             const boxLeasingLibre = document.getElementById('group-leasing-libre');
+            
             if (auto && auto.isLeasing && estado === 'Dia Libre') { boxLeasingLibre.style.display = 'block'; } 
             else { boxLeasingLibre.style.display = 'none'; }
         }
@@ -1478,12 +1528,16 @@
             const autoId = document.getElementById('pago-auto').value;
             const auto = db.autos.find(a => a.id === autoId);
             const estado = document.getElementById('pago-estado').value;
+            
             let sumarLeasing = false;
-            if(estado === 'Dia Libre' && auto && auto.isLeasing && document.getElementById('pago-leasing-libre').value === 'Sumar') { sumarLeasing = true; }
+            if(estado === 'Dia Libre' && auto && auto.isLeasing && document.getElementById('pago-leasing-libre').value === 'Sumar') {
+                sumarLeasing = true;
+            }
 
             db.movimientos.push({
                 id: Date.now().toString(), tipo: 'ingreso', isDriverReport: false,
-                autoId: autoId, conductorId: auto ? auto.conductorId : '', origen: document.getElementById('pago-origen').value,
+                autoId: autoId, conductorId: auto ? auto.conductorId : '',
+                origen: document.getElementById('pago-origen').value,
                 estado: estado, monto: estado === 'Dia Libre' ? 0 : parseFloat(document.getElementById('pago-monto').value || 0),
                 fecha: document.getElementById('pago-fecha').value, nota: document.getElementById('pago-nota').value,
                 concepto: 'Registro Manual Admin', sumarLeasing: sumarLeasing
@@ -1510,43 +1564,7 @@
         function eliminarAuto(id) { if(confirm('¿Eliminar vehículo?')) { db.autos = db.autos.filter(a => a.id !== id); guardarLocal(); } }
         function editarConductor(id) { const c = db.conductores.find(x => x.id === id); document.getElementById('edit-cond-id').value = c.id; document.getElementById('cond-nombre').value = c.nombre; document.getElementById('cond-cedula').value = c.cedula || ''; document.getElementById('cond-telefono').value = c.telefono || ''; document.getElementById('cond-licencia').value = c.licencia || ''; cambiarModulo('mod-conductores'); }
         function eliminarConductor(id) { if(confirm('¿Eliminar conductor?')) { db.conductores = db.conductores.filter(c => c.id !== id); db.autos.forEach(a=>{if(a.conductorId===id) a.conductorId='';}); guardarLocal(); } }
-        function eliminarMovimiento(id) { if(confirm('¿Eliminar registro?')) { db.movimientos = db.movimientos.filter(m => m.id !== id); guardarLocal(); } }
-
-        // INVENTARIO Y CHECKLIST ADMIN
-        document.getElementById('form-inventario').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const editId = document.getElementById('edit-inv-id').value;
-            const invData = { id: editId || Date.now().toString(), nombre: document.getElementById('inv-nombre').value, categoria: document.getElementById('inv-categoria').value, stock: parseInt(document.getElementById('inv-stock').value || 0), autoId: document.getElementById('inv-auto').value };
-            if (editId) { db.inventario[db.inventario.findIndex(i => i.id === editId)] = invData; } else { db.inventario.push(invData); }
-            guardarLocal(); e.target.reset(); document.getElementById('edit-inv-id').value = ''; alert('Inventario guardado.');
-        });
-        function editarInventario(id) { const i = db.inventario.find(x => x.id === id); document.getElementById('edit-inv-id').value = i.id; document.getElementById('inv-nombre').value = i.nombre; document.getElementById('inv-categoria').value = i.categoria; document.getElementById('inv-stock').value = i.stock; document.getElementById('inv-auto').value = i.autoId || ''; }
-        function eliminarInventario(id) { if(confirm('¿Eliminar del inventario?')) { db.inventario = db.inventario.filter(i => i.id !== id); guardarLocal(); } }
-
-        document.getElementById('form-checklist').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const autoId = document.getElementById('chk-auto').value;
-            let repuestosUsados = [];
-            if (document.getElementById('chk-hizo-mantenimiento').checked) {
-                document.querySelectorAll('.uso-inv-input').forEach(input => {
-                    let cant = parseInt(input.value || 0);
-                    if (cant > 0) {
-                        let invId = input.getAttribute('data-id');
-                        repuestosUsados.push({ id: invId, nombre: input.getAttribute('data-nombre'), cantidad: cant });
-                        let itemInv = db.inventario.find(i => i.id === invId);
-                        if (itemInv) itemInv.stock -= cant;
-                    }
-                });
-            }
-            db.checklists.push({
-                id: Date.now().toString(), autoId: autoId, fecha: new Date().toISOString(),
-                aceite: document.getElementById('chk-aceite').checked, frenos: document.getElementById('chk-frenos').checked,
-                llantas: document.getElementById('chk-llantas').checked, agua: document.getElementById('chk-agua').checked,
-                luces: document.getElementById('chk-luces').checked, limpieza: document.getElementById('chk-limpieza').checked,
-                obs: document.getElementById('chk-observaciones').value.trim(), repuestos: repuestosUsados
-            });
-            guardarLocal(); e.target.reset(); document.getElementById('box-uso-inventario').style.display = 'none'; alert('Checklist guardado.');
-        });
+        function eliminarMovimiento(id) { if(confirm('¿Eliminar este registro financiero?')) { db.movimientos = db.movimientos.filter(m => m.id !== id); guardarLocal(); } }
 
         // =========================================================================
         // 11. RENDERIZADO VISUAL DEL DASHBOARD Y TABLAS (UI)
@@ -1580,6 +1598,60 @@
             }
         }
 
+        function renderizarChecklists() {
+            const tbody = document.getElementById('tabla-historial-checklists');
+            if(!tbody) return;
+            tbody.innerHTML = db.checklists.slice().reverse().map(c => {
+                const a = db.autos.find(x => x.id === c.autoId);
+                const puntos = [];
+                if(c.aceite) puntos.push('Aceite');
+                if(c.agua) puntos.push('Agua');
+                if(c.frenos) puntos.push('Frenos');
+                if(c.llantas) puntos.push('Llantas');
+                if(c.luces) puntos.push('Luces');
+                if(c.limpieza) puntos.push('Limpieza');
+
+                let repuestosStr = c.repuestos && c.repuestos.length > 0 
+                    ? c.repuestos.map(r => `${r.cantidad}x ${r.nombre}`).join('<br>') 
+                    : '<span style="color:var(--text-muted)">Ninguno</span>';
+
+                return `<tr>
+                    <td>${new Date(c.fecha).toLocaleDateString()}</td>
+                    <td><strong>${a ? a.placa : 'N/A'}</strong></td>
+                    <td><small>${puntos.join(', ') || 'Sin marcar'}</small></td>
+                    <td>${repuestosStr}</td>
+                    <td>${c.obs || '-'}</td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="5" style="text-align:center;">No hay revisiones registradas.</td></tr>';
+        }
+
+        function renderizarEntregas() {
+            const tbody = document.getElementById('tabla-entregas');
+            if(!tbody) return;
+            tbody.innerHTML = db.entregas.slice().reverse().map(e => {
+                const a = db.autos.find(x => x.id === e.autoId);
+                const c = db.conductores.find(x => x.id === e.conductorId);
+                const fotosHtml = e.fotos && e.fotos.length > 0 ? e.fotos.map(f => `<img src="${f}" onclick="verImagenGenerica('${f}')" style="height:40px; cursor:pointer; margin-right:4px; border-radius:4px;">`).join('') : 'Sin fotos';
+                
+                return `<tr>
+                    <td>${new Date(e.fecha).toLocaleDateString()}</td>
+                    <td><strong>${a ? a.placa : 'N/A'}</strong></td>
+                    <td>${c ? c.nombre : 'N/A'}</td>
+                    <td>${e.km} km</td>
+                    <td>${e.combustible}</td>
+                    <td>${fotosHtml}</td>
+                    <td><button class="btn-sm btn-red" onclick="eliminarEntrega('${e.id}')">Borrar</button></td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="7" style="text-align:center;">No hay actas de entrega registradas.</td></tr>';
+        }
+
+        function eliminarEntrega(id) {
+            if(confirm('¿Seguro que deseas borrar este acta de entrega?')) {
+                db.entregas = db.entregas.filter(e => e.id !== id);
+                guardarLocal();
+            }
+        }
+
         function renderizarUI() {
             // ALERTA DE NUEVOS REPORTES EN DASHBOARD
             const reportesPendientes = db.movimientos.filter(m => m.isDriverReport && m.estadoRevision === 'Sin Revisar');
@@ -1589,12 +1661,15 @@
                 alertBox.innerHTML = `
                     <div style="background-color: #fef2f2; border: 2px solid #ef4444; color: #991b1b; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s;" onclick="cambiarModulo('mod-historial')" onmouseover="this.style.transform='scale(1.01)'" onmouseout="this.style.transform='scale(1)'">
                         <div>
-                            <strong style="font-size: 1.15rem;">🚨 ¡Tienes ${reportesPendientes.length} reporte(s) nuevo(s) por revisar!</strong>
+                            <strong style="font-size: 1.15rem;">🚨 ¡Tienes ${reportesPendientes.length} reporte(s) nuevo(s) de conductores por revisar!</strong>
                             <p style="margin: 0; font-size: 0.85rem; margin-top: 5px;">Haz clic aquí para ir a la Bandeja de Revisión y aprobar los pagos o ver comprobantes.</p>
-                        </div><span style="font-size: 2rem;">👉</span>
+                        </div>
+                        <span style="font-size: 2rem;">👉</span>
                     </div>
                 `;
-            } else { alertBox.style.display = 'none'; }
+            } else {
+                alertBox.style.display = 'none';
+            }
 
             // SEMÁFOROS
             document.getElementById('tabla-semaforos').innerHTML = db.autos.map(auto => {
@@ -1633,10 +1708,16 @@
                 const saldo = obtenerSaldoChofer(c.id);
                 const colorSaldo = saldo >= 0 ? 'green' : 'red';
                 const msjSaldo = saldo >= 0 ? `Saldo a Favor: $${saldo.toFixed(2)}` : `Deuda: $${Math.abs(saldo).toFixed(2)}`;
+
                 let waMsg = `Hola ${c.nombre}, te adjuntamos el link de tu portal diario de Personal Car: ${link}`;
                 if (saldo < 0) waMsg = `Hola ${c.nombre}, recordatorio de Personal Car: Tienes un saldo pendiente de $${Math.abs(saldo).toFixed(2)}. Por favor ingresa tu reporte de pago aquí: ${link}`;
 
-                return `<tr><td><strong>${c.nombre}</strong></td><td style="color:${colorSaldo}; font-weight:bold;">${msjSaldo}</td><td>${c.telefono || '-'}</td><td><button class="btn-sm btn-green" onclick="enviarWhatsApp('${c.telefono}', '${waMsg}')">📱 WhatsApp</button> <button class="btn-sm btn-dark" onclick="navigator.clipboard.writeText('${link}'); alert('Copiado');">🔗 Link</button> <button class="btn-sm btn-blue" onclick="editarConductor('${c.id}')">Editar</button></td></tr>`;
+                return `<tr>
+                    <td><strong>${c.nombre}</strong></td>
+                    <td style="color:${colorSaldo}; font-weight:bold;">${msjSaldo}</td>
+                    <td>${c.telefono || '-'}</td>
+                    <td><button class="btn-sm btn-green" onclick="enviarWhatsApp('${c.telefono}', '${waMsg}')">📱 WhatsApp</button> <button class="btn-sm btn-dark" onclick="navigator.clipboard.writeText('${link}'); alert('Copiado');">🔗 Link</button> <button class="btn-sm btn-blue" onclick="editarConductor('${c.id}')">Editar</button></td>
+                </tr>`;
             }).join('');
 
             // SOCIOS
@@ -1678,7 +1759,7 @@
                 return `<div style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border); padding:6px 0;"><span>${a.placa} - ${a.modelo}</span><strong style="color:var(--success)">$${ahorro.toFixed(2)}</strong></div>`;
             }).join('');
 
-            // DASHBOARD LEASING
+            // DASHBOARD LEASING (OPCIÓN A COMPRA)
             const autosLeasing = db.autos.filter(a => a.isLeasing);
             if (autosLeasing.length > 0) {
                 document.getElementById('dashboard-leasing-box').style.display = 'block';
@@ -1689,30 +1770,30 @@
                     const diasPagados = (a.leasingDiasPrevios || 0) + pagosSistema;
                     const pct = totalDias > 0 ? Math.min((diasPagados / totalDias) * 100, 100) : 0;
                     
-                    return `<div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid var(--border); margin-bottom:10px;"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><strong>${a.placa} - ${conductor?conductor.nombre:'Sin Chofer'}</strong><span>${diasPagados} / ${totalDias} Días</span></div><div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${pct}%;"></div></div><p style="font-size:0.75rem; color:var(--text-muted); text-align:right;">Completado: ${pct.toFixed(1)}% | Faltan ${Math.max(totalDias - diasPagados, 0)} Días</p></div>`;
+                    return `
+                        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid var(--border); margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                                <strong>${a.placa} - ${conductor?conductor.nombre:'Sin Chofer'}</strong>
+                                <span>${diasPagados} / ${totalDias} Días</span>
+                            </div>
+                            <div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${pct}%;"></div></div>
+                            <p style="font-size:0.75rem; color:var(--text-muted); text-align:right;">Completado: ${pct.toFixed(1)}% | Faltan ${Math.max(totalDias - diasPagados, 0)} Días</p>
+                        </div>
+                    `;
                 }).join('');
-            } else { document.getElementById('dashboard-leasing-box').style.display = 'none'; }
-
-            // CHECKLISTS Y ENTREGAS TABLAS
-            const tbCheck = document.getElementById('tabla-historial-checklists');
-            if(tbCheck) tbCheck.innerHTML = db.checklists.slice().reverse().map(c => {
-                const a = db.autos.find(x => x.id === c.autoId);
-                const p = []; if(c.aceite) p.push('Aceite'); if(c.agua) p.push('Agua'); if(c.frenos) p.push('Frenos'); if(c.llantas) p.push('Llantas'); if(c.luces) p.push('Luces'); if(c.limpieza) p.push('Limpio');
-                return `<tr><td>${new Date(c.fecha).toLocaleDateString()}</td><td><strong>${a?a.placa:'-'}</strong></td><td><small>${p.join(', ')}</small></td><td>${c.repuestos&&c.repuestos.length>0?c.repuestos.map(r=>`${r.cantidad}x ${r.nombre}`).join('<br>'):'-'}</td><td>${c.obs||'-'}</td></tr>`;
-            }).join('') || '<tr><td colspan="5" style="text-align:center;">Sin revisiones.</td></tr>';
-
-            const tbEntregas = document.getElementById('tabla-entregas');
-            if(tbEntregas) tbEntregas.innerHTML = db.entregas.slice().reverse().map(e => {
-                const a = db.autos.find(x => x.id === e.autoId); const c = db.conductores.find(x => x.id === e.conductorId);
-                const fotosHtml = e.fotos && e.fotos.length > 0 ? e.fotos.map(f => `<img src="${f}" onclick="verImagenGenerica('${f}')" style="height:40px; cursor:pointer; margin-right:4px;">`).join('') : 'Sin fotos';
-                return `<tr><td>${new Date(e.fecha).toLocaleDateString()}</td><td><strong>${a?a.placa:'-'}</strong></td><td>${c?c.nombre:'-'}</td><td>${e.km} km</td><td>${e.combustible}</td><td>${fotosHtml}</td><td><button class="btn-sm btn-red" onclick="eliminarEntrega('${e.id}')">Borrar</button></td></tr>`;
-            }).join('') || '<tr><td colspan="7" style="text-align:center;">Sin actas de entrega.</td></tr>';
+            } else {
+                document.getElementById('dashboard-leasing-box').style.display = 'none';
+            }
+            
+            renderizarChecklists();
+            renderizarEntregas();
         }
 
         function actualizarUI() {
             actualizarSelectsYListas();
             renderizarUI();
 
+            // Finanzas Totales Dashboard
             const socioFiltro = document.getElementById('filter-beneficiario').value;
             let autosFiltro = socioFiltro ? db.autos.filter(a => a.socioId === socioFiltro) : db.autos;
             const idsAutos = autosFiltro.map(a => a.id);
@@ -1730,6 +1811,7 @@
             document.getElementById('stat-balance').innerText = `$${(in_ - out_).toFixed(2)}`;
             document.getElementById('stat-pendientes').innerText = `$${pen.toFixed(2)}`;
 
+            // Gráfico Chart.js - Ingresos / Gastos
             if(typeof Chart !== 'undefined') {
                 const ctx = document.getElementById('chartBalance').getContext('2d');
                 const labels = autosFiltro.map(a => a.placa);
@@ -1737,26 +1819,40 @@
                 const dataGas = autosFiltro.map(a => db.movimientos.filter(m => !m.isDriverReport && m.autoId === a.id && m.tipo === 'gasto').reduce((acc, curr) => acc + curr.monto, 0));
 
                 if(chartBalanceInstance) chartBalanceInstance.destroy();
-                chartBalanceInstance = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [ { label: 'Ingresos ($)', data: dataIng, backgroundColor: '#059669' }, { label: 'Gastos ($)', data: dataGas, backgroundColor: '#dc2626' } ] }, options: { responsive: true, maintainAspectRatio: false } });
+                chartBalanceInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: labels, datasets: [ { label: 'Ingresos ($)', data: dataIng, backgroundColor: '#059669' }, { label: 'Gastos ($)', data: dataGas, backgroundColor: '#dc2626' } ] },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
 
+                // Gráfico Chart.js - Origen (InDrive / Uber / Part)
                 const ctxO = document.getElementById('chartOrigen').getContext('2d');
                 let inDrive = 0, uber = 0, particular = 0, leasing = 0;
                 db.movimientos.filter(m => !m.isDriverReport && m.tipo === 'ingreso' && m.estado === 'Pagado').forEach(m => {
-                    if(m.origen === 'inDrive') inDrive += m.monto; else if(m.origen === 'Uber') uber += m.monto; else if(m.origen === 'Particular') particular += m.monto; else if(m.origen === 'Leasing') leasing += m.monto; else inDrive += m.monto;
+                    if(m.origen === 'inDrive') inDrive += m.monto;
+                    else if(m.origen === 'Uber') uber += m.monto;
+                    else if(m.origen === 'Particular') particular += m.monto;
+                    else if(m.origen === 'Leasing') leasing += m.monto;
+                    else inDrive += m.monto; // Default Apps
                 });
 
                 if(chartOrigenInstance) chartOrigenInstance.destroy();
-                chartOrigenInstance = new Chart(ctxO, { type: 'doughnut', data: { labels: ['inDrive / Apps', 'Uber', 'Particular', 'Leasing'], datasets: [{ data: [inDrive, uber, particular, leasing], backgroundColor: ['#10b981', '#000000', '#2563eb', '#f59e0b'] }] }, options: { responsive: true, maintainAspectRatio: false } });
+                chartOrigenInstance = new Chart(ctxO, {
+                    type: 'doughnut',
+                    data: { labels: ['inDrive / Apps', 'Uber', 'Alquiler Particular', 'Leasing'], datasets: [{ data: [inDrive, uber, particular, leasing], backgroundColor: ['#10b981', '#000000', '#2563eb', '#f59e0b'] }] },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
             }
         }
 
         // =========================================================================
-        // 12. GENERACIÓN DE CONTRATOS Y PDF
+        // 12. GENERACIÓN DE PDF Y CONTRATOS
         // =========================================================================
         function generarVistaContrato() {
             const autoId = document.getElementById('contrato-auto').value;
             const auto = db.autos.find(a => a.id === autoId);
             const chofer = auto ? db.conductores.find(c => c.id === auto.conductorId) : null;
+
             document.getElementById('c-chofer-nombre').innerText = chofer ? chofer.nombre : '[NOMBRE CHOFER]';
             document.getElementById('c-chofer-cedula').innerText = chofer ? chofer.cedula : '[CÉDULA]';
             document.getElementById('c-chofer-licencia').innerText = chofer ? chofer.licencia : '[LICENCIA]';
@@ -1780,11 +1876,18 @@
 
             const movsChofer = db.movimientos.filter(m => m.conductorId === condId && !m.isDriverReport);
             let ing = 0, pen = 0;
-            movsChofer.forEach(m => { if(m.estado === 'Pagado') ing += m.monto; if(m.estado === 'Pendiente') pen += m.monto; });
+            movsChofer.forEach(m => {
+                if(m.estado === 'Pagado') ing += m.monto;
+                if(m.estado === 'Pendiente') pen += m.monto;
+            });
 
             const saldo = obtenerSaldoChofer(condId);
-            if (saldo < 0) { alertBox.innerHTML = `<div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:12px; border-radius:8px;"><strong>🚨 ALERTA DE MOROSIDAD:</strong> El conductor mantiene una deuda de <strong>$${Math.abs(saldo).toFixed(2)}</strong>.</div>`; } 
-            else { alertBox.innerHTML = `<div style="background:#d1fae5; color:#065f46; padding:10px; border-radius:8px;">✅ <strong>ESTADO SOLVENTE:</strong> Sin deuda.</div>`; }
+
+            if (saldo < 0) {
+                alertBox.innerHTML = `<div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:12px; border-radius:8px;"><strong>🚨 ALERTA DE MOROSIDAD:</strong> El conductor mantiene una deuda consolidada de <strong>$${Math.abs(saldo).toFixed(2)}</strong>.</div>`;
+            } else {
+                alertBox.innerHTML = `<div style="background:#d1fae5; color:#065f46; padding:10px; border-radius:8px;">✅ <strong>ESTADO SOLVENTE:</strong> Sin deuda.</div>`;
+            }
 
             document.getElementById('ec-total-ingresos').innerText = `$${ing.toFixed(2)}`;
             document.getElementById('ec-total-pendiente').innerText = `$${pen.toFixed(2)}`;
@@ -1803,16 +1906,8 @@
         }
 
         // =========================================================================
-        // 13. AJUSTES FINALES Y FIREBASE 
+        // 13. UTILIDADES EXTRAS Y EVENTO INICIAL
         // =========================================================================
-        function eliminarEntrega(id) { if(confirm('¿Seguro que deseas borrar este acta?')) { db.entregas = db.entregas.filter(e => e.id !== id); guardarLocal(); } }
-
-        function guardarAjustes() {
-            db.ajustes.autoPendientes = document.getElementById('chk-auto-pendientes').checked;
-            db.ajustes.fondoDiario = parseFloat(document.getElementById('cfg-fondo-diario').value || 0);
-            guardarLocal(); alert('Ajustes guardados. Caja Chica y Automatización Actualizadas.');
-        }
-
         function renderizarDashboard() { actualizarUI(); }
 
         window.onload = initApp;
