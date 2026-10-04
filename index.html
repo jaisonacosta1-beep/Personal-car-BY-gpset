@@ -6,7 +6,7 @@
     <title>Personal Car - Flota & Firebase Automático</title>
     <!-- Chart.js para gráficas -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase SDK Completo (Database + Storage) -->
+    <!-- Firebase SDK Completo -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
@@ -74,8 +74,6 @@
 
         /* PORTAL CHOFER */
         .driver-portal { max-width: 550px; margin: 20px auto; background: white; padding: 25px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); }
-        .checklist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); }
-        .checklist-grid label { font-size: 0.8rem; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
         /* MODALES */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; z-index: 2000; padding: 20px; }
@@ -171,7 +169,7 @@
                 </div>
                 
                 <div class="form-group" id="driver-monto-box">
-                    <label>Monto a Enviar ($) <br><small style="color:var(--text-muted); font-weight:normal;">(Puedes enviar de más para saldo a favor o de menos como abono)</small></label>
+                    <label>Monto a Enviar / Entregar ($) <br><small style="color:var(--text-muted); font-weight:normal;">(Puedes enviar de más para saldo a favor o de menos como abono)</small></label>
                     <input type="number" step="0.01" id="driver-monto" placeholder="0.00" value="0.00">
                 </div>
 
@@ -185,14 +183,6 @@
                     <label>Kilometraje Actual del Vehículo (km)</label>
                     <input type="number" id="driver-km" placeholder="Ej: 45200" required>
                 </div>
-
-                <!-- OBTENCIÓN DE GPS AUTOMÁTICA -->
-                <div class="form-group" style="background:#f1f5f9; padding:10px; border-radius:8px; border:1px solid var(--border);">
-                    <label style="margin-bottom: 2px;">📍 Ubicación GPS</label>
-                    <small style="color:var(--primary); font-weight:600;">Se enviará tu ubicación de forma automática por seguridad al presionar Enviar.</small>
-                </div>
-
-                <!-- ELIMINADO EL CHECKLIST DE CUADRITOS AQUÍ -->
 
                 <div class="form-group">
                     <label>Observaciones (Ruidos, daños nuevos, etc.)</label>
@@ -428,10 +418,10 @@
             </div>
         </section>
 
-        <!-- ================= MÓDULO 3B: ACTAS DE ENTREGA ================= -->
+        <!-- ================= MÓDULO 3B: ACTAS DE ENTREGA (FOTOS Y ESTADO) ================= -->
         <section id="mod-entregas" class="module">
             <div class="card">
-                <h2>📸 Registrar Acta de Entrega Inicial</h2>
+                <h2>📸 Registrar Acta de Entrega (Checklist Inicial)</h2>
                 <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Registra las condiciones físicas en las que le entregas el auto al conductor para tener la evidencia guardada en su portal.</p>
                 <form id="form-entrega">
                     <div class="form-grid">
@@ -701,7 +691,7 @@
                         <input type="number" id="contrato-deposito" value="150.00" onchange="generarVistaContrato()">
                     </div>
                 </div>
-                <button class="btn-submit btn-blue" onclick="window.print()" style="font-size: 1.1rem;">🖨️️ Imprimir / Guardar Contrato Legal en PDF</button>
+                <button class="btn-submit btn-blue" onclick="window.print()" style="font-size: 1.1rem;">🖨 Imprimir / Guardar Contrato Legal en PDF</button>
             </div>
 
             <!-- VISTA DEL CONTRATO LEGAL IMPRIMIBLE -->
@@ -851,7 +841,7 @@
 
                 <div style="background:#f1f5f9; padding:18px; border-radius:8px; border:1px solid var(--border); margin-bottom:18px;">
                     <h3 style="font-size:1rem; margin-bottom:12px; color:var(--primary-dark);">🔥 Conexión Nube - Firebase (Database y Storage)</h3>
-                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">El sistema está protegido. Para modificar la conexión en tiempo real y el guardado de fotos en la nube, haz clic en "Editar Credenciales".</p>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">Las credenciales maestras ya están configuradas en el código para conexión automática. Usa estos campos solo si deseas cambiarlas por otras credenciales temporalmente.</p>
                     
                     <div class="form-grid">
                         <div class="form-group"><label>apiKey de Firebase</label><input type="text" id="fb-api" placeholder="Ej: AIzaSyBvvw..." readonly></div>
@@ -859,7 +849,7 @@
                     </div>
                     
                     <div style="display:flex; gap:10px; margin-top:10px;">
-                        <button type="button" class="btn-submit btn-orange" onclick="desbloquearAjustesFB()">✏️ Editar Credenciales</button>
+                        <button type="button" class="btn-submit btn-orange" onclick="desbloquearAjustesFB()">✏️ Modificar Credenciales</button>
                         <button type="button" class="btn-submit btn-dark" onclick="conectarFirebaseBoton()" id="btn-conectar-fb" disabled>🔄 Conectar y Sincronizar Nube</button>
                     </div>
                 </div>
@@ -886,6 +876,15 @@
             
             <div id="gestion-detalles" style="font-size:0.9rem; margin-bottom: 12px; line-height: 1.8; background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border);">
                 <!-- Se llena mediante Javascript -->
+            </div>
+
+            <!-- SI ES DÍA LIBRE DE UN AUTO EN LEASING -->
+            <div id="gestion-leasing-libre" style="display:none; background:#fefce8; padding:10px; border-radius:6px; border:1px solid #fef08a; margin-bottom:12px;">
+                <label style="font-size:0.85rem; font-weight:bold; color:#854d0e;">El auto está en Leasing. Este Día Libre:</label>
+                <select id="gestion-leasing-select" style="width:100%; margin-top:5px; padding:8px;">
+                    <option value="Atrasar">NO Sumarlo (Extender el plazo 1 día)</option>
+                    <option value="Sumar">SUMARLO como pagado a favor del chofer</option>
+                </select>
             </div>
 
             <div class="gestion-img-container" id="gestion-img-box">
@@ -945,8 +944,8 @@
         let chartOrigenInstance = null;
         const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-        // Función de Motor de Compresión de Imágenes a Base64
-        function comprimirImagen(file, maxWidth = 800, maxHeight = 800, quality = 0.7) {
+        // Función de Motor de Compresión de Imágenes a Base64 (Muy agresiva para evitar trabas)
+        function comprimirImagen(file, maxWidth = 600, maxHeight = 600, quality = 0.6) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.readAsDataURL(file);
@@ -1200,7 +1199,7 @@
         }
 
         // =========================================================================
-        // 7. FUNCIONES DEL PORTAL DEL CHOFER (GPS AUTOMÁTICO, FOTO STORAGE O COMPRESIÓN LOCAL)
+        // 7. FUNCIONES DEL PORTAL DEL CHOFER (GPS SILENCIOSO Y FOTO COMPRIMIDA)
         // =========================================================================
         function toggleDriverCampos(val) {
             document.getElementById('driver-monto-box').style.display = (val === 'Pagado' || val === 'Efectivo') ? 'block' : 'none';
@@ -1223,70 +1222,45 @@
             }
 
             btnSubmit.disabled = true; 
-            btnSubmit.innerText = "📍 Obteniendo GPS e iniciando subida...";
+            btnSubmit.innerText = "Procesando...";
 
-            // GPS Automático al enviar
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        const lat = pos.coords.latitude;
-                        const lng = pos.coords.longitude;
-                        ejecutarSubidaChofer(auto, driverId, estadoSelect, lat, lng, fileInput.files[0]);
-                    },
-                    (err) => {
-                        // SI RECHAZAN EL GPS, SE ENVÍA IGUAL PERO SIN COORDENADAS PARA NO CONGELAR
-                        ejecutarSubidaChofer(auto, driverId, estadoSelect, null, null, fileInput.files[0]);
-                    },
-                    { enableHighAccuracy: true, timeout: 10000 }
-                );
-            } else {
-                ejecutarSubidaChofer(auto, driverId, estadoSelect, null, null, fileInput.files[0]);
-            }
-        });
+            // Función interna para continuar el envío con o sin GPS
+            const continuarEnvio = (lat, lng) => {
+                const kmIngresado = parseInt(document.getElementById('driver-km').value || 0);
+                let estadoFinal = estadoSelect;
+                let prefixNota = "";
+                
+                if (estadoSelect === 'Efectivo') {
+                    estadoFinal = 'Pagado'; 
+                    prefixNota = "[EFECTIVO] ";
+                }
 
-        function ejecutarSubidaChofer(auto, driverId, estadoSelect, lat, lng, file) {
-            const btnSubmit = document.getElementById('btn-driver-submit');
-            const kmIngresado = parseInt(document.getElementById('driver-km').value || 0);
-            
-            let estadoFinal = estadoSelect;
-            let prefixNota = "";
-            if (estadoSelect === 'Efectivo') {
-                estadoFinal = 'Pagado'; // Para el sistema financiero cuenta como pagado
-                prefixNota = "[EFECTIVO] ";
-            }
-
-            if (estadoSelect === 'Pagado' && file) {
-                btnSubmit.innerText = "☁️ Subiendo foto a la nube...";
-                if(!firebaseStorage) {
-                    // Fallback to Base64 (Comprimido) localmente si Firebase no está activo
-                    comprimirImagen(file, 800, 800, 0.7).then(compressedBase64 => {
+                if (estadoSelect === 'Pagado' && fileInput.files[0]) {
+                    btnSubmit.innerText = "☁️ Subiendo foto...";
+                    // Siempre comprimimos localmente primero para asegurar que nunca se trabe
+                    comprimirImagen(fileInput.files[0], 600, 600, 0.6).then(compressedBase64 => {
                         procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, compressedBase64, prefixNota);
                     }).catch(err => {
-                        alert("Error al comprimir la foto localmente.");
+                        alert("Error al procesar la foto en tu teléfono.");
                         btnSubmit.disabled = false; btnSubmit.innerText = "🚀 Enviar Reporte al Administrador";
                     });
                 } else {
-                    // Firebase Storage
-                    const storageRef = firebaseStorage.ref(`comprobantes_pago/${Date.now()}_${file.name}`);
-                    storageRef.put(file).then(snapshot => {
-                        return snapshot.ref.getDownloadURL();
-                    }).then(downloadURL => {
-                        procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, downloadURL, prefixNota);
-                    }).catch(error => {
-                        // Reparación de Freeze: Si Firebase falla, usamos Base64 comprimido
-                        console.warn("Storage falló. Intentando guardar localmente.", error);
-                        comprimirImagen(file, 800, 800, 0.7).then(compressedBase64 => {
-                            procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, compressedBase64, prefixNota + "[Storage Falló] ");
-                        }).catch(err => {
-                            alert('Error subiendo la imagen: ' + error.message);
-                            btnSubmit.disabled = false; btnSubmit.innerText = "🚀 Enviar Reporte al Administrador";
-                        });
-                    });
+                    procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, null, prefixNota);
                 }
+            };
+
+            // Intentar obtener GPS silenciosamente (Máximo 3.5 segundos, luego se rinde y envía igual)
+            if (navigator.geolocation) {
+                btnSubmit.innerText = "Obteniendo ubicación...";
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { continuarEnvio(pos.coords.latitude, pos.coords.longitude); },
+                    (err) => { continuarEnvio(null, null); }, // Si no da permiso, sigue sin GPS
+                    { enableHighAccuracy: false, timeout: 3500 }
+                );
             } else {
-                procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, null, prefixNota);
+                continuarEnvio(null, null);
             }
-        }
+        });
 
         function procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, imgUrl, prefixNota = "") {
             const notaOriginal = document.getElementById('driver-nota').value;
@@ -1298,7 +1272,7 @@
                 autoId: auto.id, conductorId: driverId, origen: 'inDrive / App',
                 estado: estadoFinal, estadoRevision: 'Sin Revisar',
                 monto: estadoFinal === 'Dia Libre' ? 0 : parseFloat(document.getElementById('driver-monto').value || 0),
-                km: kmIngresado, lat: lat, lng: lng, checklist: "N/A (Acta Entregada)", imagen: imgUrl,
+                km: kmIngresado, lat: lat, lng: lng, imagen: imgUrl,
                 fecha: new Date().toISOString().split('T')[0], nota: notaCompuesta
             });
             if(kmIngresado > (auto.kmActual || 0)) auto.kmActual = kmIngresado;
@@ -1308,60 +1282,35 @@
         }
 
         // =========================================================================
-        // 8. ACTAS DE ENTREGA Y CHECKLIST ADMIN (FOTOS STORAGE)
+        // 8. ACTAS DE ENTREGA Y CHECKLIST ADMIN
         // =========================================================================
         document.getElementById('form-entrega').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('btn-submit-entrega');
             const files = document.getElementById('entrega-fotos').files;
             
-            btn.disabled = true; btn.innerText = 'Subiendo fotos, espera...';
+            btn.disabled = true; btn.innerText = 'Subiendo y comprimiendo fotos...';
 
-            if(!firebaseStorage) {
-                // MODO LOCAL COMPRIMIDO
-                try {
-                    const promesasBase64 = Array.from(files).map(file => comprimirImagen(file, 800, 800, 0.7));
-                    const fotosBase64 = await Promise.all(promesasBase64);
-                    guardarActaDefinitiva(fotosBase64);
-                    btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
-                } catch(err) {
-                    alert('Error al comprimir las fotos locales.');
-                    btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
-                }
-                return;
-            }
-
-            // MODO NUBE STORAGE
+            // MODO LOCAL COMPRIMIDO (Siempre rápido y no colapsa Firebase)
             try {
-                const promesasFotos = Array.from(files).map(async (file) => {
-                    const storageRef = firebaseStorage.ref(`entregas_autos/${Date.now()}_${file.name}`);
-                    await storageRef.put(file);
-                    return await storageRef.getDownloadURL();
+                const promesasBase64 = Array.from(files).map(file => comprimirImagen(file, 800, 800, 0.7));
+                const fotosBase64 = await Promise.all(promesasBase64);
+                
+                db.entregas.push({
+                    id: Date.now().toString(), autoId: document.getElementById('entrega-auto').value,
+                    conductorId: document.getElementById('entrega-conductor').value, fecha: new Date().toISOString(),
+                    km: document.getElementById('entrega-km').value, combustible: document.getElementById('entrega-combustible').value,
+                    notas: document.getElementById('entrega-notas').value.trim(), fotos: fotosBase64 
                 });
-                const urlsFotos = await Promise.all(promesasFotos);
-                guardarActaDefinitiva(urlsFotos);
+                
+                guardarLocal(); document.getElementById('form-entrega').reset();
                 btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
-            } catch (error) {
-                alert('Error al subir fotos: ' + error.message);
+                alert('✅ Acta de entrega guardada. El chofer ya puede verla en su portal.');
+            } catch(err) {
+                alert('Error al procesar las fotos.');
                 btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
             }
         });
-
-        function guardarActaDefinitiva(arrayFotosUrls) {
-            db.entregas.push({
-                id: Date.now().toString(),
-                autoId: document.getElementById('entrega-auto').value,
-                conductorId: document.getElementById('entrega-conductor').value,
-                fecha: new Date().toISOString(),
-                km: document.getElementById('entrega-km').value,
-                combustible: document.getElementById('entrega-combustible').value,
-                notas: document.getElementById('entrega-notas').value.trim(),
-                fotos: arrayFotosUrls 
-            });
-            guardarLocal();
-            document.getElementById('form-entrega').reset();
-            alert('✅ Acta de entrega guardada. El chofer ya puede verla en su portal.');
-        }
 
         // =========================================================================
         // 9. GESTIÓN Y REVISIÓN INTELIGENTE DE REPORTES (BANDEJA ADMIN)
@@ -1383,7 +1332,7 @@
                 document.getElementById('gestion-leasing-libre').style.display = 'none';
             }
 
-            const enlaceGPS = m.lat ? `<a href="https://www.google.com/maps?q=${m.lat},${m.lng}" target="_blank" style="color:var(--primary-light); font-weight:bold;">📍 Ver Ubicación en Maps</a>` : 'Sin GPS Registrado';
+            const enlaceGPS = m.lat ? `<a href="https://www.google.com/maps?q=${m.lat},${m.lng}" target="_blank" style="color:var(--primary-light); font-weight:bold;">📍 Ver Ubicación en Maps</a>` : '<span style="color:var(--warning);">Sin GPS (Permiso denegado por el chofer)</span>';
 
             document.getElementById('gestion-detalles').innerHTML = `
                 <p><strong>Chofer Reporta:</strong> ${chofer.nombre}</p>
@@ -1668,33 +1617,6 @@
             }).join('') || '<tr><td colspan="5" style="text-align:center;">No hay revisiones registradas.</td></tr>';
         }
 
-        function renderizarEntregas() {
-            const tbody = document.getElementById('tabla-entregas');
-            if(!tbody) return;
-            tbody.innerHTML = db.entregas.slice().reverse().map(e => {
-                const a = db.autos.find(x => x.id === e.autoId);
-                const c = db.conductores.find(x => x.id === e.conductorId);
-                const fotosHtml = e.fotos && e.fotos.length > 0 ? e.fotos.map(f => `<img src="${f}" onclick="verImagenGenerica('${f}')" style="height:40px; cursor:pointer; margin-right:4px; border-radius:4px;">`).join('') : 'Sin fotos';
-                
-                return `<tr>
-                    <td>${new Date(e.fecha).toLocaleDateString()}</td>
-                    <td><strong>${a ? a.placa : 'N/A'}</strong></td>
-                    <td>${c ? c.nombre : 'N/A'}</td>
-                    <td>${e.km} km</td>
-                    <td>${e.combustible}</td>
-                    <td>${fotosHtml}</td>
-                    <td><button class="btn-sm btn-red" onclick="eliminarEntrega('${e.id}')">Borrar</button></td>
-                </tr>`;
-            }).join('') || '<tr><td colspan="7" style="text-align:center;">No hay actas de entrega registradas.</td></tr>';
-        }
-
-        function eliminarEntrega(id) {
-            if(confirm('¿Seguro que deseas borrar este acta de entrega?')) {
-                db.entregas = db.entregas.filter(e => e.id !== id);
-                guardarLocal();
-            }
-        }
-
         function renderizarUI() {
             // ALERTA DE NUEVOS REPORTES EN DASHBOARD
             const reportesPendientes = db.movimientos.filter(m => m.isDriverReport && m.estadoRevision === 'Sin Revisar');
@@ -1704,7 +1626,7 @@
                 alertBox.innerHTML = `
                     <div style="background-color: #fef2f2; border: 2px solid #ef4444; color: #991b1b; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s;" onclick="cambiarModulo('mod-historial')" onmouseover="this.style.transform='scale(1.01)'" onmouseout="this.style.transform='scale(1)'">
                         <div>
-                            <strong style="font-size: 1.15rem;">🚨 ¡Tienes ${reportesPendientes.length} reporte(s) nuevo(s) de conductores por revisar!</strong>
+                            <strong style="font-size: 1.15rem;">🚨 ¡Tienes ${reportesPendientes.length} reporte(s) nuevo(s) por revisar!</strong>
                             <p style="margin: 0; font-size: 0.85rem; margin-top: 5px;">Haz clic aquí para ir a la Bandeja de Revisión y aprobar los pagos o ver comprobantes.</p>
                         </div>
                         <span style="font-size: 2rem;">👉</span>
@@ -1829,7 +1751,13 @@
             }
             
             renderizarChecklists();
-            renderizarEntregas();
+            
+            const tbEntregas = document.getElementById('tabla-entregas');
+            if(tbEntregas) tbEntregas.innerHTML = db.entregas.slice().reverse().map(e => {
+                const a = db.autos.find(x => x.id === e.autoId); const c = db.conductores.find(x => x.id === e.conductorId);
+                const fotosHtml = e.fotos && e.fotos.length > 0 ? e.fotos.map(f => `<img src="${f}" onclick="verImagenGenerica('${f}')" style="height:40px; cursor:pointer; margin-right:4px; border-radius:4px;">`).join('') : 'Sin fotos';
+                return `<tr><td>${new Date(e.fecha).toLocaleDateString()}</td><td><strong>${a?a.placa:'-'}</strong></td><td>${c?c.nombre:'-'}</td><td>${e.km} km</td><td>${e.combustible}</td><td>${fotosHtml}</td><td><button class="btn-sm btn-red" onclick="eliminarEntrega('${e.id}')">Borrar</button></td></tr>`;
+            }).join('') || '<tr><td colspan="7" style="text-align:center;">No hay actas de entrega registradas.</td></tr>';
         }
 
         function actualizarUI() {
