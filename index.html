@@ -3,1206 +3,1927 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Rifas Premium</title>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+    <title>Personal Car - Sistema Integral de Flota</title>
+    <!-- Chart.js para gráficas -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase SDK Completo -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <style>
-        /* MOTOR DE 15 TEMAS - COMPLETO Y EXTENDIDO */
         :root {
-            --bg-color: #111111; --card-bg: #222222; --text-main: #F6E05E; 
-            --primary: #D69E2E; --primary-hover: #B7791F;
-            --disp-bg: #333333; --disp-txt: #D69E2E;
-            --res-bg: #F6E05E; --res-txt: #744210; 
-            --vend-bg: #FC8181; --vend-txt: #7B341E; 
-            --agarrado-bg: #48BB78; --agarrado-txt: #FFFFFF; 
-            --seleccion-bg: #2B6CB0; 
+            --bg-body: #f8fafc; --card-bg: #ffffff;
+            --primary: #1e3a8a; --primary-light: #2563eb; --primary-dark: #0f172a;
+            --text-dark: #0f172a; --text-muted: #64748b; --border: #cbd5e1;
+            --success: #059669; --danger: #dc2626; --warning: #d97706; --info: #0284c7;
         }
-        [data-theme="gold"] { --bg-color: #111111; --card-bg: #222222; --text-main: #F6E05E; --primary: #D69E2E; --disp-bg: #333333; --disp-txt: #D69E2E; }
-        [data-theme="mint"] { --bg-color: #E8F5E9; --card-bg: #FFFFFF; --text-main: #2D3748; --primary: #48BB78; --disp-bg: #E2E8F0; --disp-txt: #4A5568; }
-        [data-theme="ocean"] { --bg-color: #E0F2FE; --card-bg: #FFFFFF; --text-main: #0C4A6E; --primary: #0284C7; --disp-bg: #BAE6FD; --disp-txt: #0369A1; }
-        [data-theme="dark"] { --bg-color: #1A202C; --card-bg: #2D3748; --text-main: #F7FAFC; --primary: #63B3ED; --disp-bg: #4A5568; --disp-txt: #E2E8F0; }
-        [data-theme="neon"] { --bg-color: #050510; --card-bg: #1A1A2E; --text-main: #00FFCC; --primary: #FF00FF; --disp-bg: #16213E; --disp-txt: #00FFCC; }
-        [data-theme="ruby"] { --bg-color: #FFF1F2; --card-bg: #FFFFFF; --text-main: #881337; --primary: #E11D48; --disp-bg: #FFE4E6; --disp-txt: #9F1239; }
-        [data-theme="amethyst"] { --bg-color: #FAF5FF; --card-bg: #FFFFFF; --text-main: #4C1D95; --primary: #7C3AED; --disp-bg: #F3E8FF; --disp-txt: #5B21B6; }
-        [data-theme="forest"] { --bg-color: #F0FDF4; --card-bg: #FFFFFF; --text-main: #14532D; --primary: #16A34A; --disp-bg: #DCFCE7; --disp-txt: #166534; }
-        [data-theme="sunset"] { --bg-color: #FFF7ED; --card-bg: #FFFFFF; --text-main: #7C2D12; --primary: #EA580C; --disp-bg: #FFEDD5; --disp-txt: #9A3412; }
-        [data-theme="coffee"] { --bg-color: #FDF8F6; --card-bg: #FFFFFF; --text-main: #451A03; --primary: #92400E; --disp-bg: #F5EAE5; --disp-txt: #78350F; }
-        [data-theme="silver"] { --bg-color: #F8FAFC; --card-bg: #FFFFFF; --text-main: #334155; --primary: #64748B; --disp-bg: #F1F5F9; --disp-txt: #475569; }
-        [data-theme="cyber"] { --bg-color: #000000; --card-bg: #2B2B2B; --text-main: #FFE81F; --primary: #FF003C; --disp-bg: #404040; --disp-txt: #FFE81F; }
-        [data-theme="rose"] { --bg-color: #FDF2F8; --card-bg: #FFFFFF; --text-main: #831843; --primary: #DB2777; --disp-bg: #FCE7F3; --disp-txt: #9D174D; }
-        [data-theme="aqua"] { --bg-color: #F0FDFA; --card-bg: #FFFFFF; --text-main: #134E4A; --primary: #0D9488; --disp-bg: #CCFBF1; --disp-txt: #0F766E; }
-        [data-theme="solar"] { --bg-color: #FEFCE8; --card-bg: #FFFFFF; --text-main: #713F12; --primary: #CA8A04; --disp-bg: #FEF08A; --disp-txt: #854D0E; }
 
-        /* ESTILOS GLOBALES */
-        * { box-sizing: border-box; font-family: 'Montserrat', sans-serif; }
-        body { background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 0; padding-bottom: 120px; position: relative; overflow-x: hidden; transition: background 0.3s; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-body); color: var(--text-dark); padding-bottom: 90px; }
 
-        /* ANIMACIONES FLOTANTES */
-        #contenedorAnimaciones { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; overflow: hidden; }
-        .item-flotante { position: absolute; bottom: -100px; animation: flotar linear infinite; }
-        @keyframes flotar { 0% { transform: translateY(0) rotate(0deg); } 100% { transform: translateY(-120vh) rotate(360deg); } }
+        header { background: linear-gradient(135deg, #0f172a, #1e3a8a); color: white; padding: 16px; text-align: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        header h1 { font-size: 1.35rem; font-weight: 800; }
+        header p { font-size: 0.8rem; color: #94a3b8; }
 
-        /* HEADER */
-        .header { background: var(--card-bg); padding: 15px 20px; display: flex; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.5); position: relative; z-index: 10; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .logo-img { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary); background: #fff; transition: opacity 0.3s; }
-        .header-text { margin-left: 15px; }
-        .header-title { margin: 0; font-size: 18px; font-weight: 800; }
-        .header-desc { margin: 0; font-size: 12px; opacity: 0.7; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
 
-        /* CONTENEDORES Y TARJETAS */
-        .container { max-width: 500px; margin: 15px auto; padding: 0 15px; position: relative; z-index: 10; }
-        .card { background: var(--card-bg); border-radius: 15px; padding: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.3); margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.05); }
-        
-        h2, h3 { margin-top: 0; }
-        
-        /* FORMULARIOS Y BOTONES */
-        input, select { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #555; font-size: 14px; background: var(--disp-bg); color: var(--text-main); }
-        input[type="color"] { padding: 2px; height: 40px; cursor: pointer; }
-        input[type="file"] { padding: 10px; background: var(--disp-bg); border: 1px dashed var(--primary); }
-        
-        .btn { width: 100%; padding: 15px; border-radius: 12px; border: none; background: var(--primary); color: #111; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; margin-bottom: 10px; }
-        .btn:hover { transform: translateY(-2px); opacity: 0.9; }
-        .btn-outline { background: transparent; border: 2px solid var(--primary); color: var(--primary); }
-        .btn-danger { background: #E53E3E; color: white; }
-        .btn-success { background: #48BB78; color: white; }
-        .btn-small { padding: 8px; font-size: 12px; width: auto; margin: 2px; }
+        nav.module-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #ffffff; border-top: 1px solid var(--border); display: flex; overflow-x: auto; padding: 8px 0; z-index: 1000; box-shadow: 0 -4px 12px rgba(0,0,0,0.08); -webkit-overflow-scrolling: touch; }
+        .nav-btn { background: none; border: none; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 600; cursor: pointer; min-width: 72px; flex-shrink: 0; padding: 4px; transition: color 0.2s; }
+        .nav-btn .icon { font-size: 1.25rem; margin-bottom: 2px; }
+        .nav-btn.active { color: var(--primary-light); font-weight: 700; }
 
-        /* VISTA CLIENTE */
-        .premio-img { width: 100%; height: 160px; object-fit: cover; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: opacity 0.3s; }
-        .countdown { background: var(--primary); color: #111; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 15px; letter-spacing: 1px; font-size: 14px; }
-        
-        /* BANNER GANADOR */
-        .banner-ganador { background: linear-gradient(135deg, #FFD700, #F59E0B); color: #000; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4); animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
+        .module { display: none; }
+        .module.active { display: block; animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* LEYENDA */
-        .leyenda { display: flex; justify-content: center; gap: 15px; font-size: 11px; font-weight: bold; margin-bottom: 15px; flex-wrap: wrap; }
-        .ley-item { display: flex; align-items: center; gap: 5px; }
-        .ley-color { width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); }
+        .card { background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid #f1f5f9; color: var(--primary); display: flex; align-items: center; justify-content: space-between; }
 
-        /* CUADRÍCULA */
-        .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-        .num { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; transition: 0.2s; border: 1px solid rgba(255,255,255,0.05); }
-        .num.disponible { background: var(--disp-bg); color: var(--disp-txt); }
-        .num.agarrado { background: var(--agarrado-bg); color: var(--agarrado-txt); cursor: not-allowed; }
-        .num.seleccionado { background: var(--seleccion-bg); color: white; transform: scale(1.1); box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 2px solid white; }
-        .num.reservado-admin { background: var(--res-bg); color: var(--res-txt); }
-        .num.vendido-admin { background: var(--vend-bg); color: var(--vend-txt); text-decoration: line-through; opacity: 0.7; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .stat-card { background: white; padding: 14px; border-radius: 10px; border: 1px solid var(--border); text-align: center; }
+        .stat-card p { font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
+        .stat-card h3 { font-size: 1.25rem; margin-top: 4px; }
 
-        /* MENÚ DE RIFAS CLIENTE */
-        .rifa-client-item { background: var(--disp-bg); border: 2px solid var(--primary); padding: 20px; border-radius: 12px; margin-bottom: 15px; text-align: center; cursor: pointer; transition: transform 0.2s; display: flex; flex-direction: column; align-items: center;}
-        .rifa-client-item:hover { transform: scale(1.02); background: var(--primary); color: #111; }
-        .rifa-client-item h3 { margin: 0 0 5px 0; font-size: 18px;}
-        .img-catalogo { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.3);}
+        .text-green { color: var(--success); } .text-red { color: var(--danger); } .text-blue { color: var(--primary-light); } .text-warning { color: var(--warning); }
+        .filter-bar { background: #e2e8f0; padding: 10px; border-radius: 8px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .chart-container { position: relative; width: 100%; height: 260px; margin-bottom: 10px; }
 
-        /* CARRITO FLOTANTE */
-        .carrito-bar { position: fixed; bottom: -100px; left: 0; width: 100%; background: var(--card-bg); padding: 15px 20px; box-shadow: 0 -10px 20px rgba(0,0,0,0.5); display: flex; justify-content: space-between; align-items: center; transition: bottom 0.3s; z-index: 1000; border-radius: 20px 20px 0 0; border-top: 2px solid var(--primary); }
-        .carrito-bar.activo { bottom: 0; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-dark); margin-bottom: 4px; }
+        input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background-color: #f8fafc; outline: none; transition: border-color 0.2s; }
+        input:focus, select:focus, textarea:focus { border-color: var(--primary-light); background-color: #fff; }
+
+        button.btn-submit { width: 100%; padding: 12px; border: none; border-radius: 8px; background-color: var(--primary-light); color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; margin-top: 5px; transition: opacity 0.2s; }
+        button.btn-submit:hover { opacity: 0.9; }
+        button.btn-green { background-color: var(--success); } button.btn-red { background-color: var(--danger); } button.btn-dark { background-color: #334155; } button.btn-orange { background-color: var(--warning); }
+        button.btn-sm { padding: 6px 10px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; border: none; font-weight: 600; color: white; display: inline-flex; align-items: center; gap: 4px; }
+
+        .table-responsive { overflow-x: auto; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+        th { background: #f1f5f9; color: var(--text-dark); font-weight: 700; }
+
+        .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: bold; display: inline-block; }
+        .badge-green { background: #d1fae5; color: #065f46; } .badge-amber { background: #fef3c7; color: #92400e; } .badge-red { background: #fee2e2; color: #991b1b; } .badge-gray { background: #e2e8f0; color: #475569; } .badge-blue { background: #e0f2fe; color: #0369a1; }
+
+        .semaforo { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+        .s-verde { background-color: #10b981; box-shadow: 0 0 6px #10b981; } .s-amarillo { background-color: #f59e0b; box-shadow: 0 0 6px #f59e0b; } .s-rojo { background-color: #ef4444; box-shadow: 0 0 6px #ef4444; }
+
+        /* PORTAL CHOFER */
+        .driver-portal { max-width: 550px; margin: 20px auto; background: white; padding: 25px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); }
+        .checklist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); }
+        .checklist-grid label { font-size: 0.8rem; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
         /* MODALES */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; }
-        .modal-content { background: var(--card-bg); padding: 25px; border-radius: 20px; width: 90%; max-width: 400px; max-height: 90vh; overflow-y: auto; }
-
-        /* TICKET PROFESIONAL TIPO RECIBO LARGO */
-        .ticket-receipt { 
-            background: #ffffff; 
-            color: #000000; 
-            padding: 25px 20px; 
-            border-radius: 8px; 
-            font-family: 'Courier New', Courier, monospace; 
-            margin-bottom: 20px; 
-            text-align: left; 
-            border: 1px solid #cccccc; 
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2); 
-            position: relative;
-        }
-        .ticket-receipt::before, .ticket-receipt::after { content: ''; position: absolute; left: 0; right: 0; height: 10px; background-size: 20px 20px; }
-        .ticket-receipt::before { top: -5px; background-image: radial-gradient(circle at 10px 0, transparent 10px, #ffffff 11px); }
-        .ticket-receipt::after { bottom: -5px; background-image: radial-gradient(circle at 10px 10px, transparent 10px, #ffffff 11px); }
-        .ticket-receipt h3 { text-align: center; margin: 0 0 10px 0; border-bottom: 2px dashed #000; padding-bottom: 10px; font-size: 18px; text-transform: uppercase;}
-        .ticket-receipt p { margin: 5px 0; font-size: 13px; line-height: 1.4; display: flex; justify-content: space-between;}
-        .ticket-receipt .ticket-nums { font-size: 20px; font-weight: bold; text-align: center; margin: 15px 0; padding: 15px 10px; border: 2px solid #000; border-radius: 5px; word-break: break-word; background: #f9f9f9;}
-        .ticket-receipt .ticket-footer { text-align: justify; font-size: 10px; border-top: 2px dashed #000; padding-top: 15px; margin-top: 15px; color: #555;}
-        .ticket-receipt .total-row { font-size: 16px; font-weight: bold; border-top: 1px solid #000; padding-top: 10px; margin-top: 10px;}
-
-        /* TABLAS Y MENÚS DE ADMINISTRACIÓN */
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; z-index: 2000; padding: 20px; }
+        .modal.active { display: flex; }
+        .modal-content { position: relative; max-width: 100%; max-height: 100%; }
+        .modal-content img { max-width: 100%; max-height: 85vh; border-radius: 8px; object-fit: contain; }
+        .close-modal { position: absolute; top: -35px; right: 0; color: white; font-size: 35px; cursor: pointer; font-weight: bold; }
         
-        .admin-nav { display: flex; gap: 5px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 5px; }
-        .admin-nav button { padding: 10px; border-radius: 8px; border: none; background: var(--disp-bg); cursor: pointer; font-weight: bold; color: var(--text-main); white-space: nowrap; }
-        .admin-nav button.active { background: var(--primary); color: #111; }
-        .admin-tab { display: none; }
-        .admin-tab.active { display: block; }
-        
-        .checkbox-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px; }
-        .checkbox-grid label { display: flex; align-items: center; gap: 5px; font-size: 20px; }
-        
-        .rifa-item { background: var(--disp-bg); border: 1px solid var(--primary); padding: 15px; border-radius: 10px; margin-bottom: 15px; text-align: left; }
-        .rifa-item h4 { margin: 0 0 5px 0; color: var(--primary); font-size: 16px; }
+        .gestion-modal-box { background: white; padding: 25px; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+        .gestion-modal-box h3 { border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-bottom: 18px; color: var(--primary); font-size: 1.2rem; }
+        .gestion-img-container { text-align: center; margin: 15px 0; background: #f1f5f9; padding: 10px; border-radius: 8px; border: 1px dashed var(--border); }
+        .gestion-img-container img { max-width: 100%; max-height: 350px; border-radius: 6px; cursor: pointer; }
 
-        /* ÁREA DE IMPRESIÓN (PDF) */
-        @media screen { #printArea { display: none; } }
+        .progress-bar-container { background-color: #e2e8f0; border-radius: 8px; width: 100%; height: 20px; overflow: hidden; margin-top: 5px; margin-bottom: 5px; }
+        .progress-bar-fill { background-color: #10b981; height: 100%; transition: width 0.5s ease-in-out; }
+
+        /* IMPRESIÓN Y PDF */
+        .print-only { display: none; }
+        .printable-area { background: white; padding: 30px; border-radius: 8px; border: 1px solid #cbd5e1; font-family: 'Times New Roman', Times, serif; color: #000; line-height: 1.5; }
+        .printable-area h2 { text-align: center; margin-bottom: 20px; font-size: 1.4rem; text-transform: uppercase; text-decoration: underline; }
+        .printable-area p { text-align: justify; margin-bottom: 12px; font-size: 0.95rem; }
+
         @media print {
-            body * { display: none !important; }
-            #printArea, #printArea * { display: block !important; }
-            #printArea { position: absolute; left: 0; top: 0; width: 100%; background: white; color: black; padding: 20px; }
-            .print-letter { width: 216mm; min-height: 279mm; margin: 0 auto; box-sizing: border-box; font-family: Arial, sans-serif; }
+            .no-print, nav.module-nav, header { display: none !important; }
+            body { background: white; padding: 0; color: black; }
+            .container { max-width: 100%; padding: 0; }
+            .module { display: none !important; }
+            .module.print-active { display: block !important; }
+            .card { border: none; box-shadow: none; padding: 0; margin: 0; }
+            .printable-area { border: none; padding: 0; }
+            
+            .pdf-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 15px; }
+            .pdf-title { font-size: 1.8rem; font-weight: 800; color: #1e3a8a; }
+            .pdf-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            .pdf-table th { background-color: #1e3a8a !important; color: white !important; -webkit-print-color-adjust: exact; padding: 10px; }
+            .pdf-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; }
+            .pdf-row-red { background-color: #fee2e2 !important; -webkit-print-color-adjust: exact; color: #991b1b !important; font-weight: bold; }
+            .pdf-row-blue { background-color: #e0f2fe !important; -webkit-print-color-adjust: exact; color: #0369a1 !important; }
         }
     </style>
 </head>
-<body data-theme="gold">
+<body>
 
-    <div id="contenedorAnimaciones"></div>
-
-    <header class="header">
-        <img id="logoApp" src="https://via.placeholder.com/150?text=Logo" alt="Logo" class="logo-img">
-        <div class="header-text">
-            <h1 class="header-title" id="tituloAppVisual">Sistema de Rifas</h1>
-            <p class="header-desc" id="descApp">Participa y gana seguro</p>
-        </div>
-        <button id="btnEngranaje" onclick="mostrarLoginAdmin()" style="margin-left: auto; background:none; border:none; font-size: 20px; cursor:pointer;">⚙️</button>
+    <header class="no-print" id="main-header">
+        <h1>PERSONAL CAR</h1>
+        <p>Sistema Integral de Gestión de Flota, Inventario y Leasing Automático</p>
     </header>
 
-    <div id="vistaCliente" class="container">
-        
-        <div id="menuRifasCliente" style="display: none;">
-            <h2 style="text-align: center; margin-bottom: 20px;">Seleccione el sorteo de su preferencia 👇</h2>
-            <div id="listaRifasDisponibles"></div>
-        </div>
-
-        <div id="contenidoRifaActiva">
-            <button id="btnVolverCatalogo" class="btn btn-outline" style="display:none; margin-bottom:15px; font-size: 14px; padding: 10px;" onclick="window.location.href=window.location.href.split('?')[0]">🔙 Volver a todos los sorteos</button>
-
-            <div id="bannerGanador" class="banner-ganador" style="display: none;">
-                <h2 style="margin:0 0 5px 0;">🎉 ¡SORTEO FINALIZADO! 🎉</h2>
-                <p style="margin:0; font-size:14px;">El número ganador es el <strong id="boletoGanadorVisual" style="font-size:24px;"></strong></p>
-                <p style="margin:5px 0 0 0;">¡Felicidades a <strong id="nombreGanadorVisual"></strong>!</p>
+    <!-- ================= PORTAL DE CONDUCTORES (DRIVER APP) ================= -->
+    <div id="driver-app" style="display: none;" class="container">
+        <div class="driver-portal">
+            <h2 style="color: var(--primary); text-align: center; border:none;">🚘 Portal del Chofer</h2>
+            
+            <div id="driver-welcome" style="background:#e0f2fe; color:#0369a1; padding:15px; border-radius:8px; margin:15px 0; text-align:center; font-weight:600;">
+                <span id="driver-name-display" style="font-size: 1.1rem;">Cargando datos...</span><br>
+                <span style="font-size:0.85rem; font-weight:normal;" id="driver-tarifa-display"></span>
+            </div>
+            
+            <div id="driver-saldo-box" style="margin-bottom:15px; text-align:center; font-size:1rem; font-weight:bold; padding: 10px; border-radius: 8px; border: 1px dashed var(--border);">
             </div>
 
-            <div class="card" style="text-align: center;">
-                <div id="temporizador" class="countdown">Sorteo en: 00d 00h 00m 00s</div>
-                <img id="imgPremio" src="https://images.unsplash.com/photo-1513885535751-8b9238bd345a?auto=format&fit=crop&w=600&q=80" class="premio-img">
-                <h2 id="nombrePremio" style="margin-bottom: 5px;">Gran Premio</h2>
-                <p style="margin: 0; color: var(--primary); font-weight: bold; font-size: 18px;" id="precioBoleto">$5.00 <span style="font-size: 12px; color: gray;">x Boleto</span></p>
+            <!-- ACTA DE ENTREGA -->
+            <div id="driver-entrega-box" style="display:none; background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid var(--border);">
+                <h3 style="font-size:0.95rem; margin-bottom:10px; color:var(--primary-dark);">📸 Acta de Entrega del Vehículo</h3>
+                <div id="driver-entrega-content" style="font-size:0.85rem; color:var(--text-dark); margin-bottom:10px;"></div>
+                <div id="driver-entrega-fotos" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:5px;"></div>
+            </div>
+
+            <!-- LEASING -->
+            <div id="driver-leasing-box" style="display:none; background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid var(--border);">
+                <p style="font-size:0.85rem; font-weight:bold; margin-bottom:5px; text-align:center;">🏆 Progreso de Opción a Compra</p>
+                <div class="progress-bar-container">
+                    <div id="driver-leasing-bar" class="progress-bar-fill" style="width: 0%;"></div>
+                </div>
+                <p style="font-size:0.75rem; text-align:center; color:var(--text-muted);" id="driver-leasing-text">Cargando progreso...</p>
+            </div>
+
+            <form id="form-driver-report">
+                <div class="form-group">
+                    <label>Tipo de Reporte Diario</label>
+                    <select id="driver-report-type" onchange="toggleDriverCampos(this.value)">
+                        <option value="Pagado">Envío de Pago / Abono Billetera ($)</option>
+                        <option value="Pendiente">Reportar Deuda (No tengo el pago hoy)</option>
+                        <option value="Dia Libre">Día Libre (Con Autorización Previa)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="driver-monto-box">
+                    <label>Monto a Enviar ($) <br><small style="color:var(--text-muted); font-weight:normal;">(Puedes enviar de más para saldo a favor o de menos como abono)</small></label>
+                    <input type="number" step="0.01" id="driver-monto" placeholder="0.00" value="0.00">
+                </div>
+
+                <div class="form-group" id="driver-comprobante-box">
+                    <label>Adjuntar Comprobante de Pago (Foto / Screenshot)</label>
+                    <input type="file" id="driver-comprobante" accept="image/*">
+                </div>
+                
+                <div class="form-group">
+                    <label>Kilometraje Actual del Vehículo (km)</label>
+                    <input type="number" id="driver-km" placeholder="Ej: 45200" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Ubicación GPS (Requerido para procesar el pago)</label>
+                    <button type="button" class="btn-submit btn-dark" onclick="capturarGPS()" id="btn-gps" style="padding: 10px; font-size: 0.85rem;">📍 Capturar Coordenadas GPS Actuales</button>
+                    <small id="gps-status" style="display:block; margin-top:8px; text-align:center; font-weight:600;"></small>
+                    <input type="hidden" id="driver-lat"><input type="hidden" id="driver-lng">
+                </div>
+
+                <div class="form-group">
+                    <label style="margin-bottom:10px;">📋 Check-List Mecánico Semanal</label>
+                    <div class="checklist-grid">
+                        <label><input type="checkbox" id="chk-aceite"> Nivel Aceite OK</label>
+                        <label><input type="checkbox" id="chk-agua"> Refrigerante OK</label>
+                        <label><input type="checkbox" id="chk-llantas"> Presión Llantas OK</label>
+                        <label><input type="checkbox" id="chk-luces"> Luces / Focos OK</label>
+                        <label><input type="checkbox" id="chk-frenos"> Frenos / Líquido OK</label>
+                        <label><input type="checkbox" id="chk-limpieza"> Limpieza Inter/Exter</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Observaciones</label>
+                    <textarea id="driver-nota" rows="3" placeholder="Ej: Pago de hoy y abono de deuda. El carro tiene un sonido en la llanta..."></textarea>
+                </div>
+
+                <button type="submit" class="btn-submit btn-green" id="btn-driver-submit" style="font-size: 1.1rem; padding: 15px;">🚀 Enviar Reporte y Evidencias</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= PANEL ADMINISTRATIVO PRINCIPAL ================= -->
+    <div class="container" id="admin-app">
+
+        <!-- ================= MÓDULO 1: DASHBOARD ================= -->
+        <section id="mod-dashboard" class="module active">
+            
+            <div id="dashboard-alert-reportes" style="display:none; margin-bottom:16px;"></div>
+
+            <div class="filter-bar no-print">
+                <label>👤 Filtrar Beneficiario / Socio:</label>
+                <select id="filter-beneficiario" onchange="renderizarDashboard()">
+                    <option value="">-- Todos los Beneficiarios (Global) --</option>
+                </select>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card"><p>Ingresos Reales</p><h3 style="color:var(--success)" id="stat-ingresos">$0.00</h3></div>
+                <div class="stat-card"><p>Gastos Mantenimiento</p><h3 style="color:var(--danger)" id="stat-gastos">$0.00</h3></div>
+                <div class="stat-card"><p>Utilidad Neta</p><h3 style="color:var(--primary-light)" id="stat-balance">$0.00</h3></div>
+                <div class="stat-card"><p>Deuda Viva / Cuentas x Cobrar</p><h3 style="color:var(--warning)" id="stat-pendientes">$0.00</h3></div>
+            </div>
+
+            <!-- SEMÁFOROS DE FLOTA -->
+            <div class="card">
+                <h2>🚦 Estado de la Flota (Semáforo Mecánico y Documental)</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Vehículo</th>
+                                <th>Conductor</th>
+                                <th>Kilometraje Actual</th>
+                                <th>Mantenimiento Aceite</th>
+                                <th>Seguro / Placa</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-semaforos"></tbody>
+                    </table>
+                </div>
             </div>
 
             <div class="card">
-                <h3 style="text-align: center;">¡Escoge tus números!</h3>
-                <div class="leyenda">
-                    <div class="ley-item"><div class="ley-color" style="background: var(--disp-bg);"></div> Libre</div>
-                    <div class="ley-item"><div class="ley-color" style="background: var(--agarrado-bg);"></div> Agarrado</div>
-                    <div class="ley-item"><div class="ley-color" style="background: var(--seleccion-bg);"></div> Tu Elección</div>
-                </div>
-                <div class="grid" id="cuadriculaCliente"></div>
+                <h2>📈 Rendimiento Financiero por Vehículo</h2>
+                <div class="chart-container"><canvas id="chartBalance"></canvas></div>
             </div>
-        </div>
-    </div>
 
-    <div id="carritoBar" class="carrito-bar">
-        <div>
-            <div style="font-size: 12px; opacity: 0.8;">Seleccionados: <span id="carritoCantidad">0</span></div>
-            <div style="font-weight: bold; font-size: 18px;">Total: $<span id="carritoTotal">0.00</span></div>
-        </div>
-        <button class="btn" style="width: auto; padding: 10px 20px; margin: 0;" onclick="abrirModalCheckout()">Pagar Boletos</button>
-    </div>
+            <!-- GRÁFICAS DE CAJA CHICA Y PLATAFORMAS -->
+            <div class="form-grid">
+                <div class="card">
+                    <h2>💰 Fondos de Reserva (Caja Chica Depreciación)</h2>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:10px;">Dinero ahorrado automáticamente por vehículo para futuras reparaciones mayores.</p>
+                    <div id="caja-chica-list"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>📊 Ingresos por Origen de Trabajo</h2>
+                    <div style="position: relative; width: 100%; height: 200px;"><canvas id="chartOrigen"></canvas></div>
+                </div>
+            </div>
 
-    <div id="vistaAdmin" class="container" style="display: none;">
-        <div class="card">
-            <h2 style="text-align: center;">Panel de Control <span id="adminRifaActualTitulo" style="font-size: 12px; color: var(--primary); display: block; margin-top:5px;"></span></h2>
+            <!-- SECCIÓN DE LEASING DASHBOARD -->
+            <div class="card" id="dashboard-leasing-box">
+                <h2>🏆 Progreso de Autos en Opción a Compra (Leasing)</h2>
+                <div id="lista-dashboard-leasing"></div>
+            </div>
             
-            <div class="admin-nav" id="menuGlobalAdmin">
-                <button class="active" onclick="cambiarTabGlobal('misrifas')" id="tabBtnMisrifas">Mis Rifas</button>
-                <button onclick="cambiarTabGlobal('notificaciones')" id="tabBtnNotificaciones">Config. Universal</button>
+            <div class="card">
+                <h2>🤝 Liquidación Rápida de Socios</h2>
+                <div id="list-rendimiento-socios"></div>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 2: INGRESOS Y COBROS (MANUAL ADMIN) ================= -->
+        <section id="mod-ingresos" class="module">
+            <div class="card">
+                <h2>💵 Registrar Ingreso / Cuota Diaria Manual</h2>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Usa este módulo si el chofer te pagó en efectivo y no usó su enlace de reporte.</p>
+                <form id="form-ingreso">
+                    <input type="hidden" id="edit-ingreso-id">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Vehículo / Placa</label>
+                            <select id="pago-auto" required onchange="verificarDiaLibreLeasing()"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Origen del Ingreso</label>
+                            <select id="pago-origen">
+                                <option value="inDrive">inDrive / Aplicaciones</option>
+                                <option value="Uber">Uber</option>
+                                <option value="Particular">Alquiler Particular Directo</option>
+                                <option value="Leasing">Contrato Leasing / Letras</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Estado de Cobro</label>
+                            <select id="pago-estado" onchange="verificarDiaLibreLeasing()">
+                                <option value="Pagado">Pagado (Aumenta Billetera / Salda Deuda)</option>
+                                <option value="Pendiente">Pendiente (Generar Deuda Manual)</option>
+                                <option value="Dia Libre">Día Libre</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="group-monto">
+                            <label>Monto Recibido ($)</label>
+                            <input type="number" step="0.01" id="pago-monto" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha de Transacción</label>
+                            <input type="date" id="pago-fecha" required>
+                        </div>
+                        
+                        <div class="form-group" id="group-leasing-libre" style="display:none; background:#fefce8; padding:10px; border-radius:6px; border:1px solid #fef08a; grid-column: span 2;">
+                            <label style="color:#854d0e;">⚠️ El vehículo está en Opción a Compra y seleccionaste DÍA LIBRE.</label>
+                            <select id="pago-leasing-libre">
+                                <option value="Atrasar">No sumar como pago (Extiende el contrato un día más)</option>
+                                <option value="Sumar">Sumar como día pagado en el progreso del Leasing</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Observación o Detalle</label>
+                        <input type="text" id="pago-nota" placeholder="Ej: Depósito por banca en línea o efectivo en mano">
+                    </div>
+                    <button type="submit" class="btn-submit btn-green">Registrar Transacción Manual</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 3: GASTOS, REVISIÓN E INVENTARIO ================= -->
+        <section id="mod-gastos" class="module">
+            <div class="card">
+                <h2>🛠️ Registrar Gasto Directo</h2>
+                <form id="form-gasto">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Vehículo</label>
+                            <select id="gasto-auto" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Monto del Gasto ($)</label>
+                            <input type="number" step="0.01" id="gasto-monto" required placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Categoría / Concepto</label>
+                            <select id="gasto-concepto">
+                                <option value="Mantenimiento Preventivo">Mantenimiento Preventivo</option>
+                                <option value="Repuestos y Reparación">Repuestos y Reparación Mecánica</option>
+                                <option value="Llantas">Llantas y Alineación</option>
+                                <option value="Seguro y Placa">Renovación Seguro / Placa / Revisado</option>
+                                <option value="Combustible">Combustible</option>
+                                <option value="Otros Gastos">Otros Gastos Operativos</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Kilometraje en el Taller</label>
+                            <input type="number" id="gasto-km" placeholder="Ej: 46000">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Detalle del Taller o Proveedor</label>
+                        <input type="text" id="gasto-nota" placeholder="Ej: Cambio de aceite PAG46 y filtro en Taller Chiriquí">
+                    </div>
+                    <button type="submit" class="btn-submit btn-red">Registrar Gasto a la Flota</button>
+                </form>
             </div>
 
-            <div class="admin-nav" id="menuEdicionRifa" style="display: none;">
-                <button class="active" onclick="cambiarTabRifa('gral')" id="tabBtnGral">Datos</button>
-                <button onclick="cambiarTabRifa('manual')" id="tabBtnManual">Ventas</button>
-                <button onclick="cambiarTabRifa('diseno')" id="tabBtnDiseno">Diseño</button>
-                <button onclick="cambiarTabRifa('lista')" id="tabBtnLista">Pagos/Ganador</button>
+            <div class="card">
+                <h2>📋 Checklist de Inspección Semanal Administrador</h2>
+                <form id="form-checklist">
+                    <div class="form-group">
+                        <label>Seleccionar Vehículo</label>
+                        <select id="chk-auto" required></select>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; background:#f8fafc; padding:10px; border-radius:8px;">
+                        <label><input type="checkbox" id="chk-aceite"> Nivel Aceite OK</label>
+                        <label><input type="checkbox" id="chk-agua"> Refrigerante OK</label>
+                        <label><input type="checkbox" id="chk-llantas"> Presión Llantas OK</label>
+                        <label><input type="checkbox" id="chk-luces"> Luces Funcionales</label>
+                        <label><input type="checkbox" id="chk-frenos"> Frenos / Líquido OK</label>
+                        <label><input type="checkbox" id="chk-limpieza"> Limpieza Inter/Exter</label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Observaciones de la Inspección</label>
+                        <input type="text" id="chk-observaciones" placeholder="Ej: Se requiere alineación ligera">
+                    </div>
+
+                    <div style="background:#f1f5f9; padding:12px; border-radius:8px; border:1px solid var(--border); margin-bottom:12px;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:bold; color:var(--primary-dark);">
+                            <input type="checkbox" id="chk-hizo-mantenimiento" onchange="document.getElementById('box-uso-inventario').style.display = this.checked ? 'block' : 'none';" style="width:18px; height:18px;">
+                            ¿Se realizó mantenimiento correctivo y se utilizaron repuestos del inventario?
+                        </label>
+                        <div id="box-uso-inventario" style="display:none; margin-top:12px;">
+                            <p style="font-size:0.8rem; margin-bottom:8px; color:var(--text-muted);">Indica las cantidades que sacaste del inventario para este auto:</p>
+                            <div id="lista-seleccion-inventario" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
+                                <!-- Llenado por JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit btn-green">Guardar Inspección Semanal</button>
+                </form>
             </div>
 
-            <div id="tab-misrifas" class="admin-tab active">
-                <button class="btn btn-success" onclick="abrirModalCrearRifa()">+ Crear Nueva Rifa</button>
-                
-                <div style="background: var(--disp-bg); padding:15px; border-radius:10px; margin-top:15px; text-align:center;">
-                    <h3 style="margin-top:0;">🔗 Catálogo Principal</h3>
-                    <p style="font-size:11px;">Comparte este enlace para que tus clientes vean TODAS las rifas activas:</p>
-                    <input type="text" id="linkCatalogoPrincipal" readonly style="text-align:center; margin-bottom:5px;">
-                    <button class="btn btn-outline btn-small" onclick="copiarCatalogo()">📋 Copiar Link</button>
+            <div class="card">
+                <h2>📋 Historial de Checklists y Mantenimientos Preventivos</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Vehículo</th>
+                                <th>Puntos OK</th>
+                                <th>Repuestos Extraídos</th>
+                                <th>Observaciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-historial-checklists"></tbody>
+                    </table>
                 </div>
+            </div>
+        </section>
 
-                <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
-                <h3 style="margin-bottom: 10px;">Rifas Activas</h3>
-                <div id="listaMisRifas"></div>
-                <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
-                <button class="btn btn-danger" onclick="borrarTodoElSistema()">🗑️ Borrar TODO el Sistema</button>
+        <!-- ================= MÓDULO 3B: ACTAS DE ENTREGA (NUEVO) ================= -->
+        <section id="mod-entregas" class="module">
+            <div class="card">
+                <h2>📸 Registrar Acta de Entrega (Checklist Inicial)</h2>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Registra las condiciones físicas en las que le entregas el auto al conductor para tener la evidencia guardada en su portal.</p>
+                <form id="form-entrega">
+                    <div class="form-grid">
+                        <div class="form-group"><label>Vehículo</label><select id="entrega-auto" required></select></div>
+                        <div class="form-group"><label>Conductor que recibe</label><select id="entrega-conductor" required></select></div>
+                        <div class="form-group"><label>Kilometraje de Entrega</label><input type="number" id="entrega-km" required></div>
+                        <div class="form-group"><label>Nivel de Combustible</label>
+                            <select id="entrega-combustible">
+                                <option value="Lleno">Lleno</option>
+                                <option value="3/4">3/4</option>
+                                <option value="Medio">Medio (1/2)</option>
+                                <option value="1/4">1/4</option>
+                                <option value="Reserva">Reserva</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Observaciones y Daños (Rayones, golpes, accesorios faltantes)</label>
+                        <textarea id="entrega-notas" rows="3" placeholder="Ej: Rayón en la puerta derecha, le falta la alfombra del conductor..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Fotos de la Condición del Vehículo (Puedes seleccionar varias)</label>
+                        <input type="file" id="entrega-fotos" accept="image/*" multiple>
+                    </div>
+                    <button type="submit" class="btn-submit btn-blue" id="btn-submit-entrega">Guardar Acta de Entrega</button>
+                </form>
             </div>
 
-            <div id="tab-notificaciones" class="admin-tab">
-                <h3>Configuración Universal</h3>
-                <p style="font-size: 11px;">Aplica para todas las rifas y el catálogo principal.</p>
-                
-                <label>Logo Principal (Sube tu logo para todo el sistema):</label>
-                <input type="file" id="uploadGlobalLogo" accept="image/*" onchange="subirImagenGlobal(event)">
-
-                <label>Contraseña de Administrador:</label>
-                <input type="text" id="globalAdminPass" placeholder="Ej: admin123">
-
-                <label>Tu Número de WhatsApp (Recibir comprobantes):</label>
-                <input type="text" id="globalNumWa" placeholder="Ej: 50760000000">
-                
-                <label>Telegram Bot Token (Opcional):</label>
-                <input type="text" id="globalTgToken" placeholder="123456:ABC-DEF...">
-                
-                <label>Telegram Chat ID (Opcional):</label>
-                <input type="text" id="globalTgChat" placeholder="Ej: -100123456789">
-                
-                <button class="btn" onclick="guardarConfigGlobal()">Guardar Globales</button>
-            </div>
-
-            <div id="tab-gral" class="admin-tab">
-                <label>Nombre de la Rifa:</label>
-                <input type="text" id="inputNombreApp" onkeyup="actualizarTexto('tituloAppVisual', this.value)">
-                <label>Cantidad de Números a Vender:</label>
-                <input type="number" id="inputTotalNumeros" min="1" max="1000">
-                <label>Precio por Boleto ($):</label>
-                <input type="number" id="inputPrecio" onkeyup="actualizarPrecio()">
-                <label>Fecha y Hora del Sorteo:</label>
-                <input type="datetime-local" id="inputFecha" onchange="iniciarTemporizador()">
-                <button class="btn btn-success" onclick="guardarConfigRifa()">Guardar Configuración de Rifa</button>
-            </div>
-
-            <div id="tab-manual" class="admin-tab">
-                <div style="background: var(--disp-bg); padding: 10px; border-radius: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-                    <span>Seleccionados: <strong id="adminCantSel">0</strong></span>
-                    <button class="btn btn-success btn-small" style="margin:0;" onclick="abrirModalManualConfirm()">Registrar Venta</button>
+            <div class="card">
+                <h2>📋 Historial de Entregas Realizadas</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Vehículo</th>
+                                <th>Conductor</th>
+                                <th>Kilometraje</th>
+                                <th>Combustible</th>
+                                <th>Evidencias</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-entregas"></tbody>
+                    </table>
                 </div>
-                <div class="leyenda" style="justify-content: flex-start; margin-bottom: 10px;">
-                    <div class="ley-item"><div class="ley-color" style="background: var(--disp-bg);"></div> Libre</div>
-                    <div class="ley-item"><div class="ley-color" style="background: var(--res-bg);"></div> Reservado</div>
-                    <div class="ley-item"><div class="ley-color" style="background: var(--vend-bg);"></div> Pagado</div>
-                </div>
-                <div class="grid" id="cuadriculaAdmin"></div>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 4: AUTOS, FLOTA Y LEASING ================= -->
+        <section id="mod-autos" class="module">
+            <div class="card">
+                <h2 id="title-form-auto">🚗 Registrar / Editar Vehículo</h2>
+                <form id="form-auto">
+                    <input type="hidden" id="edit-auto-id">
+                    <div class="form-grid">
+                        <div class="form-group"><label>Placa del Vehículo</label><input type="text" id="auto-placa" required placeholder="Ej: BK8932"></div>
+                        <div class="form-group"><label>Marca y Modelo</label><input type="text" id="auto-modelo" required placeholder="Ej: GAC GS3 Emzoom"></div>
+                        <div class="form-group"><label>Tarifa de Alquiler Diaria ($) *</label><input type="number" step="0.01" id="auto-tarifa" required placeholder="Ej: 25.00"></div>
+                        <div class="form-group"><label>Próximo Mantenimiento (km límite)</label><input type="number" id="auto-mant-km" placeholder="Ej: 50000"></div>
+                        <div class="form-group"><label>Vencimiento Seguro / Placa</label><input type="date" id="auto-venc-doc"></div>
+                        <div class="form-group"><label>Socio / Inversionista (Dueño)</label><select id="auto-socio"></select></div>
+                        <div class="form-group"><label>Conductor Asignado</label><select id="auto-conductor"><option value="">Sin Conductor</option></select></div>
+                    </div>
+                    
+                    <div style="background:#f1f5f9; padding:15px; border-radius:8px; border:1px solid var(--border); margin-top:15px; margin-bottom:15px;">
+                        <h3 style="font-size:0.95rem; margin-bottom:10px;">Opciones de Leasing (Opción a Compra)</h3>
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:10px;">
+                            <input type="checkbox" id="auto-is-leasing" onchange="document.getElementById('leasing-fields').style.display = this.checked ? 'grid' : 'none';" style="width:18px; height:18px;"> 
+                            <span>Habilitar Contrato con Opción a Compra para este vehículo</span>
+                        </label>
+                        
+                        <div id="leasing-fields" class="form-grid" style="display:none;">
+                            <div class="form-group">
+                                <label>Duración Total del Contrato (En Días)</label>
+                                <input type="number" id="auto-leasing-total" placeholder="Ej: 730 (para 2 años)">
+                            </div>
+                            <div class="form-group">
+                                <label>Días Ya Pagados Previos (Progreso Inicial)</label>
+                                <input type="number" id="auto-leasing-pagados" placeholder="Ej: 15" value="0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit btn-blue" id="btn-save-auto">Guardar Vehículo</button>
+                </form>
             </div>
 
-            <div id="tab-diseno" class="admin-tab">
-                <label>Foto del Premio (Subir):</label>
-                <input type="file" id="uploadPremioInput" accept="image/*" onchange="subirImagenFirebase(event, 'imgPremio', 'premioUrl')">
-                <label>Plantilla Visual:</label>
-                <select id="temaSelect" onchange="cambiarTema()">
-                    <option value="gold">Dorado Premium</option>
-                    <option value="mint">Mint (Estilo Rifary)</option>
-                    <option value="ocean">Océano</option>
-                    <option value="dark">Oscuro Profesional</option>
-                    <option value="neon">Neón Cyber</option>
-                    <option value="ruby">Rubí</option>
-                    <option value="amethyst">Amatista</option>
-                    <option value="forest">Bosque</option>
-                    <option value="sunset">Atardecer</option>
-                    <option value="coffee">Café</option>
-                    <option value="silver">Plata</option>
-                    <option value="cyber">Cyberpunk Dark</option>
-                    <option value="rose">Rosa Suave</option>
-                    <option value="aqua">Agua Marina</option>
-                    <option value="solar">Solar / Amarillo</option>
-                </select>
-                <label>Color Principal:</label>
-                <input type="color" id="colorPicker" onchange="cambiarColorMain()">
-
-                <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
-                <h3>Animaciones Flotantes</h3>
-                <div class="checkbox-grid" id="checksAnim">
-                    <label><input type="checkbox" value="📺"> 📺</label>
-                    <label><input type="checkbox" value="🧊"> 🧊</label>
-                    <label><input type="checkbox" value="🍳"> 🍳</label>
-                    <label><input type="checkbox" value="📱" checked> 📱</label>
-                    <label><input type="checkbox" value="🎁" checked> 🎁</label>
-                    <label><input type="checkbox" value="💐"> 💐</label>
-                    <label><input type="checkbox" value="💵"> 💵</label>
-                    <label><input type="checkbox" value="🚗"> 🚗</label>
+            <div class="card">
+                <h2>🚘 Flota Registrada</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Placa / Modelo</th>
+                                <th>Tarifa Diaria</th>
+                                <th>Opción Compra</th>
+                                <th>Conductor</th>
+                                <th>Socio Owner</th>
+                                <th>Km Actual</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-autos-lista"></tbody>
+                    </table>
                 </div>
-                <label>Cantidad:</label><input type="range" id="animCant" min="0" max="50" value="15" onchange="generarAnimaciones()">
-                <label>Tamaño:</label><input type="range" id="animSize" min="10" max="80" value="30" onchange="generarAnimaciones()">
-                <label>Velocidad:</label><input type="range" id="animSpeed" min="1" max="20" value="10" onchange="generarAnimaciones()">
-                <label>Transparencia:</label><input type="range" id="animOpacity" min="1" max="10" value="5" onchange="generarAnimaciones()">
-                <label>Posición:</label>
-                <select id="animZIndex" onchange="generarAnimaciones()">
-                    <option value="0">Al Fondo</option>
-                    <option value="9999">Al Frente</option>
-                </select>
-                <button class="btn" onclick="guardarConfigRifa()">Guardar Diseño</button>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 5: INVENTARIO DE TALLER / REPUESTOS ================= -->
+        <section id="mod-inventario" class="module">
+            <div class="card">
+                <h2>🧰 Control de Inventario de Taller y Repuestos</h2>
+                <form id="form-inventario">
+                    <input type="hidden" id="edit-inv-id">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Nombre del Repuesto / Herramienta</label>
+                            <input type="text" id="inv-nombre" required placeholder="Ej: Aceite PAG 46 UV">
+                        </div>
+                        <div class="form-group">
+                            <label>Categoría</label>
+                            <select id="inv-categoria">
+                                <option value="Insumos/Aceites">Insumos y Aceites</option>
+                                <option value="Frenos/Llantas">Frenos y Llantas</option>
+                                <option value="Electrónica/OBD">Electrónica / OBD-II</option>
+                                <option value="Herramientas">Herramientas Prestadas</option>
+                                <option value="CCTV/Accesorios">Accesorios y Otros</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Cantidad en Stock</label>
+                            <input type="number" id="inv-stock" required placeholder="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehículo asignado (Opcional, si está en uso)</label>
+                            <select id="inv-auto"><option value="">En Almacén Principal</option></select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-submit btn-dark">Guardar en Inventario</button>
+                </form>
             </div>
 
-            <div id="tab-lista" class="admin-tab">
-                <h3>Anunciar Ganador</h3>
-                <div style="background: var(--disp-bg); padding:15px; border-radius:10px; margin-bottom: 15px;">
-                    <label>Número ganador:</label>
-                    <div style="display: flex; gap:10px;">
-                        <input type="number" id="inputNumGanador" placeholder="Ej. 15" style="margin:0;">
-                        <button class="btn btn-success" style="margin:0; width:auto;" onclick="anunciarGanador()">Publicar</button>
+            <div class="card">
+                <h2>📦 Listado de Inventario Actual</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Repuesto / Herramienta</th>
+                                <th>Categoría</th>
+                                <th>Stock</th>
+                                <th>Ubicación</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-inventario"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 6: CONDUCTORES Y BILLETERA ================= -->
+        <section id="mod-conductores" class="module">
+            <div class="card">
+                <h2 id="title-form-conductor">👤 Registrar / Editar Conductor</h2>
+                <form id="form-conductor">
+                    <input type="hidden" id="edit-cond-id">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Nombre Completo</label>
+                            <input type="text" id="cond-nombre" required placeholder="Ej: Juan Pérez">
+                        </div>
+                        <div class="form-group">
+                            <label>Cédula / Identificación</label>
+                            <input type="text" id="cond-cedula" placeholder="Ej: 4-700-1234">
+                        </div>
+                        <div class="form-group">
+                            <label>Teléfono (Para envíos de WhatsApp)</label>
+                            <input type="tel" id="cond-telefono" placeholder="Ej: 61234567">
+                        </div>
+                        <div class="form-group">
+                            <label>N° Licencia de Conducir</label>
+                            <input type="text" id="cond-licencia" placeholder="Opcional">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-submit btn-dark" id="btn-save-cond">Guardar Conductor</button>
+                </form>
+            </div>
+
+            <div class="card">
+                <h2>👥 Billetera Inteligente y Lista de Conductores</h2>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Si el saldo es Verde, el chofer pagó por adelantado. Si es Rojo, mantiene esa deuda consolidada.</p>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nombre del Chofer</th>
+                                <th>Saldo Consolidado (Billetera)</th>
+                                <th>Teléfono</th>
+                                <th>Acciones & Avisos</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-conductores-lista"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 7: SOCIOS / INVERSIONISTAS ================= -->
+        <section id="mod-socios" class="module">
+            <div class="card">
+                <h2>🤝 Registrar Socio / Inversionista</h2>
+                <form id="form-socio">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Nombre del Socio</label>
+                            <input type="text" id="socio-nombre" required placeholder="Ej: Inversiones Chiriquí S.A.">
+                        </div>
+                        <div class="form-group">
+                            <label>Teléfono de Contacto</label>
+                            <input type="tel" id="socio-telefono">
+                        </div>
+                        <div class="form-group">
+                            <label>% de Ganancia del Socio (%)</label>
+                            <input type="number" step="1" id="socio-porcentaje" value="70" placeholder="Ej: 70%">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-submit btn-orange">Guardar Socio</button>
+                </form>
+            </div>
+
+            <div class="card">
+                <h2>💰 Liquidación de Utilidades para Socios</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Socio</th>
+                                <th>Porcentaje</th>
+                                <th>Ingresos Brutos</th>
+                                <th>Gastos Asumidos</th>
+                                <th>Neto a Distribuir</th>
+                                <th>Liquidación a Pagar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-socios-liquidacion"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 8: CONTRATO DE ARRENDAMIENTO (PDF) ================= -->
+        <section id="mod-contrato" class="module">
+            <div class="card no-print">
+                <h2>📄 Generador de Contrato de Arrendamiento a PDF</h2>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Seleccionar Vehículo / Chofer</label>
+                        <select id="contrato-auto" onchange="generarVistaContrato()"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Depósito de Garantía Cobrado ($)</label>
+                        <input type="number" id="contrato-deposito" value="150.00" onchange="generarVistaContrato()">
                     </div>
                 </div>
-                <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
-                <h3>Lista de Pagos</h3>
-                <table id="tablaParticipantes">
-                    <thead><tr><th>Boleto</th><th>Cliente</th><th>Acciones</th></tr></thead>
-                    <tbody></tbody>
-                </table>
+                <button class="btn-submit btn-blue" onclick="window.print()" style="font-size: 1.1rem;">🖨️ Imprimir / Guardar Contrato Legal en PDF</button>
             </div>
 
-            <button class="btn btn-outline" id="btnVolverMisRifas" style="margin-top: 20px; display:none;" onclick="cerrarEdicionRifa()">🔙 Volver a Mis Rifas</button>
-            <button class="btn btn-danger" style="margin-top: 10px;" onclick="cerrarPanelAdminYVerCliente()">Cerrar Administrador</button>
-        </div>
-    </div>
+            <!-- VISTA DEL CONTRATO LEGAL IMPRIMIBLE -->
+            <div class="printable-area" id="area-contrato">
+                <h2>CONTRATO DE ARRENDAMIENTO DE VEHÍCULO MOTORIZADO</h2>
+                <p>En la ciudad de David, Provincia de Chiriquí, República de Panamá, entre los suscritos a saber: por una parte <strong>PERSONAL CAR</strong> (en adelante EL ARRENDADOR), y por la otra parte el Sr.(a) <strong id="c-chofer-nombre">[NOMBRE CHOFER]</strong>, con cédula de identidad N° <strong id="c-chofer-cedula">[CÉDULA]</strong> y licencia N° <strong id="c-chofer-licencia">[LICENCIA]</strong> (en adelante EL ARRENDATARIO), se acuerda celebrar el presente contrato bajo las siguientes cláusulas:</p>
+                
+                <p><strong>PRIMERA (EL VEHÍCULO):</strong> EL ARRENDADOR cede el uso del vehículo marca <strong id="c-auto-modelo">[MODELO]</strong>, con placa N° <strong id="c-auto-placa">[PLACA]</strong> y VIN N° <strong id="c-auto-vin">[VIN]</strong> en óptimas condiciones mecánicas y de carrocería para ser utilizado bajo responsabilidad estricta del conductor.</p>
 
-    <div id="modalCrearRifa" class="modal">
-        <div class="modal-content">
-            <h2>Crear Nueva Rifa</h2>
-            <input type="text" id="nuevaRifaID" placeholder="ID (Ej: RifaNavidad)" required>
-            <input type="text" id="nuevaRifaNombre" placeholder="Título para el cliente" required>
-            <button class="btn" onclick="ejecutarCrearRifa()">Crear Rifa</button>
-            <button class="btn btn-danger" onclick="cerrarModales()">Cancelar</button>
-        </div>
-    </div>
+                <p><strong>SEGUNDA (CANON Y PAGOS):</strong> EL ARRENDATARIO se compromete a pagar de manera ininterrumpida una cuota de <strong>$<span id="c-tarifa">0.00</span> USD</strong> diarios. Los pagos deben efectuarse mediante el portal web proporcionado o en efectivo. El incumplimiento o retraso de pagos causará la suspensión del servicio, inmovilización del vehículo y cobro de mora.</p>
 
-    <div id="modalLogin" class="modal">
-        <div class="modal-content" style="text-align: center;">
-            <h2>Acceso Administrador</h2>
-            <input type="password" id="adminPass" placeholder="Clave">
-            <button class="btn" onclick="verificarLogin()">Entrar</button>
-            <button class="btn btn-danger" onclick="cerrarModales()">Cancelar</button>
-        </div>
-    </div>
+                <p><strong>TERCERA (DEPÓSITO DE GARANTÍA):</strong> Se establece y reconoce un depósito de garantía por el monto de <strong>$<span id="c-deposito">0.00</span> USD</strong> para responder por deducibles de seguro, daños menores, pérdida de llaves o incumplimiento de cuotas establecidas.</p>
 
-    <div id="modalCheckout" class="modal">
-        <div class="modal-content">
-            <h2>Confirmar Reserva</h2>
-            <p>Números: <strong id="resumenNumeros"></strong></p>
-            <input type="text" id="clienteNombre" placeholder="Tu Nombre Completo" required>
-            <input type="tel" id="clienteTelefono" placeholder="Teléfono / WhatsApp" required>
-            <select id="clienteMetodo">
-                <option value="Yappy">Yappy</option>
-                <option value="Transferencia Bancaria">Transferencia Bancaria</option>
-                <option value="Efectivo">Efectivo</option>
-                <option value="Tarjeta">Tarjeta</option>
-                <option value="Otros">Otros</option>
-            </select>
-            <button class="btn" onclick="generarTicket()">Confirmar y Ver Ticket</button>
-            <button class="btn btn-danger" onclick="cerrarModales()">Cancelar</button>
-        </div>
-    </div>
+                <p><strong>CUARTA (MANTENIMIENTO Y USO):</strong> EL ARRENDATARIO responderá por la custodia del vehículo, verificación de niveles de agua/aceite y enviará el checklist mecánico mediante el portal de manera semanal. Queda estrictamente prohibido subarrendar el vehículo, prestarlo a terceros no autorizados o destinarlo a usos ilícitos.</p>
 
-    <div id="modalVentaManual" class="modal">
-        <div class="modal-content">
-            <h2 style="text-align: center;">Registrar Venta</h2>
-            <p style="text-align: center;">Boletos seleccionados: <strong id="manualNumVisual"></strong></p>
-            <input type="text" id="adminManualNombre" placeholder="Nombre Comprador" required>
-            <input type="tel" id="adminManualTelefono" placeholder="Teléfono Comprador" required>
-            
-            <label style="font-size: 12px; font-weight: bold; margin-bottom: 5px; display: block;">Estado de la venta:</label>
-            <select id="adminManualEstado">
-                <option value="vendido">Ya pagó (Vendido / Rojo)</option>
-                <option value="reservado">Pendiente de pago (Reservado / Amarillo)</option>
-            </select>
-
-            <button class="btn btn-success" onclick="confirmarVentaManual()">Marcar Registro</button>
-            <button class="btn btn-danger" onclick="cerrarModales()">Cancelar</button>
-        </div>
-    </div>
-
-    <div id="modalEditarBoleto" class="modal">
-        <div class="modal-content">
-            <h2>Editar Boleto</h2>
-            <p>Boleto Actual: <strong id="editBoletoNum"></strong></p>
-            <input type="hidden" id="editBoletoNumHidden">
-            <label style="font-size: 12px; font-weight: bold;">Mover a otro número (Opcional):</label>
-            <input type="number" id="editNuevoNum" placeholder="Nuevo número">
-            <label style="font-size: 12px; font-weight: bold;">Nombre del Cliente:</label>
-            <input type="text" id="editNombre" required>
-            <label style="font-size: 12px; font-weight: bold;">Teléfono del Cliente:</label>
-            <input type="tel" id="editTelefono">
-            <button class="btn btn-success" onclick="guardarEdicionBoleto()">Guardar Cambios</button>
-            <button class="btn btn-danger" onclick="cerrarModales()">Cancelar</button>
-        </div>
-    </div>
-
-    <div id="modalQR" class="modal">
-        <div class="modal-content" style="text-align:center;">
-            <h2>Enlace y QR Temático</h2>
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <div style="flex: 1;"><label>Color QR:</label><input type="color" id="qrColor" value="#000000" onchange="actualizarQREnModal()"></div>
-                <div style="flex: 1;"><label>Fondo QR:</label><input type="color" id="qrBgColor" value="#FFFFFF" onchange="actualizarQREnModal()"></div>
-            </div>
-            <div style="background: #eee; padding:15px; border-radius:10px; color:#000;">
-                <img id="qrImg" src="" style="width:180px; border-radius:10px;">
-                <br><br>
-                <input type="text" id="linkGeneradoText" readonly style="background:#fff; color:#000; border: 1px solid #ccc;">
-            </div>
-            <button class="btn btn-danger" onclick="cerrarModales()">Cerrar</button>
-        </div>
-    </div>
-
-    <div id="modalTicket" class="modal">
-        <div class="modal-content" style="background:#fff;">
-            <div class="ticket-receipt">
-                <h3>🎟️ COMPROBANTE DE RESERVA</h3>
-                <p><span>Fecha:</span> <strong id="ticketFecha"></strong></p>
-                <p><span>Transacción ID:</span> <strong id="ticketTxID"></strong></p>
-                <p><span>Rifa:</span> <strong id="ticketRifaNombre"></strong></p>
-                <hr style="border-top: 1px dashed #000; margin: 10px 0;">
-                <p><span>Cliente:</span> <strong id="ticketNombre"></strong></p>
-                <p><span>Método de Pago:</span> <strong id="ticketPago"></strong></p>
-                <p style="text-align: center; margin-top: 15px;"><strong>Boletos Seleccionados:</strong></p>
-                <div class="ticket-nums" id="ticketNumeros"></div>
-                <p><span>Precio por boleto:</span> <strong>$<span id="ticketPrecioUnitario"></span></strong></p>
-                <p class="total-row"><span>TOTAL A PAGAR:</span> <strong>$<span id="ticketMontoTotal"></span></strong></p>
-                <div class="ticket-footer">
-                    <strong>IMPORTANTE:</strong><br>
-                    Su reserva estará en estado de "Revisión" hasta que el administrador verifique el pago. Conserve su captura de pantalla y envíela al WhatsApp. ¡Mucha suerte!
+                <br><br><br><br>
+                <div style="display:flex; justify-content:space-between; margin-top:50px;">
+                    <div style="text-align:center; width:40%; border-top:1px solid #000; padding-top:5px;">
+                        <strong>EL ARRENDADOR</strong><br>Personal Car Panamá
+                    </div>
+                    <div style="text-align:center; width:40%; border-top:1px solid #000; padding-top:5px;">
+                        <strong>EL ARRENDATARIO</strong><br><span id="c-chofer-firma">[NOMBRE CHOFER]</span>
+                    </div>
                 </div>
             </div>
-            <button class="btn btn-success" onclick="finalizarCompra()">Enviar Captura a WhatsApp</button>
+        </section>
+
+        <!-- ================= MÓDULO 9: ESTADO DE CUENTA E IMPRESIÓN (PDF) ================= -->
+        <section id="mod-reporte" class="module">
+            <div class="card no-print">
+                <h2>📑 Generar Estado de Cuenta Profesional</h2>
+                <div class="form-group">
+                    <label>Seleccionar Conductor</label>
+                    <select id="reporte-conductor" onchange="generarEstadoCuenta()"></select>
+                </div>
+                <button class="btn-submit btn-blue" onclick="window.print()" style="font-size: 1.1rem;">🖨️ Imprimir Estado de Cuenta PDF</button>
+            </div>
+
+            <div class="printable-area" id="area-estado-cuenta">
+                <div class="pdf-header">
+                    <div>
+                        <div class="pdf-title">Personal Car</div>
+                        <p style="font-size: 0.85rem; color: #475569; margin:0;">Sistema de Control Financiero de Flotas</p>
+                    </div>
+                    <div style="text-align: right; font-size: 0.85rem;">
+                        <strong>ESTADO DE CUENTA DE CONDUCTOR</strong><br>
+                        Emisión: <span id="ec-fecha">--</span>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <p style="font-size: 1.1rem;"><strong>Conductor:</strong> <span id="ec-conductor">--</span></p>
+                </div>
+
+                <div id="ec-alert-box" style="margin-bottom: 20px;"></div>
+
+                <table class="pdf-table">
+                    <thead>
+                        <tr>
+                            <th>Total de Pagos y Abonos Registrados</th>
+                            <th>Saldo PENDIENTE Consolidado (Deuda Real)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="text-align:center;">
+                            <td style="color:green; font-weight:bold; font-size:1.2rem;" id="ec-total-ingresos">$0.00</td>
+                            <td style="color:red; font-weight:bold; font-size:1.2rem;" id="ec-total-pendiente">$0.00</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3 style="margin-bottom: 10px; font-size: 1.1rem; border-bottom: 1px solid #ccc; padding-bottom:5px;">Detalle de Movimientos Históricos</h3>
+                <table class="pdf-table" style="font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Vehículo</th>
+                            <th>Estado Transacción</th>
+                            <th>Detalle / Concepto</th>
+                            <th>Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ec-detalle-tabla"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 10: BANDEJA DE REVISIÓN E HISTORIAL GLOBAL ================= -->
+        <section id="mod-historial" class="module">
+            <div class="card" style="border: 2px solid var(--primary-light); background-color: #f8fafc;">
+                <h2 style="color:var(--primary-dark);">📥 Bandeja de Revisión (Reportes de Choferes)</h2>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px;">Aquí caen todos los reportes diarios que envían los conductores mediante su enlace. Haz clic en "Revisar" para ver la foto del comprobante, el GPS y decidir cómo aplicar el pago a su billetera.</p>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha y Hora</th>
+                                <th>Chofer</th>
+                                <th>Monto Enviado</th>
+                                <th>Reportó como</th>
+                                <th>Acción del Admin</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-reportes-driver"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📋 Historial Global Aprobado (Finanzas Reales)</h2>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Tipo</th>
+                                <th>Vehículo / Chofer</th>
+                                <th>Estado Definitivo</th>
+                                <th>Concepto / Nota</th>
+                                <th>Monto</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-historial-global"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= MÓDULO 11: AJUSTES Y FIREBASE ================= -->
+        <section id="mod-ajustes" class="module">
+            <div class="card">
+                <h2>⚙️ Configuración y Ajustes del Sistema</h2>
+                
+                <div style="background:#f1f5f9; padding:18px; border-radius:8px; border:1px solid var(--border); margin-bottom:18px;">
+                    <h3 style="font-size:1rem; margin-bottom:12px; color:var(--primary-dark);">Automatización Inteligente de Cobros y Caja Chica</h3>
+                    
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:bold; margin-bottom:15px;">
+                        <input type="checkbox" id="chk-auto-pendientes" onchange="guardarAjustes()" style="width:20px; height:20px;">
+                        <span>Activar Cobro Diario y Generación de Deuda Automática a medianoche</span>
+                    </label>
+
+                    <h4 style="font-size:0.85rem; margin-bottom:6px;">Fondo de Depreciación Automático (Caja Chica):</h4>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">Monto que se separará visualmente de cada pago aprobado para ahorrarlo en un fondo por si el vehículo se daña.</p>
+                    <input type="number" step="0.01" id="cfg-fondo-diario" placeholder="Ej: 2.00" value="0.00" onchange="guardarAjustes()">
+                </div>
+
+                <div style="background:#f1f5f9; padding:18px; border-radius:8px; border:1px solid var(--border); margin-bottom:18px;">
+                    <h3 style="font-size:1rem; margin-bottom:12px; color:var(--primary-dark);">🔥 Conexión Nube - Firebase Firestore (En Vivo)</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">El sistema ya está listo para conectarse y sincronizar sin necesidad de recargar la página. Solo pega las credenciales que te dio Firebase (Están en tu Consola > Configuración del Proyecto > App Web).</p>
+                    <div class="form-grid">
+                        <div class="form-group"><label>apiKey de Firebase</label><input type="text" id="fb-api" placeholder="Ej: AIzaSyBvvw..."></div>
+                        <div class="form-group"><label>projectId de Firebase</label><input type="text" id="fb-project" placeholder="Ej: personal-car-1234"></div>
+                    </div>
+                    <button class="btn-submit btn-dark" onclick="conectarFirebase()">Conectar y Sincronizar Base de Datos en la Nube</button>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ================= MODALES FLOTANTES ================= -->
+    
+    <!-- Modal Simple para Ver Imagen -->
+    <div class="modal no-print" id="imageModal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeImageModal()">&times;</span>
+            <img id="modalImg" src="" alt="Comprobante de Pago">
         </div>
     </div>
 
-    <div id="printArea"></div>
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js";
+    <!-- Modal Específico: Gestión y Aprobación Inteligente de Reporte del Chofer -->
+    <div class="modal no-print" id="gestionReporteModal">
+        <div class="gestion-modal-box">
+            <span class="close-modal" onclick="closeGestionModal()" style="color:#0f172a;">&times;</span>
+            <h3>⚙️ Revisión y Asignación de Pago a Billetera</h3>
+            
+            <div id="gestion-detalles" style="font-size:0.9rem; margin-bottom: 12px; line-height: 1.8; background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border);">
+                <!-- Se llena mediante Javascript -->
+            </div>
 
-        // ========================================================
-        // TUS CREDENCIALES DE FIREBASE (PROYECTO: rifa-5e1ec)
-        // ========================================================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAX_lifTRi_uVinpIBUh3NjH-4fH0YF8Mk",
-            authDomain: "rifa-5e1ec.firebaseapp.com",
-            projectId: "rifa-5e1ec",
-            storageBucket: "rifa-5e1ec.firebasestorage.app",
-            messagingSenderId: "882012719644",
-            appId: "1:882012719644:web:aad6d6170abf8b37c6add9",
-            measurementId: "G-PN5QPWGBQ4"
+            <!-- SI ES DÍA LIBRE DE UN AUTO EN LEASING -->
+            <div id="gestion-leasing-libre" style="display:none; background:#fefce8; padding:10px; border-radius:6px; border:1px solid #fef08a; margin-bottom:12px;">
+                <label style="font-size:0.85rem; font-weight:bold; color:#854d0e;">El auto está en Leasing. Este Día Libre:</label>
+                <select id="gestion-leasing-select" style="width:100%; margin-top:5px; padding:8px;">
+                    <option value="Atrasar">NO Sumarlo (Extender el plazo 1 día)</option>
+                    <option value="Sumar">SUMARLO como pagado a favor del chofer</option>
+                </select>
+            </div>
+
+            <div class="gestion-img-container" id="gestion-img-box">
+                <!-- Se llena la foto del comprobante aquí -->
+            </div>
+
+            <div id="gestion-acciones-box" style="display:flex; flex-direction:column; gap:10px; margin-top:15px;">
+                <!-- Los botones dinámicos de Exacto, Sobrante o Faltante aparecerán aquí -->
+            </div>
+        </div>
+    </div>
+
+    <!-- NAVEGACIÓN GLOBAL INFERIOR -->
+    <nav class="module-nav no-print" id="main-nav">
+        <button class="nav-btn active" onclick="cambiarModulo('mod-dashboard', this)"><span class="icon">📊</span> Panel</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-ingresos', this)"><span class="icon">💵</span> Cobros</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-gastos', this)"><span class="icon">🛠️</span> Gastos</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-entregas', this)"><span class="icon">📸</span> Entregas</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-inventario', this)"><span class="icon">🧰</span> Taller</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-autos', this)"><span class="icon">🚗</span> Autos</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-conductores', this)"><span class="icon">👤</span> Choferes</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-socios', this)"><span class="icon">🤝</span> Socios</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-contrato', this)"><span class="icon">📄</span> PDF</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-reporte', this)"><span class="icon">📑</span> Cuentas</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-historial', this)"><span class="icon">📥</span> Revisar</button>
+        <button class="nav-btn" onclick="cambiarModulo('mod-ajustes', this)"><span class="icon">⚙️</span> Ajustes</button>
+    </nav>
+
+    <!-- ========================================================================= -->
+    <!-- LOGICA FINANCIERA JAVASCRIPT COMPLETA Y DEFINITIVA                      -->
+    <!-- ========================================================================= -->
+    <script>
+        // 1. ESTRUCTURA DE LA BASE DE DATOS LOCAL (CON LEASING, INVENTARIO, FONDO Y ENTREGAS)
+        let db = {
+            autos: JSON.parse(localStorage.getItem('pc_autos')) || [],
+            conductores: JSON.parse(localStorage.getItem('pc_conductores')) || [],
+            socios: JSON.parse(localStorage.getItem('pc_socios')) || [{ id: 'socio_def', nombre: 'Personal Car', porcentaje: 100 }],
+            movimientos: JSON.parse(localStorage.getItem('pc_movimientos')) || [],
+            inventario: JSON.parse(localStorage.getItem('pc_inventario')) || [],
+            checklists: JSON.parse(localStorage.getItem('pc_checklists')) || [],
+            entregas: JSON.parse(localStorage.getItem('pc_entregas')) || [], 
+            ajustes: JSON.parse(localStorage.getItem('pc_ajustes')) || { autoPendientes: true, fondoDiario: 0, fbApi: '', fbProject: '' }
         };
-        // ========================================================
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const storage = getStorage(app);
+        let firebaseDB = null;
+        let idReporteEnRevision = null; 
+        let chartBalanceInstance = null;
+        let chartOrigenInstance = null;
+        const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-        let listaRifasMaster = {};
-        let configActiva = {};
-        let dbActiva = {};
-        let configGlobal = { wa: '', tgToken: '', tgChat: '', adminPass: 'admin123', logoUrl: '' }; 
-        
-        let numerosSeleccionados = [];
-        let adminSeleccionados = [];
-        let usaFirebase = true; 
-
-        const urlParams = new URLSearchParams(window.location.search);
-        let rifaActivaId = urlParams.get('rifa'); 
-        let isClientView = urlParams.get('admin') !== 'true';
-
-        // Ocultar botón de configuración al cliente (Protección)
-        if(rifaActivaId && isClientView) {
-            let btnAdmin = document.getElementById('btnEngranaje');
-            if(btnAdmin) btnAdmin.style.display = 'none';
+        // Función Maestra para guardar en el navegador (y en Firebase si está conectado)
+        function guardarLocal() {
+            localStorage.setItem('pc_autos', JSON.stringify(db.autos));
+            localStorage.setItem('pc_conductores', JSON.stringify(db.conductores));
+            localStorage.setItem('pc_socios', JSON.stringify(db.socios));
+            localStorage.setItem('pc_movimientos', JSON.stringify(db.movimientos));
+            localStorage.setItem('pc_inventario', JSON.stringify(db.inventario));
+            localStorage.setItem('pc_checklists', JSON.stringify(db.checklists));
+            localStorage.setItem('pc_entregas', JSON.stringify(db.entregas)); 
+            localStorage.setItem('pc_ajustes', JSON.stringify(db.ajustes));
+            
+            // Subir a Firebase si está habilitado
+            if(firebaseDB) {
+                firebaseDB.ref('flota_personal_car').set(db);
+            }
+            
+            actualizarUI();
         }
 
-        // ================= ARRANQUE Y CARGA DE DATOS =================
-        async function initAppGlobal() {
+        // 2. SISTEMA DE NAVEGACIÓN TIPO APP (SPA)
+        function cambiarModulo(id, btn) {
+            document.querySelectorAll('.module').forEach(m => {
+                m.classList.remove('active', 'print-active');
+            });
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            
+            const modTarget = document.getElementById(id);
+            if(modTarget) {
+                modTarget.classList.add('active', 'print-active');
+            }
+            if(btn) btn.classList.add('active');
+
+            if(id === 'mod-contrato') generarVistaContrato();
+            if(id === 'mod-reporte') generarEstadoCuenta();
+            window.scrollTo(0,0);
+        }
+
+        function verImagenGenerica(src) {
+            document.getElementById('modalImg').src = src;
+            document.getElementById('imageModal').classList.add('active');
+        }
+
+        // 3. INTELIGENCIA DE BILLETERA (CÁLCULO DE SALDOS)
+        function obtenerSaldoChofer(choferId) {
+            const movs = db.movimientos.filter(m => m.conductorId === choferId && !m.isDriverReport); 
+            let pagosReales = 0, deudaAcumulada = 0;
+            movs.forEach(m => {
+                if (m.tipo === 'ingreso') {
+                    if (m.estado === 'Pagado') pagosReales += m.monto; 
+                    if (m.estado === 'Pendiente') deudaAcumulada += m.monto;
+                }
+            });
+            return pagosReales - deudaAcumulada; 
+        }
+
+        // 4. AUTOMATIZACIÓN: GENERADOR DE DEUDAS Y COBRO DIARIO
+        function cobrarDiaAutomatico() {
+            const hoyStr = new Date().toISOString().split('T')[0];
+            
+            db.autos.forEach(auto => {
+                if (!auto.conductorId) return;
+                const tarifa = auto.tarifaDiaria || 0;
+                if (tarifa === 0) return;
+
+                const cobradoHoy = db.movimientos.some(m => m.autoId === auto.id && m.concepto === 'Cuota Diaria Fija' && m.fecha === hoyStr);
+                
+                if (!cobradoHoy) {
+                    db.movimientos.push({
+                        id: 'cuota_' + Date.now() + Math.random().toString(16).slice(2),
+                        tipo: 'ingreso', autoId: auto.id, conductorId: auto.conductorId,
+                        origen: 'Aplicaciones', estado: 'Pendiente', monto: tarifa, fecha: hoyStr,
+                        concepto: 'Cuota Diaria Fija', nota: 'Generación Automática del Sistema'
+                    });
+                }
+            });
+            // Guardamos silencioso, la nube se actualiza si está conectada
+            localStorage.setItem('pc_movimientos', JSON.stringify(db.movimientos));
+            if(firebaseDB) firebaseDB.ref('flota_personal_car/movimientos').set(db.movimientos);
+        }
+
+        // 5. CONEXIÓN FIREBASE INICIALIZACIÓN
+        function conectarNube(api, project) {
+            const firebaseConfig = { 
+                apiKey: api, 
+                projectId: project,
+                databaseURL: `https://${project}-default-rtdb.firebaseio.com` 
+            };
             try {
-                const docGlobal = await getDoc(doc(db, "CronoRifas_System", "GlobalSettings"));
-                if(docGlobal.exists()) configGlobal = docGlobal.data();
-                
-                const docSnap = await getDoc(doc(db, "CronoRifas_System", "MasterList"));
-                if (docSnap.exists()) listaRifasMaster = docSnap.data();
-                
-                usaFirebase = true;
-            } catch (error) {
-                console.warn("Error cargando DB. ¿Reglas correctas en Firestore?", error);
-                usaFirebase = false;
-                listaRifasMaster = JSON.parse(localStorage.getItem('local_master')) || {};
-                let localG = JSON.parse(localStorage.getItem('local_global'));
-                if(localG) configGlobal = localG;
-            }
-
-            document.getElementById('globalNumWa').value = configGlobal.wa || '';
-            document.getElementById('globalTgToken').value = configGlobal.tgToken || '';
-            document.getElementById('globalTgChat').value = configGlobal.tgChat || '';
-            document.getElementById('globalAdminPass').value = configGlobal.adminPass || 'admin123';
-
-            if(configGlobal.logoUrl) {
-                document.getElementById('logoApp').src = configGlobal.logoUrl;
-            } else {
-                document.getElementById('logoApp').src = "https://via.placeholder.com/150?text=Logo";
-            }
-
-            if(rifaActivaId && listaRifasMaster[rifaActivaId]) {
-                configActiva = listaRifasMaster[rifaActivaId];
-                
-                if (usaFirebase) {
-                    const dbSnap = await getDoc(doc(db, "CronoRifas_System", "DB_" + rifaActivaId));
-                    dbActiva = dbSnap.exists() ? dbSnap.data() : {};
-                } else {
-                    dbActiva = JSON.parse(localStorage.getItem('local_db_' + rifaActivaId)) || {};
+                if(!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
                 }
+                firebaseDB = firebase.database();
                 
-                window.aplicarConfiguracionVisual();
-                
-                if(!isClientView) {
-                    document.getElementById('vistaCliente').style.display = 'none';
-                    document.getElementById('vistaAdmin').style.display = 'block';
-                    window.abrirModoEdicionRifa(rifaActivaId);
-                } else {
-                    window.renderCuadriculaCliente();
-                }
-            } else if (!rifaActivaId) {
-                generarMenuInicioCliente();
-            } else {
-                document.getElementById('tituloAppVisual').innerText = "Rifa no encontrada";
-                document.getElementById('cuadriculaCliente').innerHTML = "<p style='grid-column: 1 / -1; text-align:center;'>La rifa solicitada no existe o fue eliminada.</p>";
-                document.getElementById('precioBoleto').innerText = "";
+                // Escuchar datos en vivo de la nube
+                firebaseDB.ref('flota_personal_car').on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        db.autos = data.autos || [];
+                        db.conductores = data.conductores || [];
+                        db.socios = data.socios || [];
+                        db.movimientos = data.movimientos || [];
+                        db.inventario = data.inventario || [];
+                        db.checklists = data.checklists || [];
+                        db.entregas = data.entregas || [];
+                        db.ajustes = data.ajustes || db.ajustes;
+                        
+                        // Guardar en local sin llamar a guardarLocal() para evitar loop
+                        localStorage.setItem('pc_autos', JSON.stringify(db.autos));
+                        localStorage.setItem('pc_conductores', JSON.stringify(db.conductores));
+                        localStorage.setItem('pc_socios', JSON.stringify(db.socios));
+                        localStorage.setItem('pc_movimientos', JSON.stringify(db.movimientos));
+                        localStorage.setItem('pc_inventario', JSON.stringify(db.inventario));
+                        localStorage.setItem('pc_checklists', JSON.stringify(db.checklists));
+                        localStorage.setItem('pc_entregas', JSON.stringify(db.entregas));
+                        localStorage.setItem('pc_ajustes', JSON.stringify(db.ajustes));
+                        
+                        actualizarUI();
+                    }
+                });
+            } catch(e) {
+                console.error("Error Firebase:", e);
             }
-            window.generarAnimaciones();
         }
 
-        function generarMenuInicioCliente() {
-            if(Object.keys(listaRifasMaster).length > 0 && isClientView) {
-                document.getElementById('contenidoRifaActiva').style.display = 'none';
-                document.getElementById('menuRifasCliente').style.display = 'block';
-                const cont = document.getElementById('listaRifasDisponibles');
-                cont.innerHTML = '';
+        function conectarFirebase() {
+            const api = document.getElementById('fb-api').value.trim();
+            const project = document.getElementById('fb-project').value.trim();
+            if(!api || !project) return alert('Por favor ingresa la apiKey y projectId.');
+            
+            db.ajustes.fbApi = api;
+            db.ajustes.fbProject = project;
+            guardarLocal();
+            
+            conectarNube(api, project);
+            alert('🔥 ¡Conexión con Firebase establecida exitosamente!\nLa página se refrescará con los datos de la nube.');
+        }
+
+        // 6. INICIALIZADOR PRINCIPAL DE LA APP
+        function initApp() {
+            document.getElementById('pago-fecha').value = new Date().toISOString().split('T')[0];
+            const driverId = new URLSearchParams(window.location.search).get('driver');
+
+            // Reconectar Firebase automáticamente si hay credenciales
+            if(db.ajustes.fbApi && db.ajustes.fbProject) {
+                conectarNube(db.ajustes.fbApi, db.ajustes.fbProject);
+            }
+
+            // DETECCIÓN DEL MODO CHOFER POR LA URL
+            if (driverId) {
+                const driver = db.conductores.find(c => c.id === driverId);
+                const auto = db.autos.find(a => a.conductorId === driverId);
                 
-                for(let id in listaRifasMaster) {
-                    let r = listaRifasMaster[id];
-                    let imgHtml = r.premioUrl ? `<img src="${r.premioUrl}" class="img-catalogo">` : '';
-                    cont.innerHTML += `
-                        <div class="rifa-client-item" onclick="window.location.href='?rifa=${id}'">
-                            <h3>🎟️ ${r.nombreApp || id}</h3>
-                            <p style="font-size: 12px; margin:0;">${r.totalNumeros} Boletos disponibles | Precio: $${r.precio}</p>
-                            ${imgHtml}
+                if (driver) {
+                    document.getElementById('admin-app').style.display = 'none';
+                    document.getElementById('main-nav').style.display = 'none';
+                    document.getElementById('main-header').style.display = 'none';
+                    document.getElementById('driver-app').style.display = 'block';
+                    
+                    const saldo = obtenerSaldoChofer(driverId);
+                    document.getElementById('driver-name-display').innerText = `Hola, ${driver.nombre}`;
+                    document.getElementById('driver-tarifa-display').innerText = `Tarifa Diaria Asignada: $${auto ? auto.tarifaDiaria || 0 : 0}`;
+                    
+                    const salBox = document.getElementById('driver-saldo-box');
+                    if(saldo < 0) { 
+                        salBox.innerHTML = `<span style="color:var(--danger)">Mantienes una deuda de $${Math.abs(saldo).toFixed(2)}</span>`; 
+                    } else if(saldo > 0) { 
+                        salBox.innerHTML = `<span style="color:var(--success)">Tienes un Saldo a Favor de $${saldo.toFixed(2)}</span>`; 
+                    } else { 
+                        salBox.innerHTML = `<span style="color:var(--success)">¡Estás al día con tus pagos!</span>`; 
+                    }
+
+                    // VISTA ACTA DE ENTREGA (NUEVO)
+                    if (auto) {
+                        const entrega = db.entregas.slice().reverse().find(e => e.autoId === auto.id && e.conductorId === driverId);
+                        if (entrega) {
+                            document.getElementById('driver-entrega-box').style.display = 'block';
+                            document.getElementById('driver-entrega-content').innerHTML = `
+                                <p><strong>Fecha Entregado:</strong> ${new Date(entrega.fecha).toLocaleDateString()}</p>
+                                <p><strong>Kilometraje:</strong> ${entrega.km} km</p>
+                                <p><strong>Combustible:</strong> ${entrega.combustible}</p>
+                                <p><strong>Detalles/Daños Anotados:</strong> ${entrega.notas || 'Ninguno'}</p>
+                            `;
+                            if(entrega.fotos && entrega.fotos.length > 0) {
+                                document.getElementById('driver-entrega-fotos').innerHTML = entrega.fotos.map(f => `<img src="${f}" style="height:80px; border-radius:4px; cursor:pointer;" onclick="verImagenGenerica('${f}')">`).join('');
+                            }
+                        }
+                    }
+
+                    // LEASING DISPLAY CHOFER
+                    if (auto && auto.isLeasing) {
+                        const totalDias = auto.leasingTotalDias || 0;
+                        const diasPagados = (auto.leasingDiasPrevios || 0) + db.movimientos.filter(m => m.autoId === auto.id && !m.isDriverReport && (m.estado === 'Pagado' || (m.estado === 'Dia Libre' && m.sumarLeasing))).length;
+                        const pct = totalDias > 0 ? Math.min((diasPagados / totalDias) * 100, 100) : 0;
+                        
+                        document.getElementById('driver-leasing-box').style.display = 'block';
+                        document.getElementById('driver-leasing-bar').style.width = pct + '%';
+                        document.getElementById('driver-leasing-text').innerHTML = `Has pagado <strong>${diasPagados}</strong> de ${totalDias} días. Te faltan <strong>${Math.max(totalDias - diasPagados, 0)}</strong> días. (${pct.toFixed(1)}%)`;
+                    }
+
+                    return;
+                }
+            }
+            
+            // SI NO ES CHOFER, CARGA EL MODO ADMINISTRADOR
+            document.getElementById('chk-auto-pendientes').checked = db.ajustes.autoPendientes;
+            document.getElementById('cfg-fondo-diario').value = db.ajustes.fondoDiario || 0;
+            if(db.ajustes.fbApi) {
+                document.getElementById('fb-api').value = db.ajustes.fbApi;
+                document.getElementById('fb-project').value = db.ajustes.fbProject;
+            }
+
+            if (db.ajustes.autoPendientes) cobrarDiaAutomatico();
+            actualizarUI();
+        }
+
+        // =========================================================================
+        // 7. FUNCIONES DEL PORTAL DEL CHOFER (REPORTES Y GPS)
+        // =========================================================================
+        function toggleDriverCampos(val) {
+            document.getElementById('driver-monto-box').style.display = (val === 'Pagado') ? 'block' : 'none';
+            document.getElementById('driver-comprobante-box').style.display = (val === 'Pagado') ? 'block' : 'none';
+        }
+
+        function capturarGPS() {
+            const status = document.getElementById('gps-status');
+            status.innerText = "📡 Buscando satélites GPS...";
+            status.style.color = "var(--info)";
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        document.getElementById('driver-lat').value = pos.coords.latitude;
+                        document.getElementById('driver-lng').value = pos.coords.longitude;
+                        status.innerText = `✅ GPS Capturado con Éxito`;
+                        status.style.color = "var(--success)";
+                    },
+                    (err) => {
+                        status.innerText = "❌ Permiso de ubicación denegado o apagado.";
+                        status.style.color = "var(--danger)";
+                    },
+                    { enableHighAccuracy: true, timeout: 15000 }
+                );
+            } else {
+                status.innerText = "❌ Tu dispositivo no soporta GPS.";
+                status.style.color = "var(--danger)";
+            }
+        }
+
+        document.getElementById('form-driver-report').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btnSubmit = document.getElementById('btn-driver-submit');
+            btnSubmit.disabled = true;
+            btnSubmit.innerText = "Subiendo reporte y foto...";
+
+            const driverId = new URLSearchParams(window.location.search).get('driver');
+            const auto = db.autos.find(a => a.conductorId === driverId);
+            
+            if (!auto) {
+                alert('Atención: No tienes un vehículo asignado en el sistema.');
+                btnSubmit.disabled = false; btnSubmit.innerText = "Enviar Reporte y Evidencias"; return;
+            }
+
+            const lat = document.getElementById('driver-lat').value;
+            const lng = document.getElementById('driver-lng').value;
+            if(!lat || !lng) { 
+                alert("Debes presionar 'Capturar Coordenadas GPS' antes de enviar."); 
+                btnSubmit.disabled = false; btnSubmit.innerText = "Enviar Reporte y Evidencias"; return; 
+            }
+
+            const estado = document.getElementById('driver-report-type').value;
+            const fileInput = document.getElementById('driver-comprobante');
+            
+            if (estado === 'Pagado' && fileInput.files.length === 0) { 
+                alert("Debes adjuntar la FOTO DEL COMPROBANTE para reportar un pago."); 
+                btnSubmit.disabled = false; btnSubmit.innerText = "Enviar Reporte y Evidencias"; return; 
+            }
+
+            const kmIngresado = parseInt(document.getElementById('driver-km').value || 0);
+            const checklistStr = `Aceite:${document.getElementById('chk-aceite').checked?'✅':'❌'} Agua:${document.getElementById('chk-agua').checked?'✅':'❌'} Llantas:${document.getElementById('chk-llantas').checked?'✅':'❌'} Luces:${document.getElementById('chk-luces').checked?'✅':'❌'} Frenos:${document.getElementById('chk-frenos').checked?'✅':'❌'} Limpio:${document.getElementById('chk-limpieza').checked?'✅':'❌'}`;
+
+            if (estado === 'Pagado' && fileInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e_img) {
+                    procesarEnvioChofer(auto, driverId, estado, kmIngresado, lat, lng, checklistStr, e_img.target.result);
+                };
+                reader.readAsDataURL(fileInput.files[0]);
+            } else {
+                procesarEnvioChofer(auto, driverId, estado, kmIngresado, lat, lng, checklistStr, null);
+            }
+        });
+
+        function procesarEnvioChofer(auto, driverId, estado, kmIngresado, lat, lng, check, img) {
+            db.movimientos.push({
+                id: Date.now().toString(),
+                tipo: 'ingreso',
+                isDriverReport: true, // FLAG DE BANDEJA DE REVISIÓN
+                autoId: auto.id, 
+                conductorId: driverId, 
+                origen: 'inDrive / App',
+                estado: estado, 
+                estadoRevision: 'Sin Revisar',
+                monto: estado === 'Dia Libre' ? 0 : parseFloat(document.getElementById('driver-monto').value || 0),
+                km: kmIngresado, 
+                lat: lat, 
+                lng: lng, 
+                checklist: check, 
+                imagen: img,
+                fecha: new Date().toISOString().split('T')[0], 
+                nota: document.getElementById('driver-nota').value
+            });
+            
+            if(kmIngresado > (auto.kmActual || 0)) auto.kmActual = kmIngresado;
+            guardarLocal(); 
+            alert('✅ Tu reporte ha sido enviado al Administrador exitosamente.'); 
+            window.location.reload();
+        }
+
+        // =========================================================================
+        // 8. ACTAS DE ENTREGA (NUEVO) Y CHECKLIST ADMIN (TALLER)
+        // =========================================================================
+        
+        document.getElementById('form-entrega').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btn-submit-entrega');
+            btn.disabled = true; btn.innerText = 'Guardando acta y fotos...';
+
+            const files = document.getElementById('entrega-fotos').files;
+            const promesasFotos = Array.from(files).map(file => {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => resolve(ev.target.result);
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            const fotosBase64 = await Promise.all(promesasFotos);
+
+            db.entregas.push({
+                id: Date.now().toString(),
+                autoId: document.getElementById('entrega-auto').value,
+                conductorId: document.getElementById('entrega-conductor').value,
+                fecha: new Date().toISOString(),
+                km: document.getElementById('entrega-km').value,
+                combustible: document.getElementById('entrega-combustible').value,
+                notas: document.getElementById('entrega-notas').value.trim(),
+                fotos: fotosBase64
+            });
+
+            guardarLocal();
+            e.target.reset();
+            btn.disabled = false; btn.innerText = 'Guardar Acta de Entrega';
+            alert('Acta de entrega registrada con éxito. El chofer podrá verla en su portal.');
+        });
+
+        // INVENTARIO
+        document.getElementById('form-inventario').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('edit-inv-id').value;
+            const invData = {
+                id: editId || Date.now().toString(),
+                nombre: document.getElementById('inv-nombre').value,
+                categoria: document.getElementById('inv-categoria').value,
+                stock: parseInt(document.getElementById('inv-stock').value || 0),
+                autoId: document.getElementById('inv-auto').value
+            };
+
+            if (editId) { db.inventario[db.inventario.findIndex(i => i.id === editId)] = invData; } 
+            else { db.inventario.push(invData); }
+
+            guardarLocal(); e.target.reset(); document.getElementById('edit-inv-id').value = '';
+            alert('Inventario guardado.');
+        });
+
+        function editarInventario(id) {
+            const i = db.inventario.find(x => x.id === id);
+            document.getElementById('edit-inv-id').value = i.id;
+            document.getElementById('inv-nombre').value = i.nombre;
+            document.getElementById('inv-categoria').value = i.categoria;
+            document.getElementById('inv-stock').value = i.stock;
+            document.getElementById('inv-auto').value = i.autoId || '';
+        }
+        function eliminarInventario(id) { if(confirm('¿Eliminar del inventario?')) { db.inventario = db.inventario.filter(i => i.id !== id); guardarLocal(); } }
+
+        // CHECKLIST ADMIN Y DESCUENTO DE INVENTARIO
+        document.getElementById('form-checklist').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const autoId = document.getElementById('chk-auto').value;
+            const hizoMantenimiento = document.getElementById('chk-hizo-mantenimiento').checked;
+            let repuestosUsados = [];
+
+            if (hizoMantenimiento) {
+                const inputsInv = document.querySelectorAll('.uso-inv-input');
+                inputsInv.forEach(input => {
+                    let cant = parseInt(input.value || 0);
+                    if (cant > 0) {
+                        let invId = input.getAttribute('data-id');
+                        let invName = input.getAttribute('data-nombre');
+                        repuestosUsados.push({ id: invId, nombre: invName, cantidad: cant });
+                        
+                        let itemInv = db.inventario.find(i => i.id === invId);
+                        if (itemInv) itemInv.stock -= cant;
+                    }
+                });
+            }
+
+            db.checklists.push({
+                id: Date.now().toString(),
+                autoId: autoId,
+                fecha: new Date().toISOString(),
+                aceite: document.getElementById('chk-aceite').checked,
+                frenos: document.getElementById('chk-frenos').checked,
+                llantas: document.getElementById('chk-llantas').checked,
+                agua: document.getElementById('chk-agua').checked,
+                luces: document.getElementById('chk-luces').checked,
+                limpieza: document.getElementById('chk-limpieza').checked,
+                obs: document.getElementById('chk-observaciones').value.trim(),
+                repuestos: repuestosUsados
+            });
+            guardarLocal();
+            e.target.reset();
+            document.getElementById('box-uso-inventario').style.display = 'none';
+            alert('Checklist de inspección y uso de inventario guardado.');
+        });
+
+        // =========================================================================
+        // 9. GESTIÓN Y REVISIÓN INTELIGENTE DE REPORTES (EL MODAL ADMINISTRADOR)
+        // =========================================================================
+        function abrirGestionReporte(id) {
+            idReporteEnRevision = id;
+            const m = db.movimientos.find(x => x.id === id);
+            const auto = db.autos.find(a => a.id === m.autoId);
+            const chofer = db.conductores.find(c => c.id === m.conductorId);
+            
+            const tarifa = auto ? auto.tarifaDiaria || 0 : 0;
+            const saldoPrevio = obtenerSaldoChofer(chofer.id);
+            const montoEnviado = m.monto;
+
+            // Mostrar campos de Leasing si es día libre
+            if(auto && auto.isLeasing && m.estado === 'Dia Libre') {
+                document.getElementById('gestion-leasing-libre').style.display = 'block';
+            } else {
+                document.getElementById('gestion-leasing-libre').style.display = 'none';
+            }
+
+            document.getElementById('gestion-detalles').innerHTML = `
+                <p><strong>Chofer Reporta:</strong> ${chofer.nombre}</p>
+                <p><strong>Estado que marca:</strong> <span class="badge badge-info">${m.estado}</span></p>
+                <p><strong>Tarifa Diaria del Auto:</strong> $${tarifa}</p>
+                <p><strong>Monto Enviado en el Reporte:</strong> <span style="font-size:1.1rem; font-weight:bold; color:var(--success);">$${montoEnviado}</span></p>
+                <p><strong>Saldo Previo Billetera:</strong> <span style="font-weight:bold; color:${saldoPrevio>=0?'green':'red'}">$${saldoPrevio}</span></p>
+                <p><strong>GPS:</strong> <a href="https://www.google.com/maps?q=${m.lat},${m.lng}" target="_blank" style="color:var(--primary-light); font-weight:bold;">📍 Ver en Google Maps</a></p>
+                <p><strong>Checklist:</strong> ${m.checklist}</p>
+                <p><strong>Nota del Chofer:</strong> <i>${m.nota || '-'}</i></p>
+            `;
+
+            const imgBox = document.getElementById('gestion-img-box');
+            if (m.imagen) { 
+                imgBox.innerHTML = `<p style="font-weight:bold; margin-bottom:5px;">Comprobante de Pago:</p><img src="${m.imagen}" onclick="verImagenFullScreen('${m.id}')" title="Clic para agrandar">`; 
+            } else { 
+                imgBox.innerHTML = `<p style="color:var(--danger); font-weight:bold;">⚠️ El chofer no adjuntó imagen.</p>`; 
+            }
+
+            const accBox = document.getElementById('gestion-acciones-box');
+            let btnHtml = '';
+
+            if (m.estado === 'Dia Libre' || m.estado === 'Pendiente') {
+                btnHtml = `<button class="btn-submit btn-green" onclick="aprobarYProcesar('Exacto')">✅ Aprobar Solicitud (${m.estado})</button>`;
+            } else {
+                if (montoEnviado === tarifa) {
+                    btnHtml = `<button class="btn-submit btn-green" onclick="aprobarYProcesar('Exacto')">✅ Aprobar Pago Exacto de Tarifa ($${montoEnviado})</button>`;
+                } else if (montoEnviado > tarifa) {
+                    const extra = montoEnviado - tarifa;
+                    btnHtml = `
+                        <div style="background:#d1fae5; padding:10px; border-radius:6px; color:#065f46; text-align:center;">
+                            <strong>¡Envió $${extra.toFixed(2)} de más!</strong>
                         </div>
+                        <button class="btn-submit btn-blue" onclick="aprobarYProcesar('Sobrante')">✅ Aprobar $${montoEnviado} y Sumar excedente a Billetera</button>
+                    `;
+                } else if (montoEnviado < tarifa) {
+                    const falta = tarifa - montoEnviado;
+                    btnHtml = `
+                        <div style="background:#fee2e2; padding:10px; border-radius:6px; color:#991b1b; text-align:center;">
+                            <strong>¡Faltaron $${falta.toFixed(2)} para completar el día!</strong>
+                        </div>
+                        <button class="btn-submit btn-orange" onclick="aprobarYProcesar('Faltante')">⚠️ Aprobar Abono de $${montoEnviado} y Generar Deuda por $${falta.toFixed(2)}</button>
                     `;
                 }
-            } else {
-                document.getElementById('tituloAppVisual').innerText = "Sistema de Rifas";
-                document.getElementById('cuadriculaCliente').innerHTML = "<p style='grid-column: 1 / -1; text-align:center;'>Inicia sesión en ⚙️ para comenzar a crear rifas.</p>";
-                document.getElementById('precioBoleto').innerText = "";
+            }
+            
+            btnHtml += `<button class="btn-submit btn-red" onclick="rechazarReporte()">❌ Rechazar Recibo y Anular Reporte</button>`;
+            btnHtml += `<button class="btn-submit btn-dark" onclick="closeGestionModal()">Cancelar y Volver</button>`;
+            
+            accBox.innerHTML = btnHtml;
+            document.getElementById('gestionReporteModal').classList.add('active');
+        }
+
+        function aprobarYProcesar(tipoAccion) {
+            const m = db.movimientos.find(x => x.id === idReporteEnRevision);
+            const auto = db.autos.find(a => a.id === m.autoId);
+            const tarifa = auto.tarifaDiaria || 0;
+
+            m.isDriverReport = false; 
+            m.estadoRevision = 'Aprobado';
+            
+            if (tipoAccion === 'Exacto' || m.estado === 'Dia Libre' || m.estado === 'Pendiente') {
+                m.concepto = m.estado === 'Dia Libre' ? 'Día Libre Aprobado' : 'Cuota Diaria';
+                if(m.estado === 'Dia Libre' && document.getElementById('gestion-leasing-select').value === 'Sumar') {
+                    m.sumarLeasing = true;
+                }
+            } 
+            else if (tipoAccion === 'Sobrante') {
+                m.concepto = 'Abono a Billetera (Sobró de tarifa)'; 
+            } 
+            else if (tipoAccion === 'Faltante') {
+                m.concepto = 'Abono Parcial Diario';
+                db.movimientos.push({
+                    id: 'faltante_' + Date.now(), tipo: 'ingreso', isDriverReport: false,
+                    autoId: m.autoId, conductorId: m.conductorId, origen: m.origen, estado: 'Pendiente', monto: tarifa - m.monto,
+                    fecha: m.fecha, concepto: 'Resto de Cuota Diaria (Faltante)', nota: 'Generado automáticamente por pago incompleto'
+                });
+            }
+
+            guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active'); alert('✅ Reporte procesado. Las finanzas y la billetera han sido actualizadas.');
+        }
+
+        function rechazarReporte() {
+            const m = db.movimientos.find(x => x.id === idReporteEnRevision);
+            m.estadoRevision = 'Rechazado';
+            m.estado = 'Rechazado';
+            m.monto = 0; 
+            m.isDriverReport = false; 
+            guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active'); alert('❌ Reporte rechazado y anulado.');
+        }
+
+        function verImagenFullScreen(id) {
+            const m = db.movimientos.find(x => x.id === id);
+            if(m && m.imagen) {
+                document.getElementById('modalImg').src = m.imagen;
+                document.getElementById('imageModal').classList.add('active');
             }
         }
+        function closeImageModal() { document.getElementById('imageModal').classList.remove('active'); }
+        function closeGestionModal() { document.getElementById('gestionReporteModal').classList.remove('active'); idReporteEnRevision = null; }
 
-        // ================= SINCRONIZACIÓN =================
-        async function sincronizarMaster() { 
-            if(usaFirebase) { try { await setDoc(doc(db, "CronoRifas_System", "MasterList"), listaRifasMaster); } catch(e){} }
-            localStorage.setItem('local_master', JSON.stringify(listaRifasMaster));
-        }
-        
-        async function sincronizarDBRifa() { 
-            if(usaFirebase) { try { await setDoc(doc(db, "CronoRifas_System", "DB_" + rifaActivaId), dbActiva); } catch(e){} }
-            localStorage.setItem('local_db_' + rifaActivaId, JSON.stringify(dbActiva));
-        }
-
-        window.guardarConfigGlobal = async function() {
-            configGlobal = {
-                wa: document.getElementById('globalNumWa').value,
-                tgToken: document.getElementById('globalTgToken').value,
-                tgChat: document.getElementById('globalTgChat').value,
-                adminPass: document.getElementById('globalAdminPass').value || 'admin123',
-                logoUrl: configGlobal.logoUrl || ''
+        // =========================================================================
+        // 10. REGISTROS CRUD MANUALES (ADMINISTRADOR)
+        // =========================================================================
+        document.getElementById('form-auto').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('edit-auto-id').value;
+            const autoData = {
+                id: editId || Date.now().toString(),
+                placa: document.getElementById('auto-placa').value.toUpperCase().trim(),
+                modelo: document.getElementById('auto-modelo').value,
+                tarifaDiaria: parseFloat(document.getElementById('auto-tarifa').value || 0),
+                anio: document.getElementById('auto-anio').value,
+                vin: document.getElementById('auto-vin').value,
+                limiteMant: parseInt(document.getElementById('auto-mant-km').value || 0),
+                vencDoc: document.getElementById('auto-venc-doc').value,
+                conductorId: document.getElementById('auto-conductor').value,
+                socioId: document.getElementById('auto-socio').value,
+                isLeasing: document.getElementById('auto-is-leasing').checked,
+                leasingTotalDias: parseInt(document.getElementById('auto-leasing-total').value || 0),
+                leasingDiasPrevios: parseInt(document.getElementById('auto-leasing-pagados').value || 0),
+                kmActual: editId ? (db.autos.find(a=>a.id===editId).kmActual||0) : 0
             };
-            if(usaFirebase) { try { await setDoc(doc(db, "CronoRifas_System", "GlobalSettings"), configGlobal); } catch(e){} }
-            localStorage.setItem('local_global', JSON.stringify(configGlobal));
-            alert("✅ Configuración Universal Guardada Exitosamente.");
-        };
+            if (editId) { db.autos[db.autos.findIndex(a => a.id === editId)] = autoData; } else { db.autos.push(autoData); }
+            guardarLocal(); e.target.reset(); document.getElementById('edit-auto-id').value = ''; 
+            document.getElementById('leasing-fields').style.display = 'none';
+            alert('Vehículo guardado.');
+        });
 
-        // ================= GESTOR CENTRAL DE RIFAS =================
-        window.abrirModalCrearRifa = function() {
-            document.getElementById('nuevaRifaID').value = '';
-            document.getElementById('nuevaRifaNombre').value = '';
-            document.getElementById('modalCrearRifa').style.display = 'flex';
-        };
+        document.getElementById('form-conductor').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('edit-cond-id').value;
+            const condData = {
+                id: editId || Date.now().toString(), nombre: document.getElementById('cond-nombre').value,
+                cedula: document.getElementById('cond-cedula').value, telefono: document.getElementById('cond-telefono').value,
+                licencia: document.getElementById('cond-licencia').value
+            };
+            if(editId) { db.conductores[db.conductores.findIndex(c => c.id === editId)] = condData; } else { db.conductores.push(condData); }
+            guardarLocal(); e.target.reset(); document.getElementById('edit-cond-id').value = ''; alert('Conductor guardado.');
+        });
 
-        window.renderListaMisRifas = function() {
-            const cont = document.getElementById('listaMisRifas'); cont.innerHTML = '';
-            const baseUrl = window.location.href.split('?')[0];
-            document.getElementById('linkCatalogoPrincipal').value = baseUrl;
+        document.getElementById('form-socio').addEventListener('submit', (e) => {
+            e.preventDefault();
+            db.socios.push({ id: Date.now().toString(), nombre: document.getElementById('socio-nombre').value, telefono: document.getElementById('socio-telefono').value, porcentaje: parseFloat(document.getElementById('socio-porcentaje').value || 70) });
+            guardarLocal(); e.target.reset(); alert('Socio guardado.');
+        });
 
-            if(Object.keys(listaRifasMaster).length === 0) return cont.innerHTML = '<p style="color:gray;">No tienes rifas creadas. Crea una nueva arriba.</p>';
+        function verificarDiaLibreLeasing() {
+            const autoId = document.getElementById('pago-auto').value;
+            const estado = document.getElementById('pago-estado').value;
+            const auto = db.autos.find(a => a.id === autoId);
+            const boxLeasingLibre = document.getElementById('group-leasing-libre');
+            
+            if (auto && auto.isLeasing && estado === 'Dia Libre') { boxLeasingLibre.style.display = 'block'; } 
+            else { boxLeasingLibre.style.display = 'none'; }
+        }
 
-            for(let id in listaRifasMaster) {
-                let r = listaRifasMaster[id];
-                cont.innerHTML += `
-                    <div class="rifa-item">
-                        <h4>${r.nombreApp || id}</h4>
-                        <p style="font-size:11px; margin: 0 0 10px 0;">ID: ${id} | Boletos: ${r.totalNumeros}</p>
-                        <div style="display:flex; gap:5px; flex-wrap:wrap;">
-                            <button class="btn btn-small" style="background:#48BB78; color:#fff;" onclick="abrirModoEdicionRifa('${id}')">⚙️ Administrar</button>
-                            <button class="btn btn-outline btn-small" onclick="abrirModalQR('${id}')">🔗 Link/QR</button>
-                            <button class="btn btn-success btn-small" onclick="generarPDFRifa('${id}')">📄 PDF Carta</button>
-                            <button class="btn btn-danger btn-small" onclick="borrarRifaEspecifica('${id}')">🗑️ Borrar</button>
+        document.getElementById('form-ingreso').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const autoId = document.getElementById('pago-auto').value;
+            const auto = db.autos.find(a => a.id === autoId);
+            const estado = document.getElementById('pago-estado').value;
+            
+            let sumarLeasing = false;
+            if(estado === 'Dia Libre' && auto && auto.isLeasing && document.getElementById('pago-leasing-libre').value === 'Sumar') {
+                sumarLeasing = true;
+            }
+
+            db.movimientos.push({
+                id: Date.now().toString(), tipo: 'ingreso', isDriverReport: false,
+                autoId: autoId, conductorId: auto ? auto.conductorId : '',
+                origen: document.getElementById('pago-origen').value,
+                estado: estado, monto: estado === 'Dia Libre' ? 0 : parseFloat(document.getElementById('pago-monto').value || 0),
+                fecha: document.getElementById('pago-fecha').value, nota: document.getElementById('pago-nota').value,
+                concepto: 'Registro Manual Admin', sumarLeasing: sumarLeasing
+            });
+            guardarLocal(); e.target.reset(); document.getElementById('pago-fecha').value = new Date().toISOString().split('T')[0]; alert('Transacción registrada.');
+        });
+
+        document.getElementById('form-gasto').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const kmGasto = parseInt(document.getElementById('gasto-km').value || 0);
+            const autoId = document.getElementById('gasto-auto').value;
+            db.movimientos.push({
+                id: Date.now().toString(), tipo: 'gasto', isDriverReport: false,
+                autoId: autoId, monto: parseFloat(document.getElementById('gasto-monto').value || 0),
+                concepto: document.getElementById('gasto-concepto').value, km: kmGasto,
+                fecha: document.getElementById('gasto-fecha').value, nota: document.getElementById('gasto-nota').value
+            });
+            const auto = db.autos.find(a => a.id === autoId);
+            if(auto && kmGasto > (auto.kmActual || 0)) auto.kmActual = kmGasto;
+            guardarLocal(); e.target.reset(); alert('Gasto registrado.');
+        });
+
+        function editarAuto(id) { const a = db.autos.find(x => x.id === id); document.getElementById('edit-auto-id').value = a.id; document.getElementById('auto-placa').value = a.placa; document.getElementById('auto-modelo').value = a.modelo; document.getElementById('auto-tarifa').value = a.tarifaDiaria||''; document.getElementById('auto-anio').value = a.anio || ''; document.getElementById('auto-vin').value = a.vin || ''; document.getElementById('auto-mant-km').value = a.limiteMant || ''; document.getElementById('auto-venc-doc').value = a.vencDoc || ''; document.getElementById('auto-conductor').value = a.conductorId || ''; document.getElementById('auto-socio').value = a.socioId || ''; document.getElementById('auto-is-leasing').checked = a.isLeasing || false; document.getElementById('auto-leasing-total').value = a.leasingTotalDias || ''; document.getElementById('auto-leasing-pagados').value = a.leasingDiasPrevios || 0; document.getElementById('leasing-fields').style.display = a.isLeasing ? 'grid' : 'none'; cambiarModulo('mod-autos'); }
+        function eliminarAuto(id) { if(confirm('¿Eliminar vehículo?')) { db.autos = db.autos.filter(a => a.id !== id); guardarLocal(); } }
+        function editarConductor(id) { const c = db.conductores.find(x => x.id === id); document.getElementById('edit-cond-id').value = c.id; document.getElementById('cond-nombre').value = c.nombre; document.getElementById('cond-cedula').value = c.cedula || ''; document.getElementById('cond-telefono').value = c.telefono || ''; document.getElementById('cond-licencia').value = c.licencia || ''; cambiarModulo('mod-conductores'); }
+        function eliminarConductor(id) { if(confirm('¿Eliminar conductor?')) { db.conductores = db.conductores.filter(c => c.id !== id); db.autos.forEach(a=>{if(a.conductorId===id) a.conductorId='';}); guardarLocal(); } }
+        function eliminarMovimiento(id) { if(confirm('¿Eliminar este registro financiero?')) { db.movimientos = db.movimientos.filter(m => m.id !== id); guardarLocal(); } }
+
+        // =========================================================================
+        // 11. RENDERIZADO VISUAL DEL DASHBOARD Y TABLAS (UI)
+        // =========================================================================
+        function actualizarSelectsYListas() {
+            const condOpts = '<option value="">Sin Conductor</option>' + db.conductores.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+            document.getElementById('auto-conductor').innerHTML = condOpts;
+            document.getElementById('reporte-conductor').innerHTML = condOpts;
+            document.getElementById('entrega-conductor').innerHTML = condOpts;
+
+            const socioOpts = '<option value="">Propio (Personal Car)</option>' + db.socios.map(s => `<option value="${s.id}">${s.nombre} (${s.porcentaje}%)</option>`).join('');
+            document.getElementById('auto-socio').innerHTML = socioOpts;
+            document.getElementById('filter-beneficiario').innerHTML = '<option value="">-- Todos los Dueños --</option>' + db.socios.map(s => `<option value="${s.id}">${s.nombre}</option>`).join('');
+
+            const autoOpts = db.autos.map(a => `<option value="${a.id}">${a.placa} - ${a.modelo}</option>`).join('');
+            document.getElementById('pago-auto').innerHTML = autoOpts;
+            document.getElementById('gasto-auto').innerHTML = autoOpts;
+            document.getElementById('contrato-auto').innerHTML = autoOpts;
+            document.getElementById('chk-auto').innerHTML = autoOpts;
+            document.getElementById('entrega-auto').innerHTML = autoOpts;
+            document.getElementById('inv-auto').innerHTML = '<option value="">En Almacén Principal</option>' + autoOpts;
+
+            const containerInv = document.getElementById('lista-seleccion-inventario');
+            if(containerInv) {
+                containerInv.innerHTML = db.inventario.map(inv => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#fff; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
+                        <span style="font-size:0.75rem;">${inv.nombre} (Stock: ${inv.stock})</span>
+                        <input type="number" class="uso-inv-input" data-id="${inv.id}" data-nombre="${inv.nombre}" min="0" max="${inv.stock}" value="0" style="width:60px; padding:4px;">
+                    </div>
+                `).join('') || '<p style="font-size:0.8rem; color:red;">No hay repuestos en inventario.</p>';
+            }
+        }
+
+        function renderizarChecklists() {
+            const tbody = document.getElementById('tabla-historial-checklists');
+            if(!tbody) return;
+            tbody.innerHTML = db.checklists.slice().reverse().map(c => {
+                const a = db.autos.find(x => x.id === c.autoId);
+                const puntos = [];
+                if(c.aceite) puntos.push('Aceite');
+                if(c.agua) puntos.push('Agua');
+                if(c.frenos) puntos.push('Frenos');
+                if(c.llantas) puntos.push('Llantas');
+                if(c.luces) puntos.push('Luces');
+                if(c.limpieza) puntos.push('Limpieza');
+
+                let repuestosStr = c.repuestos && c.repuestos.length > 0 
+                    ? c.repuestos.map(r => `${r.cantidad}x ${r.nombre}`).join('<br>') 
+                    : '<span style="color:var(--text-muted)">Ninguno</span>';
+
+                return `<tr>
+                    <td>${new Date(c.fecha).toLocaleDateString()}</td>
+                    <td><strong>${a ? a.placa : 'N/A'}</strong></td>
+                    <td><small>${puntos.join(', ') || 'Sin marcar'}</small></td>
+                    <td>${repuestosStr}</td>
+                    <td>${c.obs || '-'}</td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="5" style="text-align:center;">No hay revisiones registradas.</td></tr>';
+        }
+
+        function renderizarEntregas() {
+            const tbody = document.getElementById('tabla-entregas');
+            if(!tbody) return;
+            tbody.innerHTML = db.entregas.slice().reverse().map(e => {
+                const a = db.autos.find(x => x.id === e.autoId);
+                const c = db.conductores.find(x => x.id === e.conductorId);
+                const fotosHtml = e.fotos && e.fotos.length > 0 ? e.fotos.map(f => `<img src="${f}" onclick="verImagenGenerica('${f}')" style="height:40px; cursor:pointer; margin-right:4px; border-radius:4px;">`).join('') : 'Sin fotos';
+                
+                return `<tr>
+                    <td>${new Date(e.fecha).toLocaleDateString()}</td>
+                    <td><strong>${a ? a.placa : 'N/A'}</strong></td>
+                    <td>${c ? c.nombre : 'N/A'}</td>
+                    <td>${e.km} km</td>
+                    <td>${e.combustible}</td>
+                    <td>${fotosHtml}</td>
+                    <td><button class="btn-sm btn-red" onclick="eliminarEntrega('${e.id}')">Borrar</button></td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="7" style="text-align:center;">No hay actas de entrega registradas.</td></tr>';
+        }
+
+        function eliminarEntrega(id) {
+            if(confirm('¿Seguro que deseas borrar este acta de entrega?')) {
+                db.entregas = db.entregas.filter(e => e.id !== id);
+                guardarLocal();
+            }
+        }
+
+        function renderizarUI() {
+            // ALERTA DE NUEVOS REPORTES EN DASHBOARD
+            const reportesPendientes = db.movimientos.filter(m => m.isDriverReport && m.estadoRevision === 'Sin Revisar');
+            const alertBox = document.getElementById('dashboard-alert-reportes');
+            if(reportesPendientes.length > 0) {
+                alertBox.style.display = 'block';
+                alertBox.innerHTML = `
+                    <div style="background-color: #fef2f2; border: 2px solid #ef4444; color: #991b1b; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s;" onclick="cambiarModulo('mod-historial')" onmouseover="this.style.transform='scale(1.01)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <strong style="font-size: 1.15rem;">🚨 ¡Tienes ${reportesPendientes.length} reporte(s) nuevo(s) de conductores por revisar!</strong>
+                            <p style="margin: 0; font-size: 0.85rem; margin-top: 5px;">Haz clic aquí para ir a la Bandeja de Revisión y aprobar los pagos o ver comprobantes.</p>
                         </div>
-                    </div>`;
-            }
-        };
-
-        window.copiarCatalogo = function() {
-            let input = document.getElementById('linkCatalogoPrincipal');
-            input.select();
-            document.execCommand("copy");
-            alert("Link del catálogo copiado al portapapeles.");
-        };
-
-        window.ejecutarCrearRifa = async function() {
-            let id = document.getElementById('nuevaRifaID').value.replace(/\s+/g, '');
-            let nom = document.getElementById('nuevaRifaNombre').value;
-            if(!id || !nom) return alert("Por favor completa los campos.");
-            if(listaRifasMaster[id]) return alert("Ese ID ya existe. Elige otro.");
-            
-            listaRifasMaster[id] = { nombreApp: nom, totalNumeros: 100, precio: 5, tema: 'gold', premioUrl: '' };
-            await sincronizarMaster();
-            
-            window.cerrarModales(); 
-            alert("✅ Rifa '" + nom + "' creada exitosamente.");
-            window.location.href = `${window.location.href.split('?')[0]}?rifa=${id}&admin=true`;
-        };
-
-        window.borrarTodoElSistema = async function() {
-            if(confirm("⚠️ PELIGRO: ¿Borrar TODAS las rifas y bases de datos permanentemente?")) {
-                if(usaFirebase) {
-                    let promesas = [];
-                    for(let id in listaRifasMaster) promesas.push(deleteDoc(doc(db, "CronoRifas_System", "DB_" + id)));
-                    promesas.push(deleteDoc(doc(db, "CronoRifas_System", "MasterList")));
-                    promesas.push(deleteDoc(doc(db, "CronoRifas_System", "GlobalSettings")));
-                    try { await Promise.all(promesas); } catch(e) {}
-                }
-                localStorage.clear();
-                alert("Sistema formateado."); 
-                window.location.href = window.location.href.split('?')[0];
-            }
-        };
-
-        window.borrarRifaEspecifica = async function(id) {
-            if(confirm(`¿Deseas borrar permanentemente la rifa: ${id}?`)) {
-                if(usaFirebase) { try { await deleteDoc(doc(db, "CronoRifas_System", "DB_" + id)); } catch(e){} }
-                localStorage.removeItem('local_db_' + id);
-                delete listaRifasMaster[id];
-                await sincronizarMaster(); 
-                window.renderListaMisRifas();
-            }
-        };
-
-        // ================= EDICIÓN DE RIFA Y GANADOR =================
-        window.abrirModoEdicionRifa = async function(id) {
-            rifaActivaId = id; 
-            configActiva = listaRifasMaster[id];
-            
-            if(usaFirebase) {
-                const dbSnap = await getDoc(doc(db, "CronoRifas_System", "DB_" + id)); 
-                dbActiva = dbSnap.exists() ? dbSnap.data() : {};
-            } else { dbActiva = JSON.parse(localStorage.getItem('local_db_' + id)) || {}; }
-            
-            document.getElementById('menuGlobalAdmin').style.display = 'none';
-            document.getElementById('menuEdicionRifa').style.display = 'flex';
-            document.getElementById('btnVolverMisRifas').style.display = 'block';
-            
-            document.getElementById('inputNombreApp').value = configActiva.nombreApp || '';
-            document.getElementById('inputTotalNumeros').value = configActiva.totalNumeros || 100;
-            document.getElementById('inputPrecio').value = configActiva.precio || 5;
-            document.getElementById('inputFecha').value = configActiva.fecha || '';
-            document.getElementById('temaSelect').value = configActiva.tema || 'gold';
-            
-            if(configActiva.logoUrl) document.getElementById('logoApp').src = configActiva.logoUrl;
-            else if(configGlobal.logoUrl) document.getElementById('logoApp').src = configGlobal.logoUrl;
-
-            if(configActiva.premioUrl) document.getElementById('imgPremio').src = configActiva.premioUrl;
-            
-            document.getElementById('adminRifaActualTitulo').innerText = `Administrando: ${configActiva.nombreApp}`;
-            window.cambiarTabRifa('gral'); 
-            window.aplicarConfiguracionVisual(); 
-            window.renderCuadriculaAdmin(); 
-            window.actualizarListaAdmin();
-        };
-
-        window.cerrarEdicionRifa = function() {
-            document.getElementById('menuEdicionRifa').style.display = 'none';
-            document.getElementById('btnVolverMisRifas').style.display = 'none';
-            document.getElementById('menuGlobalAdmin').style.display = 'flex';
-            document.getElementById('adminRifaActualTitulo').innerText = '';
-            window.cambiarTabGlobal('misrifas');
-        };
-
-        window.guardarConfigRifa = async function() {
-            configActiva.nombreApp = document.getElementById('inputNombreApp').value;
-            configActiva.totalNumeros = parseInt(document.getElementById('inputTotalNumeros').value) || 100;
-            configActiva.precio = document.getElementById('inputPrecio').value;
-            configActiva.fecha = document.getElementById('inputFecha').value;
-            configActiva.tema = document.getElementById('temaSelect').value;
-
-            listaRifasMaster[rifaActivaId] = configActiva; 
-            await sincronizarMaster(); 
-            
-            alert("💾 Datos de Rifa Guardados Correctamente.");
-            window.aplicarConfiguracionVisual(); 
-            window.renderCuadriculaAdmin();
-        };
-
-        window.anunciarGanador = async function() {
-            let winNum = document.getElementById('inputNumGanador').value;
-            if(winNum === "") return alert("Debes ingresar un número.");
-            
-            // AÑADIDO: Formato a 2 dígitos para búsquedas con cero adelante
-            winNum = winNum.toString().padStart(2, '0'); 
-            
-            configActiva.ganador = winNum;
-            if(dbActiva[winNum]) configActiva.ganadorNombre = dbActiva[winNum].nombre;
-            else configActiva.ganadorNombre = "Número no vendido 😔";
-
-            listaRifasMaster[rifaActivaId] = configActiva;
-            await sincronizarMaster();
-            alert("Ganador publicado.");
-            window.aplicarConfiguracionVisual();
-        };
-
-        window.aplicarConfiguracionVisual = function() {
-            document.getElementById('tituloAppVisual').innerText = configActiva.nombreApp || "Sistema de Rifas";
-            document.getElementById('precioBoleto').innerHTML = `$${configActiva.precio || 5} <span style="font-size: 12px; color: gray;">x Boleto</span>`;
-            document.documentElement.setAttribute('data-theme', configActiva.tema || 'gold');
-            
-            if(configActiva.logoUrl) document.getElementById('logoApp').src = configActiva.logoUrl;
-            else if(configGlobal.logoUrl) document.getElementById('logoApp').src = configGlobal.logoUrl;
-            else document.getElementById('logoApp').src = "https://via.placeholder.com/150?text=Logo";
-            
-            document.getElementById('imgPremio').src = configActiva.premioUrl || "https://images.unsplash.com/photo-1513885535751-8b9238bd345a?auto=format&fit=crop&w=600&q=80";
-            
-            if(configActiva.ganador !== undefined && configActiva.ganador !== null && configActiva.ganador !== "") {
-                document.getElementById('bannerGanador').style.display = 'block';
-                document.getElementById('boletoGanadorVisual').innerText = configActiva.ganador;
-                document.getElementById('nombreGanadorVisual').innerText = configActiva.ganadorNombre;
+                        <span style="font-size: 2rem;">👉</span>
+                    </div>
+                `;
             } else {
-                document.getElementById('bannerGanador').style.display = 'none';
+                alertBox.style.display = 'none';
             }
 
-            if(isClientView && rifaActivaId) document.getElementById('btnVolverCatalogo').style.display = 'inline-block';
-            window.iniciarTemporizador();
-        };
-
-        // ================= CUADRÍCULAS (AHORA CON CEROS POR DELANTE) =================
-        window.renderCuadriculaCliente = function() {
-            const grid = document.getElementById('cuadriculaCliente'); grid.innerHTML = ''; 
-            let t = configActiva.totalNumeros || 100;
-            for (let i = 0; i < t; i++) {
-                // AÑADIDO: Agrega ceros al inicio del 0 al 9
-                let n = i.toString().padStart(2, '0'); 
-                
-                let div = document.createElement('div'); div.innerText = n;
-                if(dbActiva[n]) { div.className = 'num agarrado'; } 
-                else { div.className = 'num disponible'; div.onclick = () => window.alternarSeleccionCliente(n, div); }
-                grid.appendChild(div);
-            }
-        };
-
-        window.renderCuadriculaAdmin = function() {
-            const grid = document.getElementById('cuadriculaAdmin'); grid.innerHTML = ''; 
-            adminSeleccionados = []; document.getElementById('adminCantSel').innerText = "0";
-            let t = configActiva.totalNumeros || 100;
-            for (let i = 0; i < t; i++) {
-                // AÑADIDO: Agrega ceros al inicio del 0 al 9
-                let n = i.toString().padStart(2, '0'); 
-                
-                let div = document.createElement('div'); div.innerText = n;
-                if(dbActiva[n]) { 
-                    div.className = `num ${dbActiva[n].estado}-admin`; 
-                    div.onclick = () => { if(confirm(`¿Liberar boleto ${n}?`)) window.liberarBoleto(n); }; 
-                } else { 
-                    div.className = 'num disponible'; div.onclick = () => window.alternarSeleccionAdmin(n, div); 
+            // SEMÁFOROS
+            document.getElementById('tabla-semaforos').innerHTML = db.autos.map(auto => {
+                const chofer = db.conductores.find(c => c.id === auto.conductorId);
+                let semMant = '<span class="semaforo s-verde"></span> Al Día';
+                if (auto.limiteMant > 0) {
+                    const diff = auto.limiteMant - (auto.kmActual || 0);
+                    if (diff <= 0) semMant = '<span class="semaforo s-rojo"></span> REVISIÓN!';
+                    else if (diff <= 500) semMant = '<span class="semaforo s-amarillo"></span> Pronto';
                 }
-                grid.appendChild(div);
-            }
-        };
+                let semDoc = '<span class="semaforo s-verde"></span> Al Día';
+                if (auto.vencDoc) {
+                    const dias = Math.ceil((new Date(auto.vencDoc) - new Date()) / 86400000);
+                    if (dias < 0) semDoc = '<span class="semaforo s-rojo"></span> VENCIDO';
+                    else if (dias <= 15) semDoc = '<span class="semaforo s-amarillo"></span> Vence Pronto';
+                }
+                return `<tr><td><strong>${auto.placa}</strong></td><td>${chofer?chofer.nombre:'-'}</td><td>${auto.kmActual||0} km</td><td>${semMant}</td><td>${semDoc}</td></tr>`;
+            }).join('');
 
-        window.alternarSeleccionCliente = function(n, el) {
-            let i = numerosSeleccionados.indexOf(n); 
-            if(i > -1) { numerosSeleccionados.splice(i,1); el.classList.remove('seleccionado'); } 
-            else { numerosSeleccionados.push(n); el.classList.add('seleccionado'); }
-            document.getElementById('carritoCantidad').innerText = numerosSeleccionados.length; 
-            document.getElementById('carritoTotal').innerText = (numerosSeleccionados.length * (configActiva.precio || 5)).toFixed(2);
-            document.getElementById('carritoBar').classList.toggle('activo', numerosSeleccionados.length > 0);
-        };
+            // AUTOS
+            document.getElementById('tabla-autos-lista').innerHTML = db.autos.map(a => {
+                const leasingBadge = a.isLeasing ? '<span class="badge badge-success">Leasing</span>' : '';
+                return `<tr><td><strong>${a.placa}</strong> ${leasingBadge}<br><small>${a.modelo}</small></td><td>$${a.tarifaDiaria||0}</td><td>${a.isLeasing ? 'Sí' : 'No'}</td><td>${db.conductores.find(c=>c.id===a.conductorId)?.nombre||'-'}</td><td>${db.socios.find(s=>s.id===a.socioId)?.nombre||'Personal Car'}</td><td>${a.kmActual||0} km</td><td><button class="btn-sm btn-blue" onclick="editarAuto('${a.id}')">Editar</button> <button class="btn-sm btn-red" onclick="eliminarAuto('${a.id}')">Eliminar</button></td></tr>`;
+            }).join('');
 
-        window.alternarSeleccionAdmin = function(n, el) {
-            let i = adminSeleccionados.indexOf(n); 
-            if(i > -1) { adminSeleccionados.splice(i,1); el.classList.remove('seleccionado'); } 
-            else { adminSeleccionados.push(n); el.classList.add('seleccionado'); }
-            document.getElementById('adminCantSel').innerText = adminSeleccionados.length;
-        };
+            // INVENTARIO
+            document.getElementById('tabla-inventario').innerHTML = db.inventario.map(i => {
+                const a = db.autos.find(x => x.id === i.autoId);
+                return `<tr><td><strong>${i.nombre}</strong></td><td>${i.categoria}</td><td>${i.stock}</td><td>${a ? a.placa : 'Almacén'}</td><td><button class="btn-sm btn-blue" onclick="editarInventario('${i.id}')">Editar</button> <button class="btn-sm btn-red" onclick="eliminarInventario('${i.id}')">❌</button></td></tr>`;
+            }).join('') || '<tr><td colspan="5" style="text-align:center;">Inventario Vacío.</td></tr>';
 
-        // ================= CHECKOUT Y RECIBO PROFESIONAL =================
-        window.abrirModalCheckout = () => { 
-            document.getElementById('resumenNumeros').innerText = numerosSeleccionados.join(', '); 
-            document.getElementById('modalCheckout').style.display = 'flex'; 
-        };
-        
-        window.abrirModalManualConfirm = () => {
-            if(adminSeleccionados.length === 0) return alert("Selecciona números primero");
-            document.getElementById('manualNumVisual').innerText = adminSeleccionados.join(', '); 
-            document.getElementById('adminManualNombre').value = ''; 
-            document.getElementById('adminManualTelefono').value = '';
-            document.getElementById('modalVentaManual').style.display = 'flex';
-        };
+            // CONDUCTORES Y BILLETERA
+            const hostUrl = window.location.href.split('?')[0];
+            document.getElementById('tabla-conductores-lista').innerHTML = db.conductores.map(c => {
+                const link = `${hostUrl}?driver=${c.id}`;
+                const saldo = obtenerSaldoChofer(c.id);
+                const colorSaldo = saldo >= 0 ? 'green' : 'red';
+                const msjSaldo = saldo >= 0 ? `Saldo a Favor: $${saldo.toFixed(2)}` : `Deuda: $${Math.abs(saldo).toFixed(2)}`;
 
-        window.generarTicket = async function() {
-            const nom = document.getElementById('clienteNombre').value; 
-            const tel = document.getElementById('clienteTelefono').value;
-            const metodo = document.getElementById('clienteMetodo').value;
-            if(!nom) return alert("Por favor ingresa tu nombre");
-            
-            numerosSeleccionados.forEach(n => dbActiva[n] = { estado: 'reservado', nombre: nom, telefono: tel });
-            await sincronizarDBRifa(); 
-            window.enviarTelegram(nom, tel, numerosSeleccionados.join(', '));
-            
-            const fechaActual = new Date();
-            const txID = "TX-" + Math.floor(Math.random() * 1000000);
-            
-            document.getElementById('ticketFecha').innerText = fechaActual.toLocaleDateString() + " " + fechaActual.toLocaleTimeString();
-            document.getElementById('ticketTxID').innerText = txID;
-            document.getElementById('ticketRifaNombre').innerText = configActiva.nombreApp || 'Crono Rifas';
-            document.getElementById('ticketNombre').innerText = nom; 
-            document.getElementById('ticketPago').innerText = metodo;
-            document.getElementById('ticketNumeros').innerText = numerosSeleccionados.join(', ');
-            
-            let precio = configActiva.precio || 5;
-            document.getElementById('ticketPrecioUnitario').innerText = parseFloat(precio).toFixed(2);
-            document.getElementById('ticketMontoTotal').innerText = (numerosSeleccionados.length * precio).toFixed(2);
+                let waMsg = `Hola ${c.nombre}, te adjuntamos el link de tu portal diario de Personal Car: ${link}`;
+                if (saldo < 0) waMsg = `Hola ${c.nombre}, recordatorio de Personal Car: Tienes un saldo pendiente de $${Math.abs(saldo).toFixed(2)}. Por favor ingresa tu reporte de pago aquí: ${link}`;
 
-            window.cerrarModales(); 
-            document.getElementById('modalTicket').style.display = 'flex'; 
-            window.renderCuadriculaCliente(); 
-        };
+                return `<tr>
+                    <td><strong>${c.nombre}</strong></td>
+                    <td style="color:${colorSaldo}; font-weight:bold;">${msjSaldo}</td>
+                    <td>${c.telefono || '-'}</td>
+                    <td><button class="btn-sm btn-green" onclick="enviarWhatsApp('${c.telefono}', '${waMsg}')">📱 WhatsApp</button> <button class="btn-sm btn-dark" onclick="navigator.clipboard.writeText('${link}'); alert('Copiado');">🔗 Link</button> <button class="btn-sm btn-blue" onclick="editarConductor('${c.id}')">Editar</button></td>
+                </tr>`;
+            }).join('');
 
-        window.confirmarVentaManual = async function() {
-            const nom = document.getElementById('adminManualNombre').value || 'Venta Manual'; 
-            const tel = document.getElementById('adminManualTelefono').value || '';
-            const estadoSelect = document.getElementById('adminManualEstado').value || 'vendido';
-            
-            adminSeleccionados.forEach(n => dbActiva[n] = { estado: estadoSelect, nombre: nom, telefono: tel });
-            await sincronizarDBRifa(); 
-            window.cerrarModales(); 
-            window.renderCuadriculaAdmin(); 
-            window.actualizarListaAdmin();
-            alert("✅ Registro guardado como: " + estadoSelect.toUpperCase());
-        };
+            // SOCIOS
+            document.getElementById('tabla-socios-liquidacion').innerHTML = db.socios.map(socio => {
+                const autosSocio = db.autos.filter(a => a.socioId === socio.id);
+                const autoIds = autosSocio.map(a => a.id);
+                let ing = 0, gas = 0;
+                db.movimientos.forEach(m => {
+                    if (autoIds.includes(m.autoId) && !m.isDriverReport) {
+                        if (m.tipo === 'ingreso' && m.estado === 'Pagado') ing += m.monto;
+                        if (m.tipo === 'gasto') gas += m.monto;
+                    }
+                });
+                const neto = ing - gas;
+                const pagoSocio = (neto > 0) ? (neto * (socio.porcentaje / 100)) : 0;
+                return `<tr><td><strong>${socio.nombre}</strong> (${socio.porcentaje}%)</td><td>${autosSocio.map(a=>a.placa).join(', ')||'Ninguno'}</td><td style="color:var(--success)">$${ing.toFixed(2)}</td><td style="color:var(--danger)">$${gas.toFixed(2)}</td><td><strong>$${neto.toFixed(2)}</strong></td><td style="color:var(--primary-light); font-weight:bold;">$${pagoSocio.toFixed(2)}</td></tr>`;
+            }).join('');
 
-        window.finalizarCompra = function() {
-            const numWa = configGlobal.wa || "50700000000"; 
-            const msg = `¡Hola! Reservé los números: *${numerosSeleccionados.join(', ')}* en la rifa ${configActiva.nombreApp}. Adjunto comprobante.`;
-            window.cerrarModales(); 
-            numerosSeleccionados = []; 
-            document.getElementById('carritoBar').classList.remove('activo');
-            window.open(`https://wa.me/${numWa}?text=${encodeURIComponent(msg)}`, '_blank');
-        };
+            // HISTORIAL BANDEJA DE CHOFER
+            document.getElementById('tabla-reportes-driver').innerHTML = db.movimientos.filter(m => m.isDriverReport).reverse().map(m => {
+                const c = db.conductores.find(x => x.id === m.conductorId);
+                const badge = m.estado === 'Pagado' ? 'badge-success' : (m.estado === 'Pendiente' ? 'badge-danger' : 'badge-info');
+                return `<tr><td>${m.fecha}</td><td><strong>${c?c.nombre:'-'}</strong></td><td>$${m.monto.toFixed(2)}</td><td><span class="badge ${badge}">${m.estado}</span></td><td><button class="btn-sm btn-blue" onclick="abrirGestionReporte('${m.id}')" style="font-size:0.8rem; padding:8px 12px;">⚙ REVISAR</button> <button class="btn-sm btn-red" onclick="eliminarMovimiento('${m.id}')">Borrar</button></td></tr>`;
+            }).join('') || '<tr><td colspan="5" style="text-align:center;">Bandeja limpia. No hay reportes pendientes.</td></tr>';
 
-        window.enviarTelegram = function(nom, tel, nums) {
-            if(!configGlobal.tgToken || !configGlobal.tgChat) return;
-            const txt = `🔔 *NUEVA COMPRA/RESERVA*\nRifa: ${configActiva.nombreApp}\nCliente: ${nom}\nTel: ${tel}\nBoletos: ${nums}`;
-            fetch(`https://api.telegram.org/bot${configGlobal.tgToken}/sendMessage`, { 
-                method:'POST', headers:{'Content-Type':'application/json'}, 
-                body: JSON.stringify({ chat_id: configGlobal.tgChat, text: txt, parse_mode: 'Markdown'}) 
-            }).catch(e => console.log(e));
-        };
+            // HISTORIAL GLOBAL MANUAL
+            document.getElementById('tabla-historial-global').innerHTML = db.movimientos.filter(m => !m.isDriverReport).reverse().map(m => {
+                const a = db.autos.find(x => x.id === m.autoId);
+                const c = db.conductores.find(x => x.id === m.conductorId);
+                const badge = m.tipo === 'gasto' ? 'badge-danger' : (m.estado === 'Pagado' ? 'badge-success' : 'badge-warning');
+                return `<tr><td>${m.fecha}</td><td>${m.tipo.toUpperCase()}</td><td>${a?a.placa:'-'} / ${c?c.nombre:'-'}</td><td><span class="badge ${badge}">${m.estado||'-'}</span></td><td>${m.concepto||m.nota}</td><td><strong>$${m.monto.toFixed(2)}</strong></td><td><button class="btn-sm btn-red" onclick="eliminarMovimiento('${m.id}')">Borrar</button></td></tr>`;
+            }).join('');
 
-        // ================= PANEL ADMINISTRADOR Y EDICIÓN =================
-        window.actualizarListaAdmin = function() {
-            const tbody = document.querySelector('#tablaParticipantes tbody'); tbody.innerHTML = '';
-            for(let num in dbActiva) {
-                let c = dbActiva[num]; let isPag = c.estado === 'vendido';
-                tbody.innerHTML += `<tr>
-                    <td><strong>${num}</strong></td>
-                    <td>${c.nombre} <br><span style="font-size:10px;">${c.telefono||''}</span> <br><small style="color:${isPag?'green':'orange'}">${c.estado.toUpperCase()}</small></td>
-                    <td style="white-space: nowrap;">
-                        ${!isPag ? `<button class="btn btn-success btn-small" onclick="marcarPagado('${num}')">✅</button>` : ''}
-                        <button class="btn btn-small" style="background:#0284C7; color:white;" onclick="abrirModalEditar('${num}')">✏️</button>
-                        <button class="btn btn-small" style="background:#555; color:white;" onclick="imprimirRawBT('${num}')">🖨️</button>
-                        <button class="btn btn-danger btn-small" onclick="liberarBoleto('${num}')">❌</button>
-                    </td></tr>`;
-            }
-        };
+            // CAJA CHICA
+            const fondoConfigurado = parseFloat(db.ajustes.fondoDiario || 0);
+            document.getElementById('caja-chica-list').innerHTML = db.autos.map(a => {
+                const pagosDeAuto = db.movimientos.filter(m => !m.isDriverReport && m.autoId === a.id && m.tipo === 'ingreso' && m.estado === 'Pagado').length;
+                const ahorro = pagosDeAuto * fondoConfigurado;
+                return `<div style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border); padding:6px 0;"><span>${a.placa} - ${a.modelo}</span><strong style="color:var(--success)">$${ahorro.toFixed(2)}</strong></div>`;
+            }).join('');
 
-        window.marcarPagado = async function(num) { dbActiva[num].estado = 'vendido'; await sincronizarDBRifa(); window.actualizarListaAdmin(); window.renderCuadriculaAdmin(); };
-        window.liberarBoleto = async function(num) { delete dbActiva[num]; await sincronizarDBRifa(); window.actualizarListaAdmin(); window.renderCuadriculaAdmin(); window.renderCuadriculaCliente(); };
-
-        window.abrirModalEditar = function(num) {
-            document.getElementById('editBoletoNum').innerText = num; 
-            document.getElementById('editBoletoNumHidden').value = num;
-            document.getElementById('editNuevoNum').value = ''; 
-            document.getElementById('editNombre').value = dbActiva[num].nombre || ''; 
-            document.getElementById('editTelefono').value = dbActiva[num].telefono || '';
-            document.getElementById('modalEditarBoleto').style.display = 'flex';
-        };
-
-        window.guardarEdicionBoleto = async function() {
-            let numViejo = document.getElementById('editBoletoNumHidden').value; 
-            let numNuevo = document.getElementById('editNuevoNum').value;
-            let nom = document.getElementById('editNombre').value; 
-            let tel = document.getElementById('editTelefono').value;
-            
-            // AÑADIDO: Rellenar con cero por si el admin digita "5" en vez de "05" al editar
-            if(numNuevo) numNuevo = numNuevo.toString().padStart(2, '0');
-
-            if(numNuevo && numNuevo !== numViejo) {
-                if(dbActiva[numNuevo]) return alert("Ese número ya está ocupado por otra persona.");
-                if(parseInt(numNuevo) >= (configActiva.totalNumeros || 100)) return alert("El número supera el total de la rifa.");
-                
-                let estadoActual = dbActiva[numViejo].estado;
-                dbActiva[numNuevo] = { estado: estadoActual, nombre: nom, telefono: tel };
-                delete dbActiva[numViejo];
+            // DASHBOARD LEASING (OPCIÓN A COMPRA)
+            const autosLeasing = db.autos.filter(a => a.isLeasing);
+            if (autosLeasing.length > 0) {
+                document.getElementById('dashboard-leasing-box').style.display = 'block';
+                document.getElementById('lista-dashboard-leasing').innerHTML = autosLeasing.map(a => {
+                    const conductor = db.conductores.find(c => c.id === a.conductorId);
+                    const totalDias = a.leasingTotalDias || 0;
+                    const pagosSistema = db.movimientos.filter(m => !m.isDriverReport && m.autoId === a.id && (m.estado === 'Pagado' || (m.estado === 'Dia Libre' && m.sumarLeasing))).length;
+                    const diasPagados = (a.leasingDiasPrevios || 0) + pagosSistema;
+                    const pct = totalDias > 0 ? Math.min((diasPagados / totalDias) * 100, 100) : 0;
+                    
+                    return `
+                        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid var(--border); margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                                <strong>${a.placa} - ${conductor?conductor.nombre:'Sin Chofer'}</strong>
+                                <span>${diasPagados} / ${totalDias} Días</span>
+                            </div>
+                            <div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${pct}%;"></div></div>
+                            <p style="font-size:0.75rem; color:var(--text-muted); text-align:right;">Completado: ${pct.toFixed(1)}% | Faltan ${Math.max(totalDias - diasPagados, 0)} Días</p>
+                        </div>
+                    `;
+                }).join('');
             } else {
-                dbActiva[numViejo].nombre = nom; 
-                dbActiva[numViejo].telefono = tel;
+                document.getElementById('dashboard-leasing-box').style.display = 'none';
             }
-
-            await sincronizarDBRifa(); 
-            window.cerrarModales(); 
-            window.actualizarListaAdmin();
-            window.renderCuadriculaAdmin();
-            alert("Boleto actualizado correctamente.");
-        };
-
-        // ================= IMPRESIÓN (RAWBT TEXTO LARGO AGRUPADO) =================
-        window.imprimirRawBT = function(num) {
-            let c = dbActiva[num];
             
-            let todosLosBoletos = Object.keys(dbActiva).filter(k => dbActiva[k].nombre === c.nombre && dbActiva[k].telefono === c.telefono);
-            let boletosStr = todosLosBoletos.join(', ');
+            renderizarChecklists();
+            renderizarEntregas();
+        }
 
-            if(confirm(`¿Imprimir ticket en RawBT para ${c.nombre}?\nIncluirá los boletos: ${boletosStr}`)) {
-                const fechaActual = new Date();
-                const fechaStr = fechaActual.toLocaleDateString() + " " + fechaActual.toLocaleTimeString();
-                const txID = "TX-" + Math.floor(Math.random() * 1000000);
-                
-                let precioUnitario = parseFloat(configActiva.precio || 5);
-                let total = precioUnitario * todosLosBoletos.length;
-                
-                let txt = `================================\n`;
-                txt += `      COMPROBANTE DE RESERVA\n`;
-                txt += `================================\n\n`;
-                txt += `SORTEO: ${configActiva.nombreApp}\n`;
-                txt += `FECHA: ${fechaStr}\n`;
-                txt += `TRANSACCION: ${txID}\n\n`;
-                txt += `--------------------------------\n`;
-                txt += `DATOS DEL CLIENTE\n`;
-                txt += `Nombre: ${c.nombre}\n`;
-                txt += `Telefono: ${c.telefono || 'N/A'}\n`;
-                txt += `--------------------------------\n\n`;
-                txt += `BOLETOS ASIGNADOS:\n`;
-                txt += `[ ${boletosStr} ]\n\n`;
-                txt += `ESTADO: ${c.estado.toUpperCase()}\n`;
-                txt += `PRECIO UNITARIO: $${precioUnitario.toFixed(2)}\n\n`;
-                txt += `--------------------------------\n`;
-                txt += `TOTAL A PAGAR: $${total.toFixed(2)}\n`;
-                txt += `--------------------------------\n\n`;
-                txt += `TERMINOS Y CONDICIONES:\n`;
-                txt += `Este boleto es su comprobante\n`;
-                txt += `oficial de participacion.\n`;
-                txt += `Sujeto a verificacion de pago.\n`;
-                txt += `El premio debe ser reclamado\n`;
-                txt += `con su identificacion oficial.\n`;
-                txt += `\n!MUCHA SUERTE!\n`;
-                txt += `================================\n\n\n`;
+        function actualizarUI() {
+            actualizarSelectsYListas();
+            renderizarUI();
 
-                window.location.href = `intent:${encodeURI(txt)}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
+            // Finanzas Totales Dashboard
+            const socioFiltro = document.getElementById('filter-beneficiario').value;
+            let autosFiltro = socioFiltro ? db.autos.filter(a => a.socioId === socioFiltro) : db.autos;
+            const idsAutos = autosFiltro.map(a => a.id);
+
+            let in_ = 0, out_ = 0, pen = 0;
+            db.movimientos.filter(m => !m.isDriverReport && idsAutos.includes(m.autoId)).forEach(m => {
+                const fondo = parseFloat(db.ajustes.fondoDiario || 0);
+                if(m.tipo === 'ingreso' && m.estado === 'Pagado') in_ += (m.monto - fondo); 
+                if(m.tipo === 'ingreso' && m.estado === 'Pendiente') pen += m.monto;
+                if(m.tipo === 'gasto') out_ += m.monto;
+            });
+
+            document.getElementById('stat-ingresos').innerText = `$${in_.toFixed(2)}`;
+            document.getElementById('stat-gastos').innerText = `$${out_.toFixed(2)}`;
+            document.getElementById('stat-balance').innerText = `$${(in_ - out_).toFixed(2)}`;
+            document.getElementById('stat-pendientes').innerText = `$${pen.toFixed(2)}`;
+
+            // Gráfico Chart.js - Ingresos / Gastos
+            if(typeof Chart !== 'undefined') {
+                const ctx = document.getElementById('chartBalance').getContext('2d');
+                const labels = autosFiltro.map(a => a.placa);
+                const dataIng = autosFiltro.map(a => db.movimientos.filter(m => !m.isDriverReport && m.autoId === a.id && m.tipo === 'ingreso' && m.estado === 'Pagado').reduce((acc, curr) => acc + curr.monto, 0));
+                const dataGas = autosFiltro.map(a => db.movimientos.filter(m => !m.isDriverReport && m.autoId === a.id && m.tipo === 'gasto').reduce((acc, curr) => acc + curr.monto, 0));
+
+                if(chartBalanceInstance) chartBalanceInstance.destroy();
+                chartBalanceInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: labels, datasets: [ { label: 'Ingresos ($)', data: dataIng, backgroundColor: '#059669' }, { label: 'Gastos ($)', data: dataGas, backgroundColor: '#dc2626' } ] },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+
+                // Gráfico Chart.js - Origen (InDrive / Uber / Part)
+                const ctxO = document.getElementById('chartOrigen').getContext('2d');
+                let inDrive = 0, uber = 0, particular = 0, leasing = 0;
+                db.movimientos.filter(m => !m.isDriverReport && m.tipo === 'ingreso' && m.estado === 'Pagado').forEach(m => {
+                    if(m.origen === 'inDrive') inDrive += m.monto;
+                    else if(m.origen === 'Uber') uber += m.monto;
+                    else if(m.origen === 'Particular') particular += m.monto;
+                    else if(m.origen === 'Leasing') leasing += m.monto;
+                    else inDrive += m.monto; // Default
+                });
+
+                if(chartOrigenInstance) chartOrigenInstance.destroy();
+                chartOrigenInstance = new Chart(ctxO, {
+                    type: 'doughnut',
+                    data: { labels: ['inDrive / Apps', 'Uber', 'Alquiler Particular', 'Leasing'], datasets: [{ data: [inDrive, uber, particular, leasing], backgroundColor: ['#10b981', '#000000', '#2563eb', '#f59e0b'] }] },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
             }
-        };
+        }
 
-        window.generarPDFRifa = function(id) {
-            let configPDF = listaRifasMaster[id]; 
-            let dbPDF = (id === rifaActivaId) ? dbActiva : (JSON.parse(localStorage.getItem('local_db_' + id)) || {}); 
-            
-            let html = `
-            <div class="print-letter">
-                <h1 style="text-align:center; color:#333; margin-bottom: 5px;">REPORTE DE RIFA: ${configPDF.nombreApp}</h1>
-                <p style="text-align:center; color:#666; margin-top: 0;">Total Boletos: ${configPDF.totalNumeros} | Precio: $${configPDF.precio}</p>
-                <hr style="margin: 20px 0;">
-                <table style="width:100%; border-collapse: collapse; text-align:left;">
-                    <tr style="background:#eee; color: #333;">
-                        <th style="border: 1px solid #ccc; padding:10px;">Boleto</th>
-                        <th style="border: 1px solid #ccc; padding:10px;">Nombre</th>
-                        <th style="border: 1px solid #ccc; padding:10px;">Teléfono</th>
-                        <th style="border: 1px solid #ccc; padding:10px;">Estado</th>
-                    </tr>`;
-            
-            let ingresos = 0;
-            for(let i=0; i<configPDF.totalNumeros; i++) {
-                // AÑADIDO: Agrega ceros al inicio del 0 al 9 en el listado PDF
-                let n = i.toString().padStart(2, '0'); 
-                if(dbPDF[n]) { 
-                    let item = dbPDF[n];
-                    html += `<tr style="color: #333;">
-                        <td style="border: 1px solid #ccc; padding:8px;">${n}</td>
-                        <td style="border: 1px solid #ccc; padding:8px;">${item.nombre}</td>
-                        <td style="border: 1px solid #ccc; padding:8px;">${item.telefono || ''}</td>
-                        <td style="border: 1px solid #ccc; padding:8px;">${item.estado}</td>
-                    </tr>`; 
-                    if(item.estado === 'vendido') ingresos += parseFloat(configPDF.precio); 
-                }
-            }
-            html += `</table><h3 style="text-align:right; margin-top:30px; color:#333;">Ingresos Confirmados (Pagados): $${ingresos.toFixed(2)}</h3></div>`;
-            document.getElementById('printArea').innerHTML = html; 
-            alert("Se abrirá el cuadro de impresión. Asegúrate de elegir 'Guardar como PDF' y tamaño 'Carta'."); 
-            window.print();
-        };
+        // =========================================================================
+        // 12. GENERACIÓN DE PDF Y CONTRATOS
+        // =========================================================================
+        function generarVistaContrato() {
+            const autoId = document.getElementById('contrato-auto').value;
+            const auto = db.autos.find(a => a.id === autoId);
+            const chofer = auto ? db.conductores.find(c => c.id === auto.conductorId) : null;
 
-        // ================= LINKS Y QR TEMÁTICOS =================
-        window.abrirModalQR = function(id) { 
-            window.qrActivoId = id; 
-            document.getElementById('modalQR').style.display = 'flex'; 
-            window.actualizarQREnModal(); 
-        };
-        
-        window.actualizarQREnModal = function() {
-            const link = `${window.location.href.split('?')[0]}?rifa=${encodeURIComponent(window.qrActivoId)}`;
-            let color = document.getElementById('qrColor').value.replace('#',''); 
-            let bg = document.getElementById('qrBgColor').value.replace('#','');
-            
-            document.getElementById('linkGeneradoText').value = link; 
-            document.getElementById('qrImg').src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(link)}&color=${color}&bgcolor=${bg}`;
-        };
+            document.getElementById('c-chofer-nombre').innerText = chofer ? chofer.nombre : '[NOMBRE CHOFER]';
+            document.getElementById('c-chofer-cedula').innerText = chofer ? chofer.cedula : '[CÉDULA]';
+            document.getElementById('c-chofer-licencia').innerText = chofer ? chofer.licencia : '[LICENCIA]';
+            document.getElementById('c-chofer-firma').innerText = chofer ? chofer.nombre : '[NOMBRE CHOFER]';
+            document.getElementById('c-auto-modelo').innerText = auto ? `${auto.modelo} (${auto.anio||''})` : '[MODELO]';
+            document.getElementById('c-auto-placa').innerText = auto ? auto.placa : '[PLACA]';
+            document.getElementById('c-auto-vin').innerText = auto ? (auto.vin || 'N/A') : '[VIN]';
+            document.getElementById('c-tarifa').innerText = (auto ? auto.tarifaDiaria || 0 : 0).toFixed(2);
+            document.getElementById('c-deposito').innerText = parseFloat(document.getElementById('contrato-deposito').value || 0).toFixed(2);
+        }
 
-        // ================= SUBIDA DE IMÁGENES =================
-        window.subirImagenGlobal = async function(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            document.getElementById('logoApp').style.opacity = '0.5'; 
-            
-            if(!usaFirebase) {
-                const reader = new FileReader(); 
-                reader.onload = e => { document.getElementById('logoApp').src = e.target.result; configGlobal.logoUrl = e.target.result; document.getElementById('logoApp').style.opacity = '1';}; 
-                reader.readAsDataURL(file);
-                return alert("Imagen cargada en modo Local (Firebase inactivo).");
+        function generarEstadoCuenta() {
+            const condId = document.getElementById('reporte-conductor').value;
+            const chofer = db.conductores.find(c => c.id === condId);
+
+            document.getElementById('ec-conductor').innerText = chofer ? chofer.nombre : 'Seleccione Chofer';
+            document.getElementById('ec-fecha').innerText = new Date().toLocaleDateString();
+
+            const alertBox = document.getElementById('ec-alert-box');
+            if(!condId) { document.getElementById('ec-detalle-tabla').innerHTML = ''; alertBox.innerHTML = ''; return; }
+
+            const movsChofer = db.movimientos.filter(m => m.conductorId === condId && !m.isDriverReport);
+            let ing = 0, pen = 0;
+            movsChofer.forEach(m => {
+                if(m.estado === 'Pagado') ing += m.monto;
+                if(m.estado === 'Pendiente') pen += m.monto;
+            });
+
+            const saldo = obtenerSaldoChofer(condId);
+
+            if (saldo < 0) {
+                alertBox.innerHTML = `<div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:12px; border-radius:8px;"><strong>🚨 ALERTA DE MOROSIDAD:</strong> El conductor mantiene una deuda consolidada de <strong>$${Math.abs(saldo).toFixed(2)}</strong>.</div>`;
+            } else {
+                alertBox.innerHTML = `<div style="background:#d1fae5; color:#065f46; padding:10px; border-radius:8px;">✅ <strong>ESTADO SOLVENTE:</strong> Sin deuda.</div>`;
             }
 
-            try {
-                const storageRef = ref(storage, `CronoRifas_System/Global/${file.name}`);
-                const snapshot = await uploadBytes(storageRef, file);
-                const url = await getDownloadURL(snapshot.ref);
-                
-                configGlobal.logoUrl = url;
-                document.getElementById('logoApp').src = url;
-                await setDoc(doc(db, "CronoRifas_System", "GlobalSettings"), configGlobal);
-                alert("✅ ¡Logo Global guardado permanentemente en la nube!");
-            } catch(e) {
-                console.error(e);
-                alert("Error al subir. Asegúrate de haber modificado las Reglas de Storage en Firebase.");
-            }
-            document.getElementById('logoApp').style.opacity = '1';
-        };
+            document.getElementById('ec-total-ingresos').innerText = `$${ing.toFixed(2)}`;
+            document.getElementById('ec-total-pendiente').innerText = `$${pen.toFixed(2)}`;
 
-        window.subirImagenFirebase = async function(event, imgElementId, configKey) {
-            const file = event.target.files[0];
-            if (!file) return;
-            document.getElementById(imgElementId).style.opacity = '0.5'; 
-            
-            if(!usaFirebase) {
-                const reader = new FileReader(); 
-                reader.onload = e => { document.getElementById(imgElementId).src = e.target.result; configActiva[configKey] = e.target.result; document.getElementById(imgElementId).style.opacity = '1';}; 
-                reader.readAsDataURL(file);
-                return alert("Imagen cargada en modo Local.");
-            }
+            document.getElementById('ec-detalle-tabla').innerHTML = movsChofer.slice(-20).reverse().map(m => {
+                const auto = db.autos.find(a => a.id === m.autoId);
+                let rowClass = m.estado === 'Pendiente' ? 'pdf-row-red' : (m.estado === 'Dia Libre' ? 'pdf-row-blue' : '');
+                return `<tr class="${rowClass}" style="text-align:center;">
+                    <td style="border:1px solid #cbd5e1;">${new Date(m.fecha).toLocaleDateString()}</td>
+                    <td style="border:1px solid #cbd5e1;">${auto ? auto.placa : 'N/A'}</td>
+                    <td style="border:1px solid #cbd5e1; font-weight:bold;">${m.estado}</td>
+                    <td style="border:1px solid #cbd5e1;">${m.concepto || m.nota || '-'}</td>
+                    <td style="border:1px solid #cbd5e1; font-weight:bold;">$${m.monto.toFixed(2)}</td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="5" style="text-align:center;">Sin registros.</td></tr>';
+        }
 
-            try {
-                const storageRef = ref(storage, `CronoRifas_System/${rifaActivaId}/${file.name}`);
-                const snapshot = await uploadBytes(storageRef, file);
-                const url = await getDownloadURL(snapshot.ref);
-                
-                configActiva[configKey] = url;
-                document.getElementById(imgElementId).src = url;
-                
-                listaRifasMaster[rifaActivaId] = configActiva;
-                await setDoc(doc(db, "CronoRifas_System", "MasterList"), listaRifasMaster);
-                alert("✅ ¡Foto del Premio guardada en la nube exitosamente!");
-            } catch(e) {
-                console.error(e);
-                alert("Error al subir. Asegúrate de haber modificado las Reglas de Storage.");
-            }
-            document.getElementById(imgElementId).style.opacity = '1';
-        };
+        // =========================================================================
+        // 13. UTILIDADES EXTRAS Y EVENTO INICIAL
+        // =========================================================================
+        function renderizarDashboard() { actualizarUI(); }
 
-        // ================= NAVEGACIÓN Y UTILIDADES =================
-        window.mostrarLoginAdmin = () => document.getElementById('modalLogin').style.display = 'flex';
-        
-        window.verificarLogin = () => {
-            const passCorrecta = configGlobal.adminPass || 'admin123';
-            if(document.getElementById('adminPass').value === passCorrecta) {
-                window.cerrarModales(); 
-                document.getElementById('vistaCliente').style.display = 'none'; 
-                document.getElementById('vistaAdmin').style.display = 'block';
-                window.renderListaMisRifas(); 
-                
-                document.getElementById('menuEdicionRifa').style.display = 'none';
-                document.getElementById('btnVolverMisRifas').style.display = 'none';
-                document.getElementById('menuGlobalAdmin').style.display = 'flex';
-                document.getElementById('adminRifaActualTitulo').innerText = '';
-                window.cambiarTabGlobal('misrifas');
-
-            } else alert("Clave errónea.");
-        };
-
-        window.cerrarPanelAdminYVerCliente = () => { 
-            if(rifaActivaId) { window.location.href = `${window.location.href.split('?')[0]}?rifa=${rifaActivaId}`; } 
-            else { window.location.href = window.location.href.split('?')[0]; } 
-        };
-        
-        window.cerrarModales = () => document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
-        
-        window.cambiarTabGlobal = tab => { 
-            document.querySelectorAll('.admin-tab, #menuGlobalAdmin button').forEach(el => el.classList.remove('active')); 
-            document.getElementById(`tab-${tab}`).classList.add('active'); 
-            document.getElementById(`tabBtn${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.add('active'); 
-        };
-
-        window.cambiarTabRifa = tab => { 
-            document.querySelectorAll('.admin-tab, #menuEdicionRifa button').forEach(el => el.classList.remove('active')); 
-            document.getElementById(`tab-${tab}`).classList.add('active'); 
-            document.getElementById(`tabBtn${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.add('active'); 
-        };
-
-        window.cambiarTema = () => { document.documentElement.setAttribute('data-theme', document.getElementById('temaSelect').value); document.documentElement.style.removeProperty('--primary'); };
-        window.cambiarColorMain = () => document.documentElement.style.setProperty('--primary', document.getElementById('colorPicker').value);
-        window.actualizarTexto = (id, val) => document.getElementById(id).innerText = val;
-        window.actualizarPrecio = () => { document.getElementById('precioBoleto').innerHTML = `$${document.getElementById('inputPrecio').value} <span style="font-size: 12px; color: gray;">x Boleto</span>`; };
-        
-        // ================= TEMPORIZADOR Y ANIMACIONES =================
-        let timerInterval;
-        window.iniciarTemporizador = () => {
-            clearInterval(timerInterval); if(!configActiva.fecha) return; 
-            const dest = new Date(configActiva.fecha).getTime();
-            timerInterval = setInterval(() => {
-                const d = dest - new Date().getTime(); 
-                if (d < 0) { document.getElementById('temporizador').innerText = "¡SORTEO EN CURSO!"; clearInterval(timerInterval); return; }
-                let dias = Math.floor(d/(1000*60*60*24)); let horas = Math.floor((d%(1000*60*60*24))/(1000*60*60)); let min = Math.floor((d%(1000*60*60))/(1000*60)); let seg = Math.floor((d%(1000*60))/1000);
-                document.getElementById('temporizador').innerText = `Sorteo en: ${dias}d ${horas}h ${min}m ${seg}s`;
-            }, 1000);
-        };
-
-        window.generarAnimaciones = () => {
-            const cont = document.getElementById('contenedorAnimaciones'); cont.innerHTML = '';
-            let emojis = Array.from(document.querySelectorAll('#checksAnim input:checked')).map(cb => cb.value); if(emojis.length === 0) return;
-            let cant = document.getElementById('animCant') ? document.getElementById('animCant').value : 15; 
-            let size = document.getElementById('animSize') ? document.getElementById('animSize').value + 'px' : '30px'; 
-            let bSpd = document.getElementById('animSpeed') ? document.getElementById('animSpeed').value : 10; 
-            let opac = document.getElementById('animOpacity') ? document.getElementById('animOpacity').value / 10 : 0.5; 
-            cont.style.zIndex = document.getElementById('animZIndex') ? document.getElementById('animZIndex').value : 0;
-            
-            for(let i=0; i<cant; i++) {
-                let div = document.createElement('div'); div.className = 'item-flotante'; div.innerText = emojis[Math.floor(Math.random() * emojis.length)];
-                div.style.fontSize = size; div.style.opacity = opac; div.style.left = Math.random() * 100 + 'vw';
-                div.style.animationDuration = (Math.random() * 5 + parseInt(bSpd)) + 's'; div.style.animationDelay = (Math.random() * 10) + 's';
-                cont.appendChild(div);
-            }
-        };
-
-        // INICIAR LA APP
-        initAppGlobal();
+        window.onload = initApp;
     </script>
 </body>
 </html>
