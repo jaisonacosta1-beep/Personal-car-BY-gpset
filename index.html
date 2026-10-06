@@ -1,4 +1,4 @@
-Vehículo inmovilizado <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -66,7 +66,7 @@ Vehículo inmovilizado <!DOCTYPE html>
 
         /* ================= ESTILOS COMUNES, BOTONES Y FORMULARIOS ================= */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .stat-card { background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--border); text-align: center; }
+        .stat-card { background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--border); text-align: center; transition: background 0.3s, border-color 0.3s;}
         .stat-card p { font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
         .stat-card h3 { font-size: 1.25rem; margin-top: 4px; }
 
@@ -113,7 +113,7 @@ Vehículo inmovilizado <!DOCTYPE html>
         .gestion-modal-box { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; color: var(--text-dark); border: 1px solid var(--border); transition: background 0.3s; }
         .gestion-modal-box h3 { border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-bottom: 18px; color: var(--primary); font-size: 1.2rem; }
 
-        /* TABLAS ESTÁNDAR (SOLO PARA PDF O LUGARES ESPECÍFICOS) */
+        /* TABLAS ESTÁNDAR (SOLO PARA PDF) */
         .table-responsive { overflow-x: auto; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text-dark); }
         th, td { padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
@@ -147,15 +147,15 @@ Vehículo inmovilizado <!DOCTYPE html>
          ========================================================= -->
     <div id="login-screen">
         <div class="login-box">
-            <!-- BOTÓN SECRETO ADMIN: 5 clics aquí revelan el panel administrador -->
+            <!-- BOTÓN SECRETO ADMIN: 5 clics en el título revelan el login del jefe -->
             <h1 id="login-title" onclick="activarAdminSecreto()" title="Portal de Acceso">PERSONAL CAR</h1>
-            <p id="login-subtitle">Selecciona tu usuario para ingresar</p>
+            <p id="login-subtitle">Ingresa tus credenciales</p>
 
-            <!-- Login Chofer (Por defecto) -->
+            <!-- Login Chofer (Pantalla visible por defecto) -->
             <div id="login-driver-form">
                 <div class="form-group">
-                    <label>Nombre del Conductor</label>
-                    <select id="login-driver-select"></select>
+                    <label>Usuario / Cédula</label>
+                    <input type="text" id="login-driver-user" placeholder="Ej: juanperez o 4-700-1234" required>
                 </div>
                 <div class="form-group">
                     <label>PIN de Acceso (4 Dígitos)</label>
@@ -164,10 +164,10 @@ Vehículo inmovilizado <!DOCTYPE html>
                 <button class="btn-submit btn-green" onclick="iniciarSesionChofer()">Entrar a mi Portal</button>
             </div>
 
-            <!-- Login Admin (Oculto hasta hacer 5 clics) -->
+            <!-- Login Admin (Totalmente Oculto hasta hacer 5 clics) -->
             <div id="login-admin-form" style="display:none;">
                 <div class="form-group">
-                    <label>Contraseña Maestra (Admin)</label>
+                    <label>Contraseña Maestra (Administrador)</label>
                     <input type="password" id="login-admin-pass" placeholder="Ingresa la clave secreta...">
                 </div>
                 <button class="btn-submit" onclick="iniciarSesionAdmin()">Acceder al Panel Admin</button>
@@ -188,18 +188,18 @@ Vehículo inmovilizado <!DOCTYPE html>
             </div>
             <div style="text-align:right; display:flex; flex-direction:column; gap:5px; align-items:flex-end;">
                 <span id="conexion-status" class="badge badge-gray" style="font-size:0.7rem;">⚪ Modo Local</span>
-                <button class="btn-sm btn-red" onclick="cerrarSesion()" style="padding:4px 8px; font-size:0.65rem;">Salir</button>
+                <button class="btn-sm btn-red" onclick="cerrarSesion()" style="padding:4px 8px; font-size:0.65rem;">Salir / Cerrar Sesión</button>
             </div>
         </header>
 
         <!-- ================= MODO CHOFER: PORTAL DEL CONDUCTOR ================= -->
         <div id="driver-app" style="display: none;" class="container">
             
-            <!-- CRONÓMETRO DE PAGO DIARIO EN LA CIMA -->
+            <!-- CRONÓMETRO DE PAGO DIARIO EN LA CIMA (MUY VISIBLE) -->
             <div id="driver-countdown-box" style="display:none; padding:15px; border-radius:8px; margin-bottom:15px; border:2px solid var(--border); text-align:center;">
-                <h3 style="font-size:1rem; margin-bottom:5px; color:var(--text-dark);">⏱️ TIEMPO RESTANTE PARA EL PAGO:</h3>
+                <h3 style="font-size:1rem; margin-bottom:5px; color:var(--text-dark);">⏱️ TIEMPO RESTANTE PARA EL PAGO DE HOY:</h3>
                 <div id="driver-countdown-text" style="font-size:1.3rem; font-weight:bold; color:var(--text-dark); margin-bottom:5px;">--:--:--</div>
-                <p id="driver-countdown-warning" style="font-size:0.85rem; color:var(--danger); font-weight:bold; margin-top:5px; display:none;">⚠️ ¡TIEMPO EXCEDIDO! El auto será inmovilizado en cualquier momento por falta de pago.</p>
+                <p id="driver-countdown-warning" style="font-size:0.8rem; color:var(--danger); font-weight:bold; margin-top:5px; display:none;">⚠️ El auto será inmovilizado en cualquier momento por falta de pago al expirar el tiempo.</p>
             </div>
 
             <!-- BOTÓN DE EMERGENCIA AVERÍA -->
@@ -219,7 +219,7 @@ Vehículo inmovilizado <!DOCTYPE html>
 
                 <!-- INFRACCIONES ACTIVAS -->
                 <div id="driver-infracciones-box" style="display:none; background:#fef2f2; color:#991b1b; padding:15px; border-radius:8px; margin-bottom:15px; border:2px solid #ef4444; font-size:0.85rem;">
-                    <h3 style="font-size:1rem; margin-bottom:8px;">⚠️️ REPORTES ADMINISTRATIVOS ACTIVOS</h3>
+                    <h3 style="font-size:1rem; margin-bottom:8px;">⚠️ REPORTES ADMINISTRATIVOS ACTIVOS</h3>
                     <div id="driver-infracciones-list"></div>
                 </div>
                 
@@ -479,6 +479,7 @@ Vehículo inmovilizado <!DOCTYPE html>
 
                 <div class="card">
                     <h2>📋 Checklist de Inspección Semanal Administrador</h2>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Usa este módulo para hacer tus propias revisiones y descontar piezas del inventario.</p>
                     <form id="form-checklist">
                         <div class="form-group"><label>Seleccionar Vehículo</label><select id="chk-auto" required></select></div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; background:var(--bg-body); padding:10px; border-radius:8px;">
@@ -635,6 +636,7 @@ Vehículo inmovilizado <!DOCTYPE html>
                         <input type="hidden" id="edit-cond-id">
                         <div class="form-grid">
                             <div class="form-group"><label>Nombre Completo</label><input type="text" id="cond-nombre" required placeholder="Ej: Juan Pérez"></div>
+                            <div class="form-group"><label>Usuario (Para Login)</label><input type="text" id="cond-usuario" required placeholder="Ej: juan123"></div>
                             <div class="form-group"><label>Cédula</label><input type="text" id="cond-cedula"></div>
                             <div class="form-group"><label>Teléfono (WhatsApp)</label><input type="tel" id="cond-telefono"></div>
                             <div class="form-group"><label>N° Licencia</label><input type="text" id="cond-licencia"></div>
@@ -918,7 +920,7 @@ Vehículo inmovilizado <!DOCTYPE html>
         let mapModalLeaflet = null;
         let mapasIndividualesActivos = {};
 
-        // ================= SISTEMA DE LOGIN =================
+        // ================= SISTEMA DE LOGIN Y SEGURIDAD =================
         let adminClicks = 0;
         function activarAdminSecreto() {
             adminClicks++;
@@ -933,14 +935,7 @@ Vehículo inmovilizado <!DOCTYPE html>
         function cancelarAdminSecreto() {
             document.getElementById('login-admin-form').style.display = 'none';
             document.getElementById('login-driver-form').style.display = 'block';
-            document.getElementById('login-subtitle').innerText = "Selecciona tu usuario para ingresar";
-        }
-
-        function selectLoginRole(role) {
-            if(role === 'driver') {
-                const sel = document.getElementById('login-driver-select');
-                sel.innerHTML = '<option value="">Selecciona tu nombre...</option>' + db.conductores.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
-            }
+            document.getElementById('login-subtitle').innerText = "Ingresa tus credenciales";
         }
 
         function iniciarSesionAdmin() {
@@ -957,15 +952,22 @@ Vehículo inmovilizado <!DOCTYPE html>
         }
 
         function iniciarSesionChofer() {
-            const id = document.getElementById('login-driver-select').value;
-            const pin = document.getElementById('login-driver-pin').value;
-            if(!id) return alert("Selecciona tu nombre en la lista.");
+            const userStr = document.getElementById('login-driver-user').value.trim().toLowerCase();
+            const pinStr = document.getElementById('login-driver-pin').value.trim();
             
-            const driver = db.conductores.find(c => String(c.id) === String(id));
+            if(!userStr || !pinStr) return alert("Ingresa tu usuario y PIN.");
+            
+            const driver = db.conductores.find(c => 
+                (c.usuario && c.usuario.toLowerCase() === userStr) || 
+                (c.cedula && c.cedula.toLowerCase() === userStr)
+            );
+
+            if(!driver) return alert("❌ Usuario no encontrado.");
+            
             const realPin = driver.pin || '1234'; 
             
-            if(pin === realPin) {
-                window.history.pushState({}, '', `?driver=${id}`);
+            if(pinStr === realPin) {
+                window.history.pushState({}, '', `?driver=${driver.id}`);
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app-content').style.display = 'block';
                 initAppConfig();
@@ -1012,7 +1014,7 @@ Vehículo inmovilizado <!DOCTYPE html>
             }
         }
 
-        // ================= EXCEL EXPORT (SHEETJS) =================
+        // ================= EXCEL EXPORT =================
         function exportarExcel(dataArray, filenamePrefix) {
             if(dataArray.length === 0) return alert("No hay datos para exportar.");
             const excelData = dataArray.map(m => {
@@ -1160,9 +1162,7 @@ Vehículo inmovilizado <!DOCTYPE html>
             if(modTarget) modTarget.classList.add('active', 'print-active');
             if(btn) btn.classList.add('active');
             
-            if(id === 'mod-mapas') {
-                setTimeout(renderizarMapasIndividuales, 300); 
-            }
+            if(id === 'mod-mapas') { setTimeout(renderizarMapasIndividuales, 300); }
             if(id === 'mod-contrato') generarVistaContrato();
             if(id === 'mod-reporte') generarEstadoCuenta();
             window.scrollTo(0,0);
@@ -1252,10 +1252,9 @@ Vehículo inmovilizado <!DOCTYPE html>
 
         // ================= ARRANQUE LUEGO DEL LOGIN =================
         document.addEventListener("DOMContentLoaded", () => {
-            selectLoginRole('driver'); 
             const urlParams = new URLSearchParams(window.location.search);
-            if(urlParams.get('driver')) {
-                document.getElementById('login-driver-select').value = urlParams.get('driver');
+            if(!urlParams.get('driver')) {
+                document.getElementById('login-screen').style.display = 'flex';
             }
         });
 
@@ -1303,10 +1302,9 @@ Vehículo inmovilizado <!DOCTYPE html>
                         countdownInterval = setInterval(() => {
                             const now = new Date();
                             const [h, m] = driver.horaLimite.split(':').map(Number);
-                            let target = new Date();
-                            target.setHours(h, m, 0, 0);
+                            let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
 
-                            // Si la hora límite configurada ya es menor a la hora actual, el deadline es esa misma hora de MAÑANA.
+                            // Si la hora límite configurada ya pasó hoy, el deadline es esa misma hora de MAÑANA.
                             if (now.getTime() >= target.getTime()) {
                                 target.setDate(target.getDate() + 1);
                             }
@@ -1585,7 +1583,21 @@ Vehículo inmovilizado <!DOCTYPE html>
         document.getElementById('form-conductor').addEventListener('submit', (e) => {
             e.preventDefault();
             const editId = document.getElementById('edit-cond-id').value;
-            const condData = { id: editId || Date.now().toString(), nombre: document.getElementById('cond-nombre').value, cedula: document.getElementById('cond-cedula').value, telefono: document.getElementById('cond-telefono').value, licencia: document.getElementById('cond-licencia').value, horaLimite: document.getElementById('cond-hora-limite').value, pin: document.getElementById('cond-pin').value || '1234' };
+            const condData = { 
+                id: editId || Date.now().toString(), 
+                nombre: document.getElementById('cond-nombre').value, 
+                usuario: document.getElementById('cond-usuario').value.trim().toLowerCase(),
+                cedula: document.getElementById('cond-cedula').value, 
+                telefono: document.getElementById('cond-telefono').value, 
+                licencia: document.getElementById('cond-licencia').value, 
+                horaLimite: document.getElementById('cond-hora-limite').value, 
+                pin: document.getElementById('cond-pin').value || '1234' 
+            };
+
+            // Validar que el usuario no se repita
+            const existeUser = db.conductores.some(c => String(c.id) !== String(editId) && c.usuario === condData.usuario);
+            if(existeUser) return alert("❌ Ese 'Usuario para Login' ya existe. Elige otro diferente.");
+
             if(editId) { db.conductores[db.conductores.findIndex(c => String(c.id) === String(editId))] = condData; } else { db.conductores.push(condData); }
             guardarLocal(); e.target.reset(); document.getElementById('edit-cond-id').value = ''; document.getElementById('cond-hora-limite').value = '23:59'; alert('Conductor guardado.');
         });
@@ -1645,7 +1657,7 @@ Vehículo inmovilizado <!DOCTYPE html>
 
         function editarAuto(id) { const a = db.autos.find(x => String(x.id) === String(id)); document.getElementById('edit-auto-id').value = a.id; document.getElementById('auto-placa').value = a.placa; document.getElementById('auto-modelo').value = a.modelo; document.getElementById('auto-tarifa').value = a.tarifaDiaria||''; document.getElementById('auto-anio').value = a.anio || ''; document.getElementById('auto-vin').value = a.vin || ''; document.getElementById('auto-mant-km').value = a.limiteMant || ''; document.getElementById('auto-venc-doc').value = a.vencDoc || ''; document.getElementById('auto-conductor').value = a.conductorId || ''; document.getElementById('auto-socio').value = a.socioId || ''; document.getElementById('auto-is-leasing').checked = a.isLeasing || false; document.getElementById('auto-leasing-total').value = a.leasingTotalDias || ''; document.getElementById('auto-leasing-pagados').value = a.leasingDiasPrevios || 0; document.getElementById('leasing-fields').style.display = a.isLeasing ? 'grid' : 'none'; cambiarModulo('mod-autos'); }
         function eliminarAuto(id) { if(confirm('¿Eliminar vehículo?')) { db.autos = db.autos.filter(a => String(a.id) !== String(id)); guardarLocal(); } }
-        function editarConductor(id) { const c = db.conductores.find(x => String(x.id) === String(id)); document.getElementById('edit-cond-id').value = c.id; document.getElementById('cond-nombre').value = c.nombre; document.getElementById('cond-cedula').value = c.cedula || ''; document.getElementById('cond-telefono').value = c.telefono || ''; document.getElementById('cond-licencia').value = c.licencia || ''; document.getElementById('cond-hora-limite').value = c.horaLimite || '23:59'; document.getElementById('cond-pin').value = c.pin || '1234'; cambiarModulo('mod-conductores'); }
+        function editarConductor(id) { const c = db.conductores.find(x => String(x.id) === String(id)); document.getElementById('edit-cond-id').value = c.id; document.getElementById('cond-nombre').value = c.nombre; document.getElementById('cond-usuario').value = c.usuario || ''; document.getElementById('cond-cedula').value = c.cedula || ''; document.getElementById('cond-telefono').value = c.telefono || ''; document.getElementById('cond-licencia').value = c.licencia || ''; document.getElementById('cond-hora-limite').value = c.horaLimite || '23:59'; document.getElementById('cond-pin').value = c.pin || '1234'; cambiarModulo('mod-conductores'); }
         function eliminarConductor(id) { if(confirm('¿Eliminar conductor?')) { db.conductores = db.conductores.filter(c => String(c.id) !== String(id)); db.autos.forEach(a=>{if(String(a.conductorId)===String(id)) a.conductorId='';}); guardarLocal(); } }
         function eliminarMovimiento(id) { if(confirm('¿Eliminar registro financiero?')) { db.movimientos = db.movimientos.filter(m => String(m.id) !== String(id)); guardarLocal(); } }
 
@@ -1770,7 +1782,7 @@ Vehículo inmovilizado <!DOCTYPE html>
                         <div class="flex-between"><span>Km Actual:</span> <strong>${a.kmActual||0} km</strong></div>
                     </div>
                     <div class="list-card-actions">
-                        <button class="btn-sm btn-blue" onclick="editarAuto('${a.id}')">✏️️ Editar</button>
+                        <button class="btn-sm btn-blue" onclick="editarAuto('${a.id}')">✏️ Editar</button>
                         <button class="btn-sm btn-red" onclick="eliminarAuto('${a.id}')">🗑️ Eliminar</button>
                     </div>
                 </div>`;
@@ -1805,8 +1817,9 @@ Vehículo inmovilizado <!DOCTYPE html>
                 <div class="list-card">
                     <div class="list-card-header"><strong style="color:var(--primary); font-size:1.1rem;">${c.nombre}</strong> <span style="color:${colorSaldo}; font-weight:bold;">${msjSaldo}</span></div>
                     <div class="list-card-body">
-                        <div class="flex-between"><span>Límite de Pago:</span> <strong>${c.horaLimite || '23:59'}</strong></div>
+                        <div class="flex-between"><span>Usuario (Login):</span> <strong style="color:var(--info);">${c.usuario || c.cedula || 'Falta crear'}</strong></div>
                         <div class="flex-between"><span>PIN de Login:</span> <strong>${c.pin || '1234'}</strong></div>
+                        <div class="flex-between"><span>Límite de Pago:</span> <strong>${c.horaLimite || '23:59'}</strong></div>
                         <div class="flex-between"><span>Teléfono:</span> <strong>${c.telefono || '-'}</strong></div>
                     </div>
                     <div class="list-card-actions" style="justify-content:center;">
