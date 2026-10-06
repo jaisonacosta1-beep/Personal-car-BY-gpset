@@ -5,21 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Personal Car - App de Flota</title>
     
-    <!-- PWA Manifest inyectado (Para instalar como App en el celular) -->
     <link rel="manifest" href='data:application/manifest+json,{"name":"Personal Car","short_name":"PersonalCar","start_url":".","display":"standalone","background_color":"%230f172a","theme_color":"%231e3a8a","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3204/3204094.png","sizes":"512x512","type":"image/png"}]}'>
 
-    <!-- Librerías Externas -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- Gráficos -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script> <!-- Firebase -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" /> <!-- Mapa CSS -->
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script> <!-- Mapa JS -->
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script> <!-- Excel -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script> <!-- Inteligencia Artificial (OCR) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 
     <style>
-        /* ================= VARIABLES DE TEMAS DINÁMICOS ================= */
         :root {
             --bg-body: #f8fafc; --card-bg: #ffffff;
             --primary: #1e3a8a; --primary-light: #2563eb; --primary-dark: #0f172a;
@@ -28,17 +25,26 @@
             --success: #059669; --danger: #dc2626; --warning: #d97706; --info: #0284c7;
         }
 
-        /* ================= ESTILOS GLOBALES ================= */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: var(--bg-body); color: var(--text-dark); padding-bottom: 90px; transition: background-color 0.3s, color 0.3s; }
 
         header { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: white; padding: 12px 16px; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; justify-content: space-between; align-items: center; transition: background 0.3s; }
-        header h1 { font-size: 1.3rem; font-weight: 800; margin: 0;}
+        header h1 { font-size: 1.3rem; font-weight: 800; margin: 0; display:inline-block;}
         header p { font-size: 0.75rem; color: #cbd5e1; margin: 0; }
+        .header-left { display: flex; align-items: center; gap: 10px; }
+        #header-logo { max-height: 38px; border-radius: 4px; object-fit: contain; display: none; background: white; padding: 2px;}
 
         .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
 
-        /* ================= NAVEGACIÓN INFERIOR ================= */
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 999999; display: flex; flex-direction: column; gap: 10px; pointer-events: none;}
+        .toast { min-width: 250px; background-color: var(--card-bg); color: var(--text-dark); padding: 15px 20px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); font-size: 0.95rem; font-weight: bold; animation: slideIn 0.3s ease-out forwards; border-left: 6px solid; display:flex; align-items:center; gap:10px;}
+        .toast.success { border-color: var(--success); }
+        .toast.error { border-color: var(--danger); }
+        .toast.warning { border-color: var(--warning); }
+        .toast.info { border-color: var(--primary-light); }
+        @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
+
         nav.module-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card-bg); border-top: 1px solid var(--border); display: flex; overflow-x: auto; padding: 8px 0; z-index: 1000; box-shadow: 0 -4px 12px rgba(0,0,0,0.08); -webkit-overflow-scrolling: touch; transition: background 0.3s, border-color 0.3s; }
         .nav-btn { background: none; border: none; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 600; cursor: pointer; min-width: 72px; flex-shrink: 0; padding: 4px; transition: color 0.2s; }
         .nav-btn .icon { font-size: 1.25rem; margin-bottom: 2px; }
@@ -48,23 +54,21 @@
         .module.active { display: block; animation: fadeIn 0.2s ease-in; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* ================= TARJETAS Y CONTENEDORES ================= */
-        .card { background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: background 0.3s, border-color 0.3s; }
-        .card h2 { font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--border); color: var(--primary); display: flex; align-items: center; justify-content: space-between; }
+        .card { background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: all 0.3s ease; }
+        .card h2 { font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--border); color: var(--primary); display: flex; align-items: center; justify-content: space-between; transition: color 0.3s; }
 
         .list-card { background: var(--bg-body); padding: 15px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background 0.3s; }
-        .list-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .list-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
         .list-card-body { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; margin-bottom: 10px; color: var(--text-dark); }
         .list-card-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
         .flex-between { display: flex; justify-content: space-between; align-items: center; }
 
-        /* ================= PANTALLA DE LOGIN ================= */
-        #login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--primary-dark); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; color: white; padding: 20px; }
+        #login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--primary-dark); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; color: white; padding: 20px; transition: background 0.3s; }
         .login-box { background: var(--card-bg); color: var(--text-dark); padding: 30px; border-radius: 16px; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; }
+        #login-logo { max-width: 180px; max-height: 120px; margin: 0 auto 15px auto; display: none; object-fit: contain; border-radius: 8px; }
         .login-box h1 { color: var(--primary); margin-bottom: 5px; font-size: 1.8rem; font-weight: 800; cursor: pointer; user-select: none; }
         .login-box p { color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem; }
 
-        /* ================= ESTILOS COMUNES, BOTONES Y FORMULARIOS ================= */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }
         .stat-card { background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--border); text-align: center; transition: background 0.3s, border-color 0.3s;}
         .stat-card p { font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
@@ -82,14 +86,15 @@
         input[readonly] { opacity: 0.7; cursor: not-allowed; }
 
         button.btn-submit { width: 100%; padding: 12px; border: none; border-radius: 8px; background-color: var(--primary-light); color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; margin-top: 5px; transition: 0.2s; }
+        button.btn-submit:hover { opacity: 0.9; }
         button.btn-submit:disabled { background-color: var(--text-muted); cursor: not-allowed; }
         button.btn-green { background-color: var(--success); } button.btn-red { background-color: var(--danger); } button.btn-dark { background-color: var(--primary-dark); } button.btn-orange { background-color: var(--warning); }
-        button.btn-sm { padding: 8px 12px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; border: none; font-weight: 600; color: white; display: inline-flex; align-items: center; gap: 4px; }
+        button.btn-sm { padding: 8px 12px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; border: none; font-weight: 600; color: white; display: inline-flex; align-items: center; gap: 4px; transition: 0.2s; }
+        button.btn-sm:hover { opacity: 0.8; }
 
         .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: bold; display: inline-block; color: #fff;}
         .badge-green { background: var(--success); } .badge-amber { background: var(--warning); } .badge-red { background: var(--danger); } .badge-gray { background: var(--text-muted); } .badge-info { background: var(--info); }
 
-        /* PORTAL CHOFER */
         @keyframes pulseAlert { 0% { box-shadow: 0 0 0 0 rgba(220,38,38, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(220,38,38, 0); } 100% { box-shadow: 0 0 0 0 rgba(220,38,38, 0); } }
         .driver-portal { max-width: 550px; margin: 20px auto; background: var(--card-bg); padding: 25px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); transition: background 0.3s; }
         .alert-banner { display:flex; justify-content:space-between; align-items:center; padding:15px; border-radius:8px; margin-bottom:15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
@@ -98,12 +103,10 @@
         .progress-bar-container { background-color: var(--border); border-radius: 8px; width: 100%; height: 20px; overflow: hidden; margin-top: 5px; margin-bottom: 5px; }
         .progress-bar-fill { background-color: var(--success); height: 100%; transition: width 0.5s ease-in-out; }
 
-        /* MAPAS */
         .grid-mapas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-top: 15px; }
         .mapa-individual { width: 100%; height: 220px; border-radius: 8px; border: 1px solid var(--border); z-index: 1; }
         #mapa-global { height: 250px; width: 100%; border-radius: 12px; border: 1px solid var(--border); z-index: 10; margin-bottom:15px; transition: height 0.1s; }
 
-        /* MODALES */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; z-index: 2000; padding: 20px; }
         .modal.active { display: flex; }
         .modal-content { position: relative; max-width: 100%; max-height: 100%; }
@@ -113,16 +116,14 @@
         .gestion-modal-box { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; color: var(--text-dark); border: 1px solid var(--border); transition: background 0.3s; }
         .gestion-modal-box h3 { border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-bottom: 18px; color: var(--primary); font-size: 1.2rem; }
 
-        /* TABLAS ESTÁNDAR (SOLO PARA PDF) */
         .table-responsive { overflow-x: auto; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text-dark); }
         th, td { padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
         th { background: var(--thead-bg); color: var(--text-dark); font-weight: 700; transition: background 0.3s; }
 
-        /* IMPRESIÓN Y PDF PROFESIONAL */
         .print-only { display: none; }
         @media print {
-            .no-print, nav.module-nav, header, #login-screen { display: none !important; }
+            .no-print, nav.module-nav, header, #login-screen, #toast-container { display: none !important; }
             body { background: white; padding: 0; color: black; }
             .container { max-width: 100%; padding: 0; }
             .module { display: none !important; }
@@ -142,20 +143,20 @@
 </head>
 <body>
 
-    <!-- =========================================================
-         PANTALLA DE LOGIN / SEGURIDAD
-         ========================================================= -->
+    <!-- ================= CONTENEDOR DE TOASTS ================= -->
+    <div id="toast-container"></div>
+
+    <!-- ================= PANTALLA DE LOGIN ================= -->
     <div id="login-screen">
         <div class="login-box">
-            <!-- BOTÓN SECRETO ADMIN: 5 clics en el título revelan el login del jefe -->
+            <img id="login-logo" src="" alt="Logo de la Empresa">
             <h1 id="login-title" onclick="activarAdminSecreto()" title="Portal de Acceso">PERSONAL CAR</h1>
             <p id="login-subtitle">Ingresa tus credenciales</p>
 
-            <!-- Login Chofer (Pantalla visible por defecto) -->
             <div id="login-driver-form">
                 <div class="form-group">
                     <label>Usuario / Cédula</label>
-                    <input type="text" id="login-driver-user" placeholder="Ej: juanperez o 4-700-1234" required>
+                    <input type="text" id="login-driver-user" placeholder="Ej: juan123 o 4-700-1234">
                 </div>
                 <div class="form-group">
                     <label>PIN de Acceso (4 Dígitos)</label>
@@ -164,10 +165,9 @@
                 <button class="btn-submit btn-green" onclick="iniciarSesionChofer()">Entrar a mi Portal</button>
             </div>
 
-            <!-- Login Admin (Totalmente Oculto hasta hacer 5 clics) -->
             <div id="login-admin-form" style="display:none;">
                 <div class="form-group">
-                    <label>Contraseña Maestra (Administrador)</label>
+                    <label>Contraseña Maestra (Admin)</label>
                     <input type="password" id="login-admin-pass" placeholder="Ingresa la clave secreta...">
                 </div>
                 <button class="btn-submit" onclick="iniciarSesionAdmin()">Acceder al Panel Admin</button>
@@ -176,15 +176,16 @@
         </div>
     </div>
 
-    <!-- =========================================================
-         APP PRINCIPAL (OCULTA HASTA LOGIN CORRECTO)
-         ========================================================= -->
+    <!-- ================= APP PRINCIPAL ================= -->
     <div id="app-content" style="display:none;">
 
         <header class="no-print" id="main-header">
-            <div style="text-align:left;">
-                <h1 id="header-title">PERSONAL CAR</h1>
-                <p>Flota, Inventario, Leasing & Nube</p>
+            <div class="header-left">
+                <img id="header-logo" src="" alt="Logo">
+                <div>
+                    <h1 id="header-title">PERSONAL CAR</h1>
+                    <p>Flota, Inventario, Leasing & Nube</p>
+                </div>
             </div>
             <div style="text-align:right; display:flex; flex-direction:column; gap:5px; align-items:flex-end;">
                 <span id="conexion-status" class="badge badge-gray" style="font-size:0.7rem;">⚪ Modo Local</span>
@@ -192,17 +193,15 @@
             </div>
         </header>
 
-        <!-- ================= MODO CHOFER: PORTAL DEL CONDUCTOR ================= -->
+        <!-- ================= MODO CHOFER ================= -->
         <div id="driver-app" style="display: none;" class="container">
             
-            <!-- CRONÓMETRO DE PAGO DIARIO EN LA CIMA (MUY VISIBLE) -->
             <div id="driver-countdown-box" style="display:none; padding:15px; border-radius:8px; margin-bottom:15px; border:2px solid var(--border); text-align:center;">
-                <h3 style="font-size:1rem; margin-bottom:5px; color:var(--text-dark);">⏱️ TIEMPO RESTANTE PARA EL PAGO DE HOY:</h3>
+                <h3 style="font-size:1rem; margin-bottom:5px; color:var(--text-dark);">⏱️ TIEMPO RESTANTE PARA EL PAGO:</h3>
                 <div id="driver-countdown-text" style="font-size:1.3rem; font-weight:bold; color:var(--text-dark); margin-bottom:5px;">--:--:--</div>
                 <p id="driver-countdown-warning" style="font-size:0.8rem; color:var(--danger); font-weight:bold; margin-top:5px; display:none;">⚠️ El auto será inmovilizado en cualquier momento por falta de pago al expirar el tiempo.</p>
             </div>
 
-            <!-- BOTÓN DE EMERGENCIA AVERÍA -->
             <div style="text-align:center; margin-bottom:15px;">
                 <button class="btn-submit btn-red" onclick="document.getElementById('modalAveriaDriver').classList.add('active')" style="padding: 15px; font-size: 1.1rem; box-shadow: 0 4px 10px rgba(220, 38, 38, 0.3);">
                     🚨 Reportar Avería / Daño Mecánico
@@ -217,7 +216,6 @@
                     <span style="font-size:0.85rem; font-weight:normal;" id="driver-tarifa-display"></span>
                 </div>
 
-                <!-- INFRACCIONES ACTIVAS -->
                 <div id="driver-infracciones-box" style="display:none; background:#fef2f2; color:#991b1b; padding:15px; border-radius:8px; margin-bottom:15px; border:2px solid #ef4444; font-size:0.85rem;">
                     <h3 style="font-size:1rem; margin-bottom:8px;">⚠️ REPORTES ADMINISTRATIVOS ACTIVOS</h3>
                     <div id="driver-infracciones-list"></div>
@@ -225,7 +223,6 @@
                 
                 <div id="driver-saldo-box" style="margin-bottom:15px; text-align:center; font-size:1rem; font-weight:bold; padding: 10px; border-radius: 8px; border: 1px dashed var(--border);"></div>
 
-                <!-- ACTA DE ENTREGA VISIBLE AL CHOFER -->
                 <div id="driver-entrega-box" style="display:none; background:var(--bg-body); padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid var(--border);">
                     <h3 style="font-size:0.95rem; margin-bottom:10px; color:var(--primary-dark);">📸 Acta de Entrega Oficial</h3>
                     <div id="driver-entrega-content" style="font-size:0.85rem; margin-bottom:10px; background:var(--card-bg); padding:10px; border-radius:6px; border:1px solid var(--border);"></div>
@@ -233,7 +230,6 @@
                     <div id="driver-entrega-fotos" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:5px;"></div>
                 </div>
 
-                <!-- PROGRESO LEASING -->
                 <div id="driver-leasing-box" style="display:none; background:var(--warning); color:#fff; padding:15px; border-radius:8px; margin-bottom:20px;">
                     <p style="font-size:0.85rem; font-weight:bold; margin-bottom:5px; text-align:center;">🏆 Tu Progreso a Compra (Leasing)</p>
                     <div class="progress-bar-container" style="background:rgba(255,255,255,0.3);">
@@ -257,12 +253,11 @@
                         <input type="number" step="0.01" id="driver-monto" placeholder="0.00" value="0.00">
                     </div>
 
-                    <!-- COMPROBANTE DE PAGO E IA -->
                     <div class="form-group" id="driver-comprobante-box">
-                        <label>Adjuntar Comprobante de Transferencia</label>
+                        <label>Adjuntar Comprobante de Transferencia (Rápido)</label>
                         <input type="file" id="driver-comprobante" accept="image/*">
                         <small id="ocr-status" style="display:block; margin-top:5px; color:var(--primary); font-weight:bold;"></small>
-                        <input type="hidden" id="ocr-referencia"> <!-- Campo oculto para la referencia de la IA -->
+                        <input type="hidden" id="ocr-referencia"> 
                     </div>
                     
                     <div class="form-group">
@@ -270,7 +265,6 @@
                         <input type="number" id="driver-km" placeholder="Ej: 45200" required>
                     </div>
 
-                    <!-- INPUTS GPS INVISIBLES Y SILENCIOSOS -->
                     <input type="hidden" id="driver-lat">
                     <input type="hidden" id="driver-lng">
 
@@ -304,8 +298,8 @@
             </div>
         </div>
 
-        <!-- ================= MODO ADMIN: PANEL ADMINISTRATIVO PRINCIPAL ================= -->
-        <div class="container" id="admin-app">
+        <!-- ================= MODO ADMIN: PANEL ADMINISTRATIVO ================= -->
+        <div class="container" id="admin-app" style="display:none;">
 
             <!-- MÓDULO 1: DASHBOARD -->
             <section id="mod-dashboard" class="module active">
@@ -315,7 +309,6 @@
                     <button class="btn-sm btn-dark" onclick="ocultarAlertasTemporales()">🔕 Ocultar Alertas</button>
                 </div>
 
-                <!-- ALERTA DE AVERÍAS -->
                 <div id="dashboard-alert-averias" class="alert-banner" style="display:none; background-color:#fef2f2; border: 2px solid var(--danger); cursor:pointer;" onclick="cambiarModulo('mod-historial')">
                     <div>
                         <strong style="font-size: 1.1rem; color:var(--danger);">🚨 ¡ATENCIÓN! HAY AVERÍAS URGENTES REPORTADAS</strong>
@@ -324,7 +317,6 @@
                     <span style="font-size: 1.8rem;">🔧</span>
                 </div>
 
-                <!-- ALERTA DE NUEVOS REPORTES PAGOS -->
                 <div id="dashboard-alert-reportes" class="alert-banner" style="display:none; background-color:var(--bg-body); border: 2px solid var(--info); cursor:pointer;" onclick="cambiarModulo('mod-historial')">
                     <div>
                         <strong style="font-size: 1.1rem; color:var(--info);">📥 Tienes <span id="num-rep"></span> reporte(s) de pago por revisar.</strong>
@@ -336,7 +328,7 @@
                 <div class="filter-bar no-print">
                     <label>👤 Filtrar Beneficiario / Socio:</label>
                     <select id="filter-beneficiario" onchange="renderizarDashboard()">
-                        <option value="">-- Todos los Beneficiarios (Global) --</option>
+                        <option value="">-- Todos los Dueños --</option>
                     </select>
                 </div>
 
@@ -347,12 +339,23 @@
                     <div class="stat-card"><p>Cuentas x Cobrar</p><h3 class="text-warning" id="stat-pendientes">$0.00</h3></div>
                 </div>
 
-                <!-- SEMÁFOROS DE FLOTA REDISEÑADOS A TARJETAS -->
+                <!-- DASHBOARD DE ESTADO DE PAGOS DEL DIA -->
+                <div class="card no-print">
+                    <h2>📅 Estatus de Pagos de Hoy</h2>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Revisa de un vistazo qué choferes ya cumplieron su cuota hoy.</p>
+                    <div class="table-responsive">
+                        <table>
+                            <thead><tr><th>Vehículo / Chofer</th><th>Estatus del Día</th></tr></thead>
+                            <tbody id="tabla-estatus-hoy">
+                                <!-- Llenado por JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="card">
                     <h2>🚦 Estado de la Flota (Mecánico y Documental)</h2>
-                    <div id="grid-semaforos" class="grid-semaforos">
-                        <!-- Rellenado por JS para evitar tabla comprimida -->
-                    </div>
+                    <div id="grid-semaforos" class="grid-semaforos"></div>
                 </div>
 
                 <div class="card">
@@ -360,46 +363,33 @@
                     <div class="chart-container"><canvas id="chartBalance"></canvas></div>
                 </div>
 
-                <!-- GRÁFICAS DE CAJA CHICA Y PLATAFORMAS -->
                 <div class="form-grid">
                     <div class="card">
                         <h2>💰 Fondos de Reserva (Caja Chica)</h2>
-                        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:10px;">Dinero ahorrado automáticamente por vehículo para futuras reparaciones.</p>
                         <div id="caja-chica-list"></div>
                     </div>
-                    
                     <div class="card">
                         <h2>📊 Ingresos por Origen de Trabajo</h2>
                         <div style="position: relative; width: 100%; height: 200px;"><canvas id="chartOrigen"></canvas></div>
                     </div>
                 </div>
 
-                <!-- SECCIÓN DE LEASING DASHBOARD -->
                 <div class="card" id="dashboard-leasing-box">
                     <h2>🏆 Progreso de Autos en Opción a Compra (Leasing)</h2>
                     <div id="lista-dashboard-leasing"></div>
                 </div>
-                
-                <div class="card">
-                    <h2>🤝 Liquidación Rápida de Socios</h2>
-                    <div id="list-rendimiento-socios"></div>
-                </div>
             </section>
 
-            <!-- MÓDULO MAPAS INDIVIDUALES (NUEVO) -->
+            <!-- MÓDULO MAPAS INDIVIDUALES -->
             <section id="mod-mapas" class="module">
-                
-                <!-- MAPA GLOBAL (RADAR) REDIMENSIONABLE -->
                 <div class="card no-print">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <h2>🗺️ Radar de la Flota Global</h2>
                         <button class="btn-sm btn-blue" onclick="actualizarMapaGlobal()">🔄 Actualizar</button>
                     </div>
                     <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Muestra el último punto GPS capturado de cada vehículo.</p>
-                    
                     <label style="font-size:0.75rem; color:var(--text-muted); font-weight:bold;">Ajustar tamaño del mapa:</label>
                     <input type="range" id="map-resizer" min="150" max="600" value="250" style="width:100%; margin-bottom:10px; height:4px; padding:0;" oninput="resizeMap(this.value)">
-                    
                     <div id="mapa-global"></div>
                 </div>
                 
@@ -407,15 +397,25 @@
                     <h2>📍 Localización GPS por Vehículo</h2>
                     <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Ubicación individual basada en el último reporte de cada chofer.</p>
                     <button class="btn-submit btn-blue no-print" onclick="renderizarMapasIndividuales()" style="margin-bottom:15px;">🔄 Refrescar Mapas Individuales</button>
-                    
-                    <div class="grid-mapas" id="contenedor-mapas-individuales">
-                        <!-- Llenado dinámicamente -->
-                    </div>
+                    <div class="grid-mapas" id="contenedor-mapas-individuales"></div>
                 </div>
             </section>
 
-            <!-- MÓDULO 2: INGRESOS -->
+            <!-- MÓDULO 2: INGRESOS Y FORZAR DEUDA -->
             <section id="mod-ingresos" class="module">
+
+                <div class="card" style="border: 2px solid var(--warning);">
+                    <h2 style="color:var(--warning);">⏳ Activar Cronómetro / Forzar Deuda Manual</h2>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Si el sistema automático no se disparó o quieres cargar una cuota atrasada para que al chofer le empiece a correr el reloj, usa este botón.</p>
+                    <form id="form-forzar-deuda">
+                        <div class="form-grid">
+                            <div class="form-group"><label>Vehículo / Chofer</label><select id="forzar-auto" required></select></div>
+                            <div class="form-group"><label>Fecha de la Cuota</label><input type="date" id="forzar-fecha" required></div>
+                        </div>
+                        <button type="submit" class="btn-submit btn-orange">Generar Deuda de Cuota Diaria Ahora</button>
+                    </form>
+                </div>
+
                 <div class="card">
                     <h2>💵 Registrar Ingreso / Cuota Diaria Manual</h2>
                     <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Usa este módulo si el chofer te pagó en efectivo y no usó su enlace de reporte.</p>
@@ -430,12 +430,11 @@
                                 <select id="pago-estado" onchange="verificarDiaLibreLeasing()">
                                     <option value="Pagado">Pagado (Aumenta Billetera / Salda Deuda)</option>
                                     <option value="Pendiente">Pendiente (Generar Deuda Manual)</option>
-                                    <option value="Dia Libre">Día Libre</option>
+                                    <option value="Dia Libre">Día Libre (No corre el cronómetro)</option>
                                 </select>
                             </div>
                             <div class="form-group" id="group-monto"><label>Monto Recibido ($)</label><input type="number" step="0.01" id="pago-monto" placeholder="0.00"></div>
                             
-                            <!-- FECHA PARA PAGOS ATRASADOS -->
                             <div class="form-group">
                                 <label>Fecha del Pago (Para cobros atrasados)</label>
                                 <input type="date" id="pago-fecha" required>
@@ -452,7 +451,7 @@
                 </div>
             </section>
 
-            <!-- MÓDULO 3: GASTOS Y TALLER (INVENTARIO Y CHECKLIST ADMIN) -->
+            <!-- MÓDULO 3: GASTOS Y TALLER -->
             <section id="mod-gastos" class="module">
                 <div class="card">
                     <h2>🛠️ Registrar Gasto Directo</h2>
@@ -461,14 +460,7 @@
                             <div class="form-group"><label>Vehículo</label><select id="gasto-auto" required></select></div>
                             <div class="form-group"><label>Monto del Gasto ($)</label><input type="number" step="0.01" id="gasto-monto" required placeholder="0.00"></div>
                             <div class="form-group"><label>Categoría / Concepto</label>
-                                <select id="gasto-concepto">
-                                    <option value="Mantenimiento Preventivo">Mantenimiento Preventivo</option>
-                                    <option value="Repuestos y Reparación">Repuestos y Reparación Mecánica</option>
-                                    <option value="Llantas">Llantas y Alineación</option>
-                                    <option value="Seguro y Placa">Renovación Seguro / Placa / Revisado</option>
-                                    <option value="Combustible">Combustible</option>
-                                    <option value="Otros Gastos">Otros Gastos Operativos</option>
-                                </select>
+                                <select id="gasto-concepto"><option value="Mantenimiento Preventivo">Mantenimiento Preventivo</option><option value="Repuestos y Reparación">Repuestos y Reparación Mecánica</option><option value="Llantas">Llantas y Alineación</option><option value="Seguro y Placa">Renovación Seguro / Placa / Revisado</option><option value="Combustible">Combustible</option><option value="Otros Gastos">Otros Gastos Operativos</option></select>
                             </div>
                             <div class="form-group"><label>Kilometraje en el Taller</label><input type="number" id="gasto-km" placeholder="Ej: 46000"></div>
                         </div>
@@ -479,7 +471,6 @@
 
                 <div class="card">
                     <h2>📋 Checklist de Inspección Semanal Administrador</h2>
-                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Usa este módulo para hacer tus propias revisiones y descontar piezas del inventario.</p>
                     <form id="form-checklist">
                         <div class="form-group"><label>Seleccionar Vehículo</label><select id="chk-auto" required></select></div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; background:var(--bg-body); padding:10px; border-radius:8px;">
@@ -496,13 +487,11 @@
                         <div style="background:var(--bg-body); padding:12px; border-radius:8px; border:1px solid var(--border); margin-bottom:12px;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:bold; color:var(--primary-dark);">
                                 <input type="checkbox" id="chk-hizo-mantenimiento" onchange="document.getElementById('box-uso-inventario').style.display = this.checked ? 'block' : 'none';" style="width:18px; height:18px;">
-                                ¿Se realizó mantenimiento y se utilizaron repuestos del inventario?
+                                ¿Se utilizaron repuestos del inventario?
                             </label>
                             <div id="box-uso-inventario" style="display:none; margin-top:12px;">
-                                <p style="font-size:0.8rem; margin-bottom:8px;">Indica las cantidades que sacaste del inventario para este auto:</p>
-                                <div id="lista-seleccion-inventario" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
-                                    <!-- Llenado por JS -->
-                                </div>
+                                <p style="font-size:0.8rem; margin-bottom:8px;">Indica las cantidades extraídas:</p>
+                                <div id="lista-seleccion-inventario" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px;"></div>
                             </div>
                         </div>
                         <button type="submit" class="btn-submit btn-green">Guardar Inspección Semanal</button>
@@ -608,7 +597,40 @@
 
             <!-- MÓDULO 6: CONDUCTORES E INFRACCIONES -->
             <section id="mod-conductores" class="module">
+
+                <!-- NUEVO: EXTENSIÓN DE TIEMPO MANUAL -->
+                <div class="card" style="border: 2px solid var(--info);">
+                    <h2 style="color:var(--info);">⏳ Extensión de Tiempo Manual (Cronómetro)</h2>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Aplica un tiempo extra personalizado a un chofer (ej. 2 horas extras). Esto reactivará su portal y sobrescribirá la deuda por ese tiempo exacto.</p>
+                    <form id="form-extension">
+                        <div class="form-grid">
+                            <div class="form-group"><label>Conductor a extender</label><select id="ext-conductor" required></select></div>
+                            <div class="form-group"><label>Horas Extras</label><input type="number" id="ext-horas" value="0" min="0"></div>
+                            <div class="form-group"><label>Minutos Extras</label><input type="number" id="ext-minutos" value="0" min="0" max="59"></div>
+                        </div>
+                        <button type="submit" class="btn-submit btn-blue">Activar Cronómetro Especial Ahora</button>
+                    </form>
+                </div>
                 
+                <!-- AJUSTE MANUAL DE SALDO -->
+                <div class="card" style="border: 2px solid var(--success);">
+                    <h2 style="color:var(--success);">⚖️ Ajuste Manual de Billetera (Saldo)</h2>
+                    <form id="form-ajuste-saldo">
+                        <div class="form-grid">
+                            <div class="form-group"><label>Conductor</label><select id="ajuste-conductor" required></select></div>
+                            <div class="form-group"><label>Tipo de Ajuste</label>
+                                <select id="ajuste-tipo">
+                                    <option value="favor">➕ Agregar Saldo a Favor (Abono extra)</option>
+                                    <option value="deuda">➖ Agregar Deuda (Cargo / Multa)</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Monto ($)</label><input type="number" step="0.01" id="ajuste-monto" required placeholder="Ej: 25.00"></div>
+                            <div class="form-group"><label>Motivo / Observación</label><input type="text" id="ajuste-nota" required placeholder="Ej: Bono, Daño de llanta, Préstamo..."></div>
+                        </div>
+                        <button type="submit" class="btn-submit btn-blue">Aplicar Ajuste a la Billetera</button>
+                    </form>
+                </div>
+
                 <div class="card" style="border: 2px solid var(--danger);">
                     <h2 style="color:var(--danger);">🚨 Reportar Infracción a Conductor</h2>
                     <form id="form-infraccion">
@@ -630,8 +652,8 @@
                     </form>
                 </div>
 
-                <div class="card">
-                    <h2 id="title-form-conductor">👤 Registrar / Editar Conductor</h2>
+                <div class="card" id="card-form-conductor">
+                    <h2 id="title-form-conductor">👤 Registrar Conductor</h2>
                     <form id="form-conductor">
                         <input type="hidden" id="edit-cond-id">
                         <div class="form-grid">
@@ -639,8 +661,17 @@
                             <div class="form-group"><label>Usuario (Para Login)</label><input type="text" id="cond-usuario" required placeholder="Ej: juan123"></div>
                             <div class="form-group"><label>Cédula</label><input type="text" id="cond-cedula"></div>
                             <div class="form-group"><label>Teléfono (WhatsApp)</label><input type="tel" id="cond-telefono"></div>
-                            <div class="form-group"><label>N° Licencia</label><input type="text" id="cond-licencia"></div>
-                            <div class="form-group"><label>Hora Límite de Pago (Cronómetro)</label><input type="time" id="cond-hora-limite" value="23:59"></div>
+                            <div class="form-group"><label>N° Licencia</label><input type="text" id="cond-licencia"></div> 
+                            
+                            <div class="form-group" style="background:var(--bg-body); padding:10px; border-radius:8px; border:1px solid var(--border);">
+                                <label>Horas de Gracia (Desde la Medianoche)</label>
+                                <input type="number" id="cond-horas-gracia" placeholder="Ej: 12 o 24" required>
+                                <small style="color:var(--text-muted); display:block; margin-top:4px;">
+                                    <b>0</b> = Corta exactamente a la Medianoche.<br>
+                                    <b>12</b> = Le da chance hasta Mediodía de mañana.
+                                </small>
+                            </div>
+                            
                             <div class="form-group"><label>PIN Secreto (Para Login 4 Dígitos)</label><input type="password" id="cond-pin" placeholder="Ej: 1234" maxlength="4" pattern="\d*"></div>
                         </div>
                         <button type="submit" class="btn-submit btn-dark" id="btn-save-cond">Guardar Conductor</button>
@@ -775,11 +806,38 @@
                 </div>
             </section>
 
-            <!-- ================= MÓDULO 11: AJUSTES ================= -->
+            <!-- ================= MÓDULO 11: AJUSTES E INTEGRACIÓN TELEGRAM ================= -->
             <section id="mod-ajustes" class="module">
                 <div class="card">
                     <h2>⚙️ Configuración y Ajustes del Sistema</h2>
                     
+                    <div style="background:var(--bg-body); padding:18px; border-radius:8px; border:1px solid var(--border); margin-bottom:18px;">
+                        <h3 style="font-size:1rem; margin-bottom:12px; color:var(--primary-dark);">🖼️ Logo de tu Empresa</h3>
+                        <div class="form-group">
+                            <label>Sube el logo de tu empresa (Se mostrará en la app)</label>
+                            <input type="file" id="cfg-logo" accept="image/*" onchange="cargarLogo(event)">
+                        </div>
+                        <div style="text-align:center; margin-top:10px;">
+                            <img id="preview-logo" src="" style="max-height:80px; display:none; border-radius:8px; margin:0 auto;">
+                            <button type="button" class="btn-sm btn-red" onclick="borrarLogo()" id="btn-borrar-logo" style="display:none; margin-top:10px;">🗑️ Borrar Logo</button>
+                        </div>
+                    </div>
+
+                    <!-- NUEVO: INTEGRACIÓN TELEGRAM BOTFATHER -->
+                    <div style="background:var(--bg-body); padding:18px; border-radius:8px; border:1px solid #3b82f6; margin-bottom:18px;">
+                        <h3 style="font-size:1rem; margin-bottom:12px; color:#1d4ed8;">🤖 Integración Telegram Bot</h3>
+                        <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Recibe alertas en Telegram cada vez que un chofer pague o reporte una avería.</p>
+                        <div class="form-group">
+                            <label>Token del Bot (BotFather)</label>
+                            <input type="text" id="cfg-tg-token" placeholder="Ej: 123456789:ABCdefGHI...">
+                        </div>
+                        <div class="form-group">
+                            <label>Tu Chat ID (Donde llegarán los msj)</label>
+                            <input type="text" id="cfg-tg-chat" placeholder="Ej: 987654321">
+                        </div>
+                        <button type="button" class="btn-submit btn-blue" onclick="guardarAjustes(); probarTelegram();">💾 Guardar y Enviar Mensaje de Prueba</button>
+                    </div>
+
                     <div style="background:var(--bg-body); padding:18px; border-radius:8px; border:1px solid var(--border); margin-bottom:18px;">
                         <h3 style="font-size:1rem; margin-bottom:12px; color:var(--primary-dark);">🎨 Apariencia de la App (Temas)</h3>
                         <div class="form-group">
@@ -819,7 +877,7 @@
                             <div class="form-group"><label>projectId</label><input type="text" id="fb-project" placeholder="Ej: personal-car" readonly></div>
                         </div>
                         <div style="display:flex; gap:10px; margin-top:10px;">
-                            <button type="button" class="btn-submit btn-orange" onclick="desbloquearAjustesFB()">✏️ Editar</button>
+                            <button type="button" class="btn-submit btn-orange" onclick="desbloquearAjustesFB()">✏️ Editar Credenciales</button>
                             <button type="button" class="btn-submit btn-dark" onclick="conectarFirebaseBoton()" id="btn-conectar-fb" disabled>🔄 Sincronizar Nube</button>
                         </div>
                     </div>
@@ -909,7 +967,7 @@
             entregas: JSON.parse(localStorage.getItem('pc_entregas')) || [], 
             infracciones: JSON.parse(localStorage.getItem('pc_infracciones')) || [], 
             averias: JSON.parse(localStorage.getItem('pc_averias')) || [], 
-            ajustes: JSON.parse(localStorage.getItem('pc_ajustes')) || { autoPendientes: true, fondoDiario: 0, fbApi: '', fbProject: '', tema: 'default', adminPass: 'admin123' }
+            ajustes: JSON.parse(localStorage.getItem('pc_ajustes')) || { autoPendientes: true, fondoDiario: 0, fbApi: '', fbProject: '', tema: 'default', adminPass: 'admin123', logo: '', telegramToken: '', telegramChatId: '' }
         };
 
         let firebaseDB = null; let firebaseStorage = null; let isOnline = false;
@@ -919,6 +977,48 @@
         let mapGlobal = null; 
         let mapModalLeaflet = null;
         let mapasIndividualesActivos = {};
+        
+        let esAdminActivo = false;
+        let sesionChoferActiva = null;
+
+        // ================= SISTEMA DE NOTIFICACIONES TOAST =================
+        function mostrarToast(mensaje, tipo = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${tipo}`;
+            
+            let icono = '✅';
+            if(tipo === 'error') icono = '❌';
+            if(tipo === 'warning') icono = '⚠️';
+            if(tipo === 'info') icono = 'ℹ️';
+
+            toast.innerHTML = `<span>${icono} ${mensaje}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'fadeOut 0.5s ease-out forwards';
+                setTimeout(() => { toast.remove(); }, 500);
+            }, 3000);
+        }
+
+        // ================= SISTEMA DE TELEGRAM =================
+        function enviarTelegram(mensajeHTML) {
+            const token = db.ajustes.telegramToken;
+            const chatId = db.ajustes.telegramChatId;
+            if (!token || !chatId) return; 
+
+            const url = `https://api.telegram.org/bot${token}/sendMessage`;
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text: mensajeHTML, parse_mode: 'HTML' })
+            }).catch(e => console.error("Error Telegram:", e));
+        }
+
+        function probarTelegram() {
+            enviarTelegram("🤖 <b>Bot de Personal Car</b>\n¡Conexión exitosa! Ahora recibirás las notificaciones de los choferes aquí.");
+            mostrarToast("Mensaje de prueba enviado a Telegram.", "info");
+        }
 
         // ================= SISTEMA DE LOGIN Y SEGURIDAD =================
         let adminClicks = 0;
@@ -942,41 +1042,107 @@
             const pass = document.getElementById('login-admin-pass').value;
             const realPass = db.ajustes.adminPass || 'admin123';
             if(pass === realPass) {
+                esAdminActivo = true;
+                sesionChoferActiva = null;
+                
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app-content').style.display = 'block';
+                
                 document.getElementById('admin-app').style.display = 'block';
+                document.getElementById('driver-app').style.display = 'none';
                 document.getElementById('main-nav').style.display = 'flex';
-                initAppConfig();
+                
+                document.getElementById('chk-auto-pendientes').checked = db.ajustes.autoPendientes;
+                document.getElementById('cfg-fondo-diario').value = db.ajustes.fondoDiario || 0;
+                
+                // Cargar datos en el formulario de ajustes
+                document.getElementById('cfg-tg-token').value = db.ajustes.telegramToken || '';
+                document.getElementById('cfg-tg-chat').value = db.ajustes.telegramChatId || '';
+
+                if (db.ajustes.autoPendientes) cobrarDiaAutomatico();
+                
+                actualizarUI();
                 setTimeout(() => actualizarMapaGlobal(), 1000); 
-            } else { alert("❌ Contraseña de administrador incorrecta."); }
+                mostrarToast('Bienvenido, Administrador.', 'success');
+            } else { mostrarToast("Contraseña incorrecta.", 'error'); }
         }
 
         function iniciarSesionChofer() {
             const userStr = document.getElementById('login-driver-user').value.trim().toLowerCase();
             const pinStr = document.getElementById('login-driver-pin').value.trim();
             
-            if(!userStr || !pinStr) return alert("Ingresa tu usuario y PIN.");
+            if(!userStr || !pinStr) return mostrarToast("Ingresa tu usuario y PIN.", 'warning');
             
             const driver = db.conductores.find(c => 
                 (c.usuario && c.usuario.toLowerCase() === userStr) || 
                 (c.cedula && c.cedula.toLowerCase() === userStr)
             );
 
-            if(!driver) return alert("❌ Usuario no encontrado.");
+            if(!driver) return mostrarToast("Usuario no encontrado.", 'error');
             
             const realPin = driver.pin || '1234'; 
             
             if(pinStr === realPin) {
+                esAdminActivo = false;
+                sesionChoferActiva = String(driver.id);
+                
                 window.history.pushState({}, '', `?driver=${driver.id}`);
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app-content').style.display = 'block';
-                initAppConfig();
-            } else { alert("❌ PIN incorrecto. Si no lo sabes, contacta al administrador."); }
+                
+                document.getElementById('driver-app').style.display = 'block';
+                document.getElementById('admin-app').style.display = 'none';
+                document.getElementById('main-nav').style.display = 'none';
+                
+                renderizarPortalChofer();
+                mostrarToast(`Hola, ${driver.nombre}`, 'info');
+            } else { mostrarToast("PIN incorrecto.", 'error'); }
         }
 
         function cerrarSesion() {
             window.history.pushState({}, '', window.location.pathname);
             window.location.reload();
+        }
+
+        // ================= SISTEMA DE LOGO EMPRESARIAL =================
+        function cargarLogo(e) {
+            const file = e.target.files[0];
+            if(file) {
+                comprimirImagen(file, 400, 400, 0.8).then(b64 => {
+                    db.ajustes.logo = b64;
+                    guardarLocal();
+                    aplicarLogo();
+                    mostrarToast('Logo actualizado.', 'success');
+                });
+            }
+        }
+
+        function borrarLogo() {
+            db.ajustes.logo = "";
+            guardarLocal();
+            aplicarLogo();
+            document.getElementById('cfg-logo').value = "";
+            mostrarToast('Logo eliminado.', 'info');
+        }
+
+        function aplicarLogo() {
+            const logoBase64 = db.ajustes.logo;
+            const preview = document.getElementById('preview-logo');
+            const btnBorrar = document.getElementById('btn-borrar-logo');
+            const loginLogo = document.getElementById('login-logo');
+            const headerLogo = document.getElementById('header-logo');
+
+            if(logoBase64) {
+                if(preview) { preview.src = logoBase64; preview.style.display = 'block'; }
+                if(btnBorrar) { btnBorrar.style.display = 'inline-block'; }
+                if(loginLogo) { loginLogo.src = logoBase64; loginLogo.style.display = 'block'; }
+                if(headerLogo) { headerLogo.src = logoBase64; headerLogo.style.display = 'block'; }
+            } else {
+                if(preview) { preview.style.display = 'none'; }
+                if(btnBorrar) { btnBorrar.style.display = 'none'; }
+                if(loginLogo) { loginLogo.style.display = 'none'; }
+                if(headerLogo) { headerLogo.style.display = 'none'; }
+            }
         }
 
         // ================= IA OCR PARA COMPROBANTES =================
@@ -1014,22 +1180,7 @@
             }
         }
 
-        // ================= EXCEL EXPORT =================
-        function exportarExcel(dataArray, filenamePrefix) {
-            if(dataArray.length === 0) return alert("No hay datos para exportar.");
-            const excelData = dataArray.map(m => {
-                const auto = db.autos.find(a => String(a.id) === String(m.autoId));
-                const chofer = db.conductores.find(c => String(c.id) === String(m.conductorId));
-                const fechaLegible = new Date(m.fecha).toLocaleString();
-                return { "Fecha": fechaLegible, "Tipo": m.tipo, "Origen": m.origen || "-", "Vehículo": auto ? auto.placa : "-", "Chofer": chofer ? chofer.nombre : "-", "Estado": m.estado, "Concepto": m.concepto || "-", "Nota": m.nota || "-", "Monto ($)": m.monto };
-            });
-            const ws = XLSX.utils.json_to_sheet(excelData);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Finanzas");
-            XLSX.writeFile(wb, `${filenamePrefix}_PersonalCar_${new Date().toLocaleDateString().replace(/\//g,'-')}.xlsx`);
-        }
-
-        // ================= MAPAS (GLOBAL E INDIVIDUAL) =================
+        // ================= MAPAS Y COMPRESIÓN =================
         function resizeMap(val) {
             document.getElementById('mapa-global').style.height = val + 'px';
             if(mapGlobal) { setTimeout(() => mapGlobal.invalidateSize(), 100); }
@@ -1062,7 +1213,6 @@
         function renderizarMapasIndividuales() {
             const container = document.getElementById('contenedor-mapas-individuales');
             let html = '';
-            
             Object.values(mapasIndividualesActivos).forEach(m => m.remove());
             mapasIndividualesActivos = {};
 
@@ -1099,7 +1249,7 @@
             });
         }
 
-        function comprimirImagen(file, maxWidth = 600, maxHeight = 600, quality = 0.6) {
+        function comprimirImagen(file, maxWidth = 500, maxHeight = 500, quality = 0.5) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader(); reader.readAsDataURL(file);
                 reader.onload = event => {
@@ -1119,6 +1269,7 @@
             });
         }
 
+        // ================= FUNCIÓN MAESTRA GUARDAR LOCAL =================
         function guardarLocal() {
             localStorage.setItem('pc_autos', JSON.stringify(db.autos));
             localStorage.setItem('pc_conductores', JSON.stringify(db.conductores));
@@ -1130,8 +1281,10 @@
             localStorage.setItem('pc_infracciones', JSON.stringify(db.infracciones)); 
             localStorage.setItem('pc_averias', JSON.stringify(db.averias)); 
             localStorage.setItem('pc_ajustes', JSON.stringify(db.ajustes));
+            
             if(firebaseDB && isOnline) firebaseDB.ref('flota_personal_car').set(db);
-            actualizarUI();
+            
+            if (esAdminActivo) { actualizarUI(); }
         }
 
         function cambiarTemaColor(nombreTema) {
@@ -1164,7 +1317,7 @@
             
             if(id === 'mod-mapas') { setTimeout(renderizarMapasIndividuales, 300); }
             if(id === 'mod-contrato') generarVistaContrato();
-            if(id === 'mod-reporte') generarEstadoCuenta();
+            if(id === 'mod-reporte') { document.getElementById('tipo-reporte').value = 'chofer'; toggleReporteSelect(); }
             window.scrollTo(0,0);
         }
 
@@ -1183,18 +1336,24 @@
             return pagosReales - deudaAcumulada; 
         }
 
+        // ================= CREACIÓN DIARIA AUTOMÁTICA =================
         function cobrarDiaAutomatico() {
-            const hoyStr = new Date().toLocaleDateString('en-CA');
+            const hoyStr = new Date().toLocaleDateString('en-CA'); // Usa el día local correcto
             db.autos.forEach(auto => {
                 if (!auto.conductorId) return;
                 const tarifa = auto.tarifaDiaria || 0;
                 if (tarifa === 0) return;
+                // Buscamos si ya se cobró "hoy"
                 const cobradoHoy = db.movimientos.some(m => String(m.autoId) === String(auto.id) && m.concepto === 'Cuota Diaria Fija' && new Date(m.fecha).toLocaleDateString('en-CA') === hoyStr);
                 if (!cobradoHoy) {
+                    // Creamos la deuda a las 00:00:00 del día actual para que el cronómetro arranque bien
+                    const startOfToday = new Date();
+                    startOfToday.setHours(0,0,0,0);
+
                     db.movimientos.push({
                         id: 'cuota_' + Date.now() + Math.random().toString(16).slice(2),
                         tipo: 'ingreso', autoId: auto.id, conductorId: auto.conductorId,
-                        origen: 'Aplicaciones', estado: 'Pendiente', monto: tarifa, fecha: new Date().getTime(),
+                        origen: 'Aplicaciones', estado: 'Pendiente', monto: tarifa, fecha: startOfToday.getTime(),
                         concepto: 'Cuota Diaria Fija', nota: 'Generación Automática'
                     });
                 }
@@ -1227,7 +1386,11 @@
                         db.entregas = data.entregas || []; db.averias = data.averias || [];
                         db.infracciones = data.infracciones || []; db.ajustes = data.ajustes || db.ajustes;
                         localStorage.setItem('pc_autos', JSON.stringify(db.autos)); localStorage.setItem('pc_conductores', JSON.stringify(db.conductores)); localStorage.setItem('pc_socios', JSON.stringify(db.socios)); localStorage.setItem('pc_movimientos', JSON.stringify(db.movimientos)); localStorage.setItem('pc_inventario', JSON.stringify(db.inventario)); localStorage.setItem('pc_checklists', JSON.stringify(db.checklists)); localStorage.setItem('pc_entregas', JSON.stringify(db.entregas)); localStorage.setItem('pc_averias', JSON.stringify(db.averias)); localStorage.setItem('pc_infracciones', JSON.stringify(db.infracciones)); localStorage.setItem('pc_ajustes', JSON.stringify(db.ajustes));
-                        actualizarUI(); aplicarTemaCSS(db.ajustes.tema || 'default');
+                        
+                        aplicarTemaCSS(db.ajustes.tema || 'default');
+                        aplicarLogo();
+                        if (esAdminActivo) { actualizarUI(); } 
+                        else if (sesionChoferActiva) { renderizarPortalChofer(); }
                     }
                 });
             } catch(e) { console.error("Error Firebase:", e); }
@@ -1235,10 +1398,10 @@
 
         function conectarFirebaseBoton() {
             const api = document.getElementById('fb-api').value.trim(); const project = document.getElementById('fb-project').value.trim();
-            if(!api || !project) return alert('Ingresa apiKey y projectId.');
+            if(!api || !project) return mostrarToast('Ingresa apiKey y projectId.', 'error');
             db.ajustes.fbApi = api; db.ajustes.fbProject = project; guardarLocal(); conectarNube(api, project);
             document.getElementById('fb-api').setAttribute('readonly', true); document.getElementById('fb-project').setAttribute('readonly', true); document.getElementById('btn-conectar-fb').setAttribute('disabled', true);
-            alert('🔥 Sincronizando con Firebase...');
+            mostrarToast('🔥 Sincronizando con Firebase...', 'info');
         }
 
         function factoryResetTotal() {
@@ -1250,116 +1413,165 @@
             }
         }
 
-        // ================= ARRANQUE LUEGO DEL LOGIN =================
+        // ================= ARRANQUE DE LA APP =================
         document.addEventListener("DOMContentLoaded", () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            if(!urlParams.get('driver')) {
-                document.getElementById('login-screen').style.display = 'flex';
-            }
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('app-content').style.display = 'none';
+
+            aplicarTemaCSS(db.ajustes.tema || 'default');
+            aplicarLogo();
+
+            const activeApi = FB_API_FIJA || db.ajustes.fbApi;
+            const activeProject = FB_PROJECT_FIJO || db.ajustes.fbProject;
+            if(activeApi && activeProject) { conectarNube(activeApi, activeProject); }
         });
 
         function initAppConfig() {
             document.getElementById('pago-fecha').value = new Date().toLocaleDateString('en-CA');
-            const driverId = new URLSearchParams(window.location.search).get('driver');
-
-            aplicarTemaCSS(db.ajustes.tema || 'default');
+            document.getElementById('forzar-fecha').value = new Date().toLocaleDateString('en-CA');
             document.getElementById('cfg-admin-pass').value = db.ajustes.adminPass || 'admin123';
+            document.getElementById('cfg-tg-token').value = db.ajustes.telegramToken || '';
+            document.getElementById('cfg-tg-chat').value = db.ajustes.telegramChatId || '';
+        }
 
-            const activeApi = FB_API_FIJA || db.ajustes.fbApi;
-            const activeProject = FB_PROJECT_FIJO || db.ajustes.fbProject;
-            if(activeApi && activeProject) {
-                document.getElementById('fb-api').value = activeApi; document.getElementById('fb-project').value = activeProject;
-                conectarNube(activeApi, activeProject);
-            }
+        // ================= FUNCION PORTAL CHOFER =================
+        function renderizarPortalChofer() {
+            if(!sesionChoferActiva) return;
+            const driverId = sesionChoferActiva;
+            const driver = db.conductores.find(c => String(c.id) === String(driverId));
+            const auto = db.autos.find(a => String(a.conductorId) === String(driverId));
+            
+            if (!driver) return;
 
-            if (driverId) {
-                const driver = db.conductores.find(c => String(c.id) === String(driverId));
-                const auto = db.autos.find(a => String(a.conductorId) === String(driverId));
-                
-                if (driver) {
-                    const saldo = obtenerSaldoChofer(driverId);
-                    document.getElementById('driver-name-display').innerText = `Hola, ${driver.nombre}`;
-                    document.getElementById('driver-tarifa-display').innerText = `Tarifa Diaria Asignada: $${auto ? auto.tarifaDiaria || 0 : 0}`;
+            const saldo = obtenerSaldoChofer(driverId);
+            document.getElementById('driver-name-display').innerText = `Hola, ${driver.nombre}`;
+            document.getElementById('driver-tarifa-display').innerText = `Tarifa Diaria Asignada: $${auto ? auto.tarifaDiaria || 0 : 0}`;
+            
+            const salBox = document.getElementById('driver-saldo-box');
+            if(saldo < 0) salBox.innerHTML = `<span style="color:var(--danger)">Mantienes una deuda de $${Math.abs(saldo).toFixed(2)}</span>`; 
+            else if(saldo > 0) salBox.innerHTML = `<span style="color:var(--success)">Tienes un Saldo a Favor de $${saldo.toFixed(2)}</span>`; 
+            else salBox.innerHTML = `<span style="color:var(--success)">¡Estás al día con tus pagos!</span>`; 
+
+            const misInfracciones = db.infracciones.filter(i => String(i.conductorId) === String(driverId) && i.estado === 'Activa');
+            if (misInfracciones.length > 0) {
+                document.getElementById('driver-infracciones-box').style.display = 'block';
+                document.getElementById('driver-infracciones-list').innerHTML = misInfracciones.map(i => {
+                    const btnEvidencia = i.foto ? `<span style="text-decoration:underline; font-weight:bold; cursor:pointer;" onclick="verImagenGenerica('${i.foto}')">📸 Ver Evidencia</span>` : '';
+                    return `<p style="margin-bottom:8px; line-height:1.4;">⚠️ <strong>${i.tipo}</strong>: ${i.nota} <small>(${new Date(i.fecha).toLocaleDateString()})</small> ${btnEvidencia}</p>`;
+                }).join('');
+            } else { document.getElementById('driver-infracciones-box').style.display = 'none'; }
+
+            // =============== CRONÓMETRO MATEMÁTICO PERFECTO ===============
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            // 1. Verificar si hay un cronómetro de Extensión Manual activo
+            const nowTime = new Date().getTime();
+            let targetTime = null;
+
+            if (driver.customTimerEnd && driver.customTimerEnd > nowTime) {
+                // Hay una extensión manual vigente
+                targetTime = driver.customTimerEnd;
+            } 
+            else {
+                // Borramos la extensión manual si ya se venció
+                if (driver.customTimerEnd) {
+                    driver.customTimerEnd = null;
+                    guardarLocal();
+                }
+
+                // Buscamos si hay deuda
+                if (saldo < 0) {
+                    document.getElementById('driver-countdown-box').style.display = 'block';
                     
-                    const salBox = document.getElementById('driver-saldo-box');
-                    if(saldo < 0) salBox.innerHTML = `<span style="color:var(--danger)">Mantienes una deuda de $${Math.abs(saldo).toFixed(2)}</span>`; 
-                    else if(saldo > 0) salBox.innerHTML = `<span style="color:var(--success)">Tienes un Saldo a Favor de $${saldo.toFixed(2)}</span>`; 
-                    else salBox.innerHTML = `<span style="color:var(--success)">¡Estás al día con tus pagos!</span>`; 
-
-                    const misInfracciones = db.infracciones.filter(i => String(i.conductorId) === String(driverId) && i.estado === 'Activa');
-                    if (misInfracciones.length > 0) {
-                        document.getElementById('driver-infracciones-box').style.display = 'block';
-                        document.getElementById('driver-infracciones-list').innerHTML = misInfracciones.map(i => {
-                            const btnEvidencia = i.foto ? `<span style="text-decoration:underline; font-weight:bold; cursor:pointer;" onclick="verImagenGenerica('${i.foto}')">📸 Ver Evidencia</span>` : '';
-                            return `<p style="margin-bottom:8px; line-height:1.4;">⚠️ <strong>${i.tipo}</strong>: ${i.nota} <small>(${new Date(i.fecha).toLocaleDateString()})</small> ${btnEvidencia}</p>`;
-                        }).join('');
-                    }
-
-                    if (driver.horaLimite) {
-                        document.getElementById('driver-countdown-box').style.display = 'block';
-                        if(countdownInterval) clearInterval(countdownInterval);
+                    // Buscar la deuda más antigua
+                    const movsPendientes = db.movimientos.filter(m => String(m.conductorId) === String(driverId) && m.estado === 'Pendiente' && m.tipo === 'ingreso');
+                    if(movsPendientes.length > 0) {
+                        movsPendientes.sort((a, b) => a.fecha - b.fecha);
+                        const oldestDeuda = movsPendientes[0];
                         
-                        countdownInterval = setInterval(() => {
-                            const now = new Date();
-                            const [h, m] = driver.horaLimite.split(':').map(Number);
-                            let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
-
-                            // Si la hora límite configurada ya pasó hoy, el deadline es esa misma hora de MAÑANA.
-                            if (now.getTime() >= target.getTime()) {
-                                target.setDate(target.getDate() + 1);
-                            }
-
-                            const diff = target - now;
-                            const box = document.getElementById('driver-countdown-text');
-                            const container = document.getElementById('driver-countdown-box');
-                            const warningText = document.getElementById('driver-countdown-warning');
-                            
-                            const hrs = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                            const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                            const secs = Math.floor((diff % (1000 * 60)) / 1000);
-                            
-                            box.innerHTML = `⏳ Faltan: <strong>${hrs}h ${mins}m ${secs}s</strong>`;
-                            warningText.style.display = 'none';
-                            
-                            if (hrs < 2) { 
-                                container.style.backgroundColor = 'var(--danger)'; 
-                                container.style.borderColor = 'var(--danger)'; 
-                                box.style.color = '#fff'; 
-                                warningText.innerHTML = `🚨 ¡TIEMPO CRÍTICO! El auto será inmovilizado en cualquier momento por falta de pago.`;
-                                warningText.style.display = 'block';
-                                warningText.style.color = '#fff';
-                            } else { 
-                                container.style.backgroundColor = 'var(--warning)'; 
-                                container.style.borderColor = 'var(--warning)'; 
-                                box.style.color = '#fff'; 
-                            }
-                        }, 1000);
+                        const dateDeuda = new Date(oldestDeuda.fecha);
+                        // El ciclo de cobro empieza a las 00:00:00 del día que se generó la deuda
+                        const startOfDeudaDay = new Date(dateDeuda.getFullYear(), dateDeuda.getMonth(), dateDeuda.getDate(), 0, 0, 0, 0).getTime();
+                        
+                        // Si le diste 12 horas de gracia, el corte es al Mediodía (12 hrs después de Medianoche).
+                        // Si le diste 24 horas de gracia, el corte es a la próxima Medianoche.
+                        // Si le diste 36 horas de gracia, el corte es al Mediodía del DÍA SIGUIENTE.
+                        const horasGracia = parseFloat(driver.horasGracia || 24); 
+                        targetTime = startOfDeudaDay + (horasGracia * 60 * 60 * 1000);
                     }
-
-                    if (auto) {
-                        const entrega = db.entregas.slice().reverse().find(e => String(e.autoId) === String(auto.id) && String(e.conductorId) === String(driverId));
-                        if (entrega) {
-                            document.getElementById('driver-entrega-box').style.display = 'block';
-                            document.getElementById('driver-entrega-content').innerHTML = `<p><strong>📅 Entregado:</strong> ${new Date(entrega.fecha).toLocaleDateString()}</p><p><strong>🛣️ Km:</strong> ${entrega.km} km</p><p><strong>⛽ Combustible:</strong> ${entrega.combustible}</p><p style="margin-top:5px;"><strong>📝 Detalles Registrados:</strong><br> ${entrega.notas || 'Ningún daño.'}</p>`;
-                            if(entrega.fotos && entrega.fotos.length > 0) document.getElementById('driver-entrega-fotos').innerHTML = entrega.fotos.map(f => `<img src="${f}" style="height:90px; border-radius:6px; cursor:pointer; border:1px solid var(--border);" onclick="verImagenGenerica('${f}')">`).join('');
-                        }
-                    }
-
-                    if (auto && auto.isLeasing) {
-                        const totalDias = auto.leasingTotalDias || 0;
-                        const diasPagados = (auto.leasingDiasPrevios || 0) + db.movimientos.filter(m => String(m.autoId) === String(auto.id) && !m.isDriverReport && (m.estado === 'Pagado' || (m.estado === 'Dia Libre' && m.sumarLeasing))).length;
-                        const pct = totalDias > 0 ? Math.min((diasPagados / totalDias) * 100, 100) : 0;
-                        document.getElementById('driver-leasing-box').style.display = 'block'; document.getElementById('driver-leasing-bar').style.width = pct + '%';
-                        document.getElementById('driver-leasing-text').innerHTML = `Has pagado <strong>${diasPagados}</strong> de ${totalDias} días. Te faltan <strong>${Math.max(totalDias - diasPagados, 0)}</strong> días. (${pct.toFixed(1)}%)`;
-                    }
-                    return;
                 }
             }
-            
-            document.getElementById('chk-auto-pendientes').checked = db.ajustes.autoPendientes;
-            document.getElementById('cfg-fondo-diario').value = db.ajustes.fondoDiario || 0;
-            if (db.ajustes.autoPendientes) cobrarDiaAutomatico();
-            actualizarUI();
+
+            if (targetTime !== null) {
+                document.getElementById('driver-countdown-box').style.display = 'block';
+                
+                countdownInterval = setInterval(() => {
+                    const now = new Date().getTime();
+                    const diff = targetTime - now;
+                    
+                    const box = document.getElementById('driver-countdown-text');
+                    const container = document.getElementById('driver-countdown-box');
+                    const warningText = document.getElementById('driver-countdown-warning');
+
+                    if (diff > 0) {
+                        const totalHrs = Math.floor(diff / (1000 * 60 * 60)); 
+                        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                        const secs = Math.floor((diff % (1000 * 60)) / 1000);
+                        
+                        box.innerHTML = `⏳ Faltan: <strong>${totalHrs}h ${mins}m ${secs}s</strong>`;
+                        warningText.style.display = 'none';
+                        
+                        if (totalHrs < 2) { 
+                            container.style.backgroundColor = 'var(--danger)'; 
+                            container.style.borderColor = 'var(--danger)'; 
+                            box.style.color = '#fff'; 
+                            warningText.innerHTML = `🚨 ¡TIEMPO CRÍTICO! Auto próximo a inmovilizarse.`;
+                            warningText.style.display = 'block';
+                            warningText.style.color = '#fff';
+                        } else { 
+                            container.style.backgroundColor = 'var(--warning)'; 
+                            container.style.borderColor = 'var(--warning)'; 
+                            box.style.color = '#fff'; 
+                        }
+                    } else {
+                        // VENCIDO
+                        container.style.backgroundColor = '#fef2f2'; 
+                        container.style.borderColor = '#dc2626'; 
+                        container.style.animation = 'pulseAlert 2s infinite';
+                        box.innerHTML = `🚨 <strong>¡TIEMPO EXCEDIDO!</strong>`;
+                        box.style.color = '#dc2626';
+                        warningText.innerHTML = `⚠️ El auto será inmovilizado en cualquier momento por falta de pago.`;
+                        warningText.style.display = 'block';
+                        clearInterval(countdownInterval);
+                    }
+                }, 1000);
+            } else if (saldo >= 0) {
+                // ESTÁ AL DÍA
+                document.getElementById('driver-countdown-box').style.display = 'block';
+                document.getElementById('driver-countdown-box').style.backgroundColor = 'var(--success)';
+                document.getElementById('driver-countdown-box').style.borderColor = 'var(--success)';
+                document.getElementById('driver-countdown-box').style.animation = 'none';
+                document.getElementById('driver-countdown-text').style.color = '#fff';
+                document.getElementById('driver-countdown-text').innerHTML = `✅ ¡Estás al día!<br><span style="font-size:0.9rem; font-weight:normal;">No hay pagos urgentes pendientes.</span>`;
+                document.getElementById('driver-countdown-warning').style.display = 'none';
+            }
+
+            if (auto) {
+                const entrega = db.entregas.slice().reverse().find(e => String(e.autoId) === String(auto.id) && String(e.conductorId) === String(driverId));
+                if (entrega) {
+                    document.getElementById('driver-entrega-box').style.display = 'block';
+                    document.getElementById('driver-entrega-content').innerHTML = `<p><strong>📅 Entregado:</strong> ${new Date(entrega.fecha).toLocaleDateString()}</p><p><strong>🛣️ Km:</strong> ${entrega.km} km</p><p><strong>⛽ Combustible:</strong> ${entrega.combustible}</p><p style="margin-top:5px;"><strong>📝 Detalles Registrados:</strong><br> ${entrega.notas || 'Ningún daño.'}</p>`;
+                    if(entrega.fotos && entrega.fotos.length > 0) document.getElementById('driver-entrega-fotos').innerHTML = entrega.fotos.map(f => `<img src="${f}" style="height:90px; border-radius:6px; cursor:pointer; border:1px solid var(--border);" onclick="verImagenGenerica('${f}')">`).join('');
+                }
+            }
+
+            if (auto && auto.isLeasing) {
+                const totalDias = auto.leasingTotalDias || 0;
+                const diasPagados = (auto.leasingDiasPrevios || 0) + db.movimientos.filter(m => String(m.autoId) === String(auto.id) && !m.isDriverReport && (m.estado === 'Pagado' || (m.estado === 'Dia Libre' && m.sumarLeasing))).length;
+                const pct = totalDias > 0 ? Math.min((diasPagados / totalDias) * 100, 100) : 0;
+                document.getElementById('driver-leasing-box').style.display = 'block'; document.getElementById('driver-leasing-bar').style.width = pct + '%';
+                document.getElementById('driver-leasing-text').innerHTML = `Has pagado <strong>${diasPagados}</strong> de ${totalDias} días. Te faltan <strong>${Math.max(totalDias - diasPagados, 0)}</strong> días. (${pct.toFixed(1)}%)`;
+            }
         }
 
         // ================== EVENTOS CHOFER ==================
@@ -1373,32 +1585,40 @@
             const btnSubmit = document.getElementById('btn-averia-submit');
             btnSubmit.disabled = true; btnSubmit.innerText = "Enviando alerta...";
 
-            const driverId = new URLSearchParams(window.location.search).get('driver');
+            const driverId = sesionChoferActiva;
             const auto = db.autos.find(a => String(a.conductorId) === String(driverId));
             const desc = document.getElementById('averia-desc').value;
             const file = document.getElementById('averia-foto').files[0];
 
             if(file) {
-                comprimirImagen(file, 800, 800, 0.7).then(base64 => { guardarAveriaLocal(auto, driverId, desc, base64); }).catch(() => guardarAveriaLocal(auto, driverId, desc, null));
+                comprimirImagen(file, 500, 500, 0.5).then(base64 => { guardarAveriaLocal(auto, driverId, desc, base64); }).catch(() => guardarAveriaLocal(auto, driverId, desc, null));
             } else { guardarAveriaLocal(auto, driverId, desc, null); }
         });
 
         function guardarAveriaLocal(auto, driverId, desc, imgBase64) {
             db.averias.push({ id: Date.now().toString(), autoId: auto ? auto.id : '', conductorId: driverId, descripcion: desc, foto: imgBase64, fecha: new Date().getTime(), estado: 'Pendiente' });
-            guardarLocal(); alert('🚨 Alerta enviada al administrador.'); window.location.reload();
+            guardarLocal(); 
+            
+            // Integración Telegram
+            const choferInfo = db.conductores.find(c => String(c.id) === String(driverId));
+            enviarTelegram(`🚨 <b>ALERTA DE AVERÍA</b>\n🚗 Chofer: ${choferInfo ? choferInfo.nombre : 'Desconocido'}\n📝 Problema: ${desc}`);
+            
+            mostrarToast('🚨 Alerta enviada al administrador.', 'success'); 
+            setTimeout(()=>{window.location.reload();}, 1500);
         }
 
         document.getElementById('form-driver-report').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btnSubmit = document.getElementById('btn-driver-submit');
-            const driverId = new URLSearchParams(window.location.search).get('driver');
+            const driverId = sesionChoferActiva;
             const auto = db.autos.find(a => String(a.conductorId) === String(driverId));
-            if (!auto) return alert('Atención: No tienes un vehículo asignado.');
+            if (!auto) return mostrarToast('Atención: No tienes un vehículo asignado.', 'warning');
 
             const estadoSelect = document.getElementById('driver-report-type').value;
             const fileInput = document.getElementById('driver-comprobante');
+            const montoAEnviar = document.getElementById('driver-monto').value;
             
-            if (estadoSelect === 'Pagado' && fileInput.files.length === 0) { return alert("Debes adjuntar la FOTO DEL COMPROBANTE para reportar un pago."); }
+            if (estadoSelect === 'Pagado' && fileInput.files.length === 0) { return mostrarToast("Debes adjuntar la FOTO para reportar pago.", 'warning'); }
 
             btnSubmit.disabled = true; 
 
@@ -1418,36 +1638,43 @@
                 if (estadoSelect === 'Efectivo') { estadoFinal = 'Pagado'; prefixNota = "[EFECTIVO] "; }
 
                 if (estadoSelect === 'Pagado' && fileInput.files[0]) {
-                    btnSubmit.innerText = "☁️ Comprimiendo y Subiendo foto...";
+                    btnSubmit.innerText = "☁️ Comprimiendo y Subiendo...";
                     comprimirImagen(fileInput.files[0], 600, 600, 0.6).then(compressedBase64 => {
-                        procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, compressedBase64, prefixNota, refsExtraidas);
-                    }).catch(err => { alert("Error al procesar la foto."); btnSubmit.disabled = false; btnSubmit.innerText = "🚀 Enviar Reporte Diario"; });
+                        procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, compressedBase64, prefixNota, refsExtraidas, montoAEnviar);
+                    }).catch(err => { mostrarToast("Error al procesar foto.", 'error'); btnSubmit.disabled = false; btnSubmit.innerText = "🚀 Enviar Reporte Diario"; });
                 } else {
-                    procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, null, prefixNota, []);
+                    procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, null, prefixNota, [], montoAEnviar);
                 }
             };
 
-            // GPS SILENCIOSO 3 SEGUNDOS
             if (navigator.geolocation) {
-                btnSubmit.innerText = "📍 Obteniendo GPS silencioso...";
+                btnSubmit.innerText = "📍 Localizando...";
                 navigator.geolocation.getCurrentPosition(
                     (pos) => { continuarEnvio(pos.coords.latitude, pos.coords.longitude); },
                     (err) => { continuarEnvio(null, null); },
-                    { enableHighAccuracy: false, timeout: 3000 }
+                    { enableHighAccuracy: false, timeout: 2500 }
                 );
             } else { continuarEnvio(null, null); }
         });
 
-        function procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, imgUrl, prefixNota = "", refsExtraidas = []) {
+        function procesarEnvioChofer(auto, driverId, estadoFinal, kmIngresado, lat, lng, imgUrl, prefixNota = "", refsExtraidas = [], montoAEnviar = 0) {
             const notaOriginal = document.getElementById('driver-nota').value;
             const notaCompuesta = prefixNota + notaOriginal;
+            
             db.movimientos.push({
                 id: Date.now().toString(), tipo: 'ingreso', isDriverReport: true, autoId: auto.id, conductorId: driverId, origen: 'inDrive / App',
-                estado: estadoFinal, estadoRevision: 'Sin Revisar', monto: estadoFinal === 'Dia Libre' ? 0 : parseFloat(document.getElementById('driver-monto').value || 0),
+                estado: estadoFinal, estadoRevision: 'Sin Revisar', monto: estadoFinal === 'Dia Libre' ? 0 : parseFloat(montoAEnviar || 0),
                 km: kmIngresado, lat: lat, lng: lng, imagen: imgUrl, fecha: new Date().getTime(), nota: notaCompuesta, ocrRefs: refsExtraidas
             });
             if(kmIngresado > (auto.kmActual || 0)) auto.kmActual = kmIngresado;
-            guardarLocal(); alert('✅ Tu reporte ha sido enviado al Administrador.'); window.location.reload();
+            guardarLocal(); 
+            
+            // Integración Telegram
+            const choferInfo = db.conductores.find(c => String(c.id) === String(driverId));
+            enviarTelegram(`📥 <b>NUEVO REPORTE EN BANDEJA</b>\n👤 Chofer: ${choferInfo ? choferInfo.nombre : 'Desconocido'}\n💵 Monto Reportado: $${montoAEnviar}\n📌 Estado: ${estadoFinal}\n📝 Nota: ${notaCompuesta}`);
+            
+            mostrarToast('✅ Reporte enviado al Administrador.', 'success'); 
+            setTimeout(()=>{window.location.reload();}, 1500);
         }
 
         // ================= ACTAS DE ENTREGA ADMIN =================
@@ -1455,7 +1682,7 @@
             e.preventDefault();
             const btn = document.getElementById('btn-submit-entrega');
             const files = document.getElementById('entrega-fotos').files;
-            btn.disabled = true; btn.innerText = 'Subiendo y comprimiendo fotos...';
+            btn.disabled = true; btn.innerText = 'Procesando fotos...';
 
             try {
                 const promesasBase64 = Array.from(files).map(file => comprimirImagen(file, 800, 800, 0.7));
@@ -1470,8 +1697,8 @@
                 
                 guardarLocal(); document.getElementById('form-entrega').reset();
                 btn.disabled = false; btn.innerText = 'Subir Acta y Comprimir Fotos';
-                alert('✅ Acta de entrega guardada.');
-            } catch(err) { alert('Error.'); btn.disabled = false; btn.innerText = 'Subir Acta'; }
+                mostrarToast('✅ Acta de entrega guardada.', 'success');
+            } catch(err) { mostrarToast('Error al guardar.', 'error'); btn.disabled = false; btn.innerText = 'Subir Acta'; }
         });
 
         // ================= GESTIÓN Y REVISIÓN REPORTES (BANDEJA ADMIN) =================
@@ -1488,7 +1715,6 @@
             else document.getElementById('gestion-leasing-libre').style.display = 'none';
 
             let enlaceGPS = '<span style="color:var(--warning);">Sin GPS Remoto</span>';
-            let iframeMapa = '';
             if (m.lat && m.lng) {
                 enlaceGPS = `<button class="btn-sm btn-dark" onclick="abrirMiniMapa(${m.lat}, ${m.lng})">🗺️ Ver Mapa Exacto</button>`;
             }
@@ -1552,18 +1778,133 @@
                 m.concepto = 'Abono Parcial Diario';
                 db.movimientos.push({ id: 'faltante_' + Date.now(), tipo: 'ingreso', isDriverReport: false, autoId: m.autoId, conductorId: m.conductorId, origen: m.origen, estado: 'Pendiente', monto: tarifa - m.monto, fecha: new Date().getTime(), concepto: 'Resto de Cuota Diaria (Faltante)', nota: 'Generado automáticamente por pago incompleto' });
             }
-            guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active'); 
+            guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active'); mostrarToast('✅ Reporte aprobado y saldo actualizado.', 'success');
         }
 
         function rechazarReporte() {
             const m = db.movimientos.find(x => String(x.id) === String(idReporteEnRevision));
             m.estadoRevision = 'Rechazado'; m.estado = 'Rechazado'; m.monto = 0; m.isDriverReport = false; 
-            guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active');
+            guardarLocal(); document.getElementById('gestionReporteModal').classList.remove('active'); mostrarToast('❌ Reporte Rechazado.', 'error');
         }
 
         function closeGestionModal() { document.getElementById('gestionReporteModal').classList.remove('active'); idReporteEnRevision = null; }
 
         // ================= CRUD Y REGISTROS MANUALES =================
+
+        // =============== EXTENSIÓN DE TIEMPO MANUAL ===============
+        document.getElementById('form-extension').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const condId = document.getElementById('ext-conductor').value;
+            const horas = parseInt(document.getElementById('ext-horas').value || 0);
+            const minutos = parseInt(document.getElementById('ext-minutos').value || 0);
+            
+            const conductor = db.conductores.find(c => String(c.id) === String(condId));
+            if(!conductor) return;
+
+            const msToAdd = (horas * 60 * 60 * 1000) + (minutos * 60 * 1000);
+            conductor.customTimerEnd = new Date().getTime() + msToAdd;
+            
+            guardarLocal();
+            mostrarToast(`✅ Extensión de ${horas}h ${minutos}m aplicada a ${conductor.nombre}.`, 'success');
+            e.target.reset();
+        });
+        
+        // =============== FORZAR DEUDA DIARIA MANUAL ===============
+        document.getElementById('form-forzar-deuda').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const autoId = document.getElementById('forzar-auto').value;
+            const auto = db.autos.find(a => String(a.id) === String(autoId));
+            if (!auto || !auto.conductorId) return mostrarToast('El auto no tiene conductor.', 'error');
+            
+            const tarifa = auto.tarifaDiaria || 0;
+            if (tarifa === 0) return mostrarToast('El auto tiene tarifa $0.00', 'error');
+
+            const fechaManual = document.getElementById('forzar-fecha').value;
+            const [year, month, day] = fechaManual.split('-');
+            const timestampManual = new Date(year, month - 1, day, 0, 0, 0).getTime(); // Se crea la deuda a las 00:00 de ese día.
+
+            // Verificar si ya existe un cobro en ese día
+            const cobradoHoy = db.movimientos.some(m => String(m.autoId) === String(auto.id) && (m.concepto === 'Cuota Diaria Fija' || m.concepto === 'Registro Manual Admin') && new Date(m.fecha).toLocaleDateString('en-CA') === fechaManual);
+            
+            if (cobradoHoy) {
+                if(!confirm('⚠️ Ya existe un registro de cuota en esa fecha para este vehículo. ¿Deseas forzar OTRA deuda extra?')) return;
+            }
+
+            db.movimientos.push({
+                id: 'cuota_forzada_' + Date.now(),
+                tipo: 'ingreso', isDriverReport: false, autoId: auto.id, conductorId: auto.conductorId,
+                origen: 'Manual', estado: 'Pendiente', monto: tarifa, fecha: timestampManual,
+                concepto: 'Cuota Diaria Fija', nota: 'Generada manualmente'
+            });
+
+            guardarLocal(); 
+            e.target.reset(); 
+            document.getElementById('forzar-fecha').value = new Date().toLocaleDateString('en-CA');
+            mostrarToast('✅ Deuda diaria generada. El cronómetro se activará.', 'success');
+        });
+
+        // =============== AJUSTE MANUAL DE SALDOS ===============
+        document.getElementById('form-ajuste-saldo').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const condId = document.getElementById('ajuste-conductor').value;
+            const tipoAjuste = document.getElementById('ajuste-tipo').value;
+            const monto = parseFloat(document.getElementById('ajuste-monto').value || 0);
+            const nota = document.getElementById('ajuste-nota').value.trim();
+
+            const auto = db.autos.find(a => String(a.conductorId) === String(condId));
+            const autoId = auto ? auto.id : '';
+
+            const estado = tipoAjuste === 'favor' ? 'Pagado' : 'Pendiente';
+            const concepto = tipoAjuste === 'favor' ? 'Ajuste Manual: Saldo a Favor' : 'Ajuste Manual: Cargo / Deuda';
+
+            db.movimientos.push({
+                id: 'ajuste_' + Date.now().toString(),
+                tipo: 'ingreso', isDriverReport: false, autoId: autoId, conductorId: condId,
+                origen: 'Ajuste', estado: estado, monto: monto, fecha: new Date().getTime(),
+                concepto: concepto, nota: nota
+            });
+
+            guardarLocal(); e.target.reset(); mostrarToast('✅ Ajuste de billetera aplicado correctamente.', 'success');
+        });
+
+        // =============== RESTABLECER SALDO A CERO ===============
+        function resetearSaldo(conductorId) {
+            const saldoActual = obtenerSaldoChofer(conductorId);
+            if(saldoActual === 0) return mostrarToast('El conductor ya está al día ($0.00).', 'info');
+
+            let confirmacion = confirm(`El saldo actual es de $${saldoActual.toFixed(2)}. ¿Deseas dejar la billetera en $0.00 exactos?`);
+            if(!confirmacion) return;
+
+            const auto = db.autos.find(a => String(a.conductorId) === String(conductorId));
+            const autoId = auto ? auto.id : '';
+
+            if (saldoActual > 0) {
+                db.movimientos.push({
+                    id: 'ajuste_reset_' + Date.now(),
+                    tipo: 'ingreso', isDriverReport: false, autoId: autoId, conductorId: conductorId,
+                    origen: 'Ajuste', estado: 'Pendiente', monto: saldoActual, fecha: new Date().getTime(),
+                    concepto: 'Ajuste a Cero (Cancelación de Saldo a Favor)', nota: 'Reinicio manual de billetera'
+                });
+            } else if (saldoActual < 0) {
+                db.movimientos.push({
+                    id: 'ajuste_reset_' + Date.now(),
+                    tipo: 'ingreso', isDriverReport: false, autoId: autoId, conductorId: conductorId,
+                    origen: 'Ajuste', estado: 'Pagado', monto: Math.abs(saldoActual), fecha: new Date().getTime(),
+                    concepto: 'Ajuste a Cero (Perdón de Deuda / Pago Directo)', nota: 'Reinicio manual de billetera'
+                });
+            }
+            guardarLocal();
+            mostrarToast('✅ Billetera restablecida a $0.00 exitosamente.', 'success');
+        }
+
+        function prepararAjuste(conductorId) {
+            document.getElementById('ajuste-conductor').value = conductorId;
+            const formBox = document.getElementById('form-ajuste-saldo').parentElement;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            formBox.style.boxShadow = "0 0 15px var(--primary-light)";
+            setTimeout(() => { formBox.style.boxShadow = "0 1px 3px rgba(0,0,0,0.03)"; }, 1500);
+        }
+
         document.getElementById('form-auto').addEventListener('submit', (e) => {
             e.preventDefault();
             const editId = document.getElementById('edit-auto-id').value;
@@ -1577,29 +1918,45 @@
                 isLeasing: document.getElementById('auto-is-leasing').checked, leasingTotalDias: parseInt(document.getElementById('auto-leasing-total').value || 0), leasingDiasPrevios: parseInt(document.getElementById('auto-leasing-pagados').value || 0), kmActual: kmAct
             };
             if (editId) { const idx = db.autos.findIndex(a => String(a.id) === String(editId)); if (idx !== -1) db.autos[idx] = autoData; } else { db.autos.push(autoData); }
-            guardarLocal(); e.target.reset(); document.getElementById('edit-auto-id').value = ''; document.getElementById('leasing-fields').style.display = 'none'; alert('Vehículo guardado correctamente.');
+            guardarLocal(); e.target.reset(); document.getElementById('edit-auto-id').value = ''; document.getElementById('leasing-fields').style.display = 'none'; mostrarToast('✅ Vehículo guardado correctamente.', 'success');
         });
 
+        // =============== GUARDAR CONDUCTOR ===============
         document.getElementById('form-conductor').addEventListener('submit', (e) => {
             e.preventDefault();
             const editId = document.getElementById('edit-cond-id').value;
+            const userStr = document.getElementById('cond-usuario').value.trim().toLowerCase();
+            
+            if(userStr) {
+                const existeUser = db.conductores.some(c => String(c.id) !== String(editId) && c.usuario === userStr);
+                if(existeUser) return mostrarToast("❌ Ese 'Usuario para Login' ya existe.", 'error');
+            }
+
             const condData = { 
                 id: editId || Date.now().toString(), 
                 nombre: document.getElementById('cond-nombre').value, 
-                usuario: document.getElementById('cond-usuario').value.trim().toLowerCase(),
+                usuario: userStr, 
                 cedula: document.getElementById('cond-cedula').value, 
                 telefono: document.getElementById('cond-telefono').value, 
                 licencia: document.getElementById('cond-licencia').value, 
-                horaLimite: document.getElementById('cond-hora-limite').value, 
+                horasGracia: document.getElementById('cond-horas-gracia').value || 24, 
                 pin: document.getElementById('cond-pin').value || '1234' 
             };
 
-            // Validar que el usuario no se repita
-            const existeUser = db.conductores.some(c => String(c.id) !== String(editId) && c.usuario === condData.usuario);
-            if(existeUser) return alert("❌ Ese 'Usuario para Login' ya existe. Elige otro diferente.");
-
-            if(editId) { db.conductores[db.conductores.findIndex(c => String(c.id) === String(editId))] = condData; } else { db.conductores.push(condData); }
-            guardarLocal(); e.target.reset(); document.getElementById('edit-cond-id').value = ''; document.getElementById('cond-hora-limite').value = '23:59'; alert('Conductor guardado.');
+            if(editId) { 
+                const idx = db.conductores.findIndex(c => String(c.id) === String(editId));
+                if(idx !== -1) db.conductores[idx] = condData; 
+                else db.conductores.push(condData);
+            } else { 
+                db.conductores.push(condData); 
+            }
+            
+            guardarLocal(); 
+            e.target.reset(); 
+            document.getElementById('edit-cond-id').value = ''; 
+            document.getElementById('cond-horas-gracia').value = '24'; 
+            document.getElementById('title-form-conductor').innerHTML = '👤 Registrar Conductor';
+            mostrarToast('✅ Conductor guardado con éxito.', 'success');
         });
 
         document.getElementById('form-infraccion').addEventListener('submit', (e) => {
@@ -1611,7 +1968,7 @@
                     tipo: document.getElementById('inf-tipo').value, nota: document.getElementById('inf-nota').value,
                     fecha: new Date().getTime(), estado: 'Activa', foto: fotoBase64
                 });
-                guardarLocal(); document.getElementById('form-infraccion').reset(); alert('Infracción registrada al chofer.');
+                guardarLocal(); document.getElementById('form-infraccion').reset(); mostrarToast('✅ Infracción registrada al chofer.', 'success');
             };
             if (file) { comprimirImagen(file, 800, 800, 0.7).then(b64 => submitInfraccion(b64)).catch(() => submitInfraccion(null)); } 
             else { submitInfraccion(null); }
@@ -1619,14 +1976,14 @@
 
         function perdonarInfraccion(id) {
             if(confirm('¿Deseas perdonar/borrar esta infracción? Ya no le saldrá al chofer.')) {
-                db.infracciones = db.infracciones.filter(i => String(i.id) !== String(id)); guardarLocal();
+                db.infracciones = db.infracciones.filter(i => String(i.id) !== String(id)); guardarLocal(); mostrarToast('✅ Infracción borrada.', 'success');
             }
         }
 
         document.getElementById('form-socio').addEventListener('submit', (e) => {
             e.preventDefault();
             db.socios.push({ id: Date.now().toString(), nombre: document.getElementById('socio-nombre').value, telefono: document.getElementById('socio-telefono').value, porcentaje: parseFloat(document.getElementById('socio-porcentaje').value || 70) });
-            guardarLocal(); e.target.reset(); alert('Socio guardado.');
+            guardarLocal(); e.target.reset(); mostrarToast('✅ Socio guardado.', 'success');
         });
 
         function verificarDiaLibreLeasing() {
@@ -1644,7 +2001,7 @@
             const timestampManual = new Date(year, month - 1, day).getTime();
 
             db.movimientos.push({ id: Date.now().toString(), tipo: 'ingreso', isDriverReport: false, autoId: autoId, conductorId: auto ? auto.conductorId : '', origen: document.getElementById('pago-origen').value, estado: estado, monto: estado === 'Dia Libre' ? 0 : parseFloat(document.getElementById('pago-monto').value || 0), fecha: timestampManual, nota: document.getElementById('pago-nota').value, concepto: 'Registro Manual Admin', sumarLeasing: sumarLeasing });
-            guardarLocal(); e.target.reset(); document.getElementById('pago-fecha').value = new Date().toLocaleDateString('en-CA'); alert('Transacción registrada.');
+            guardarLocal(); e.target.reset(); document.getElementById('pago-fecha').value = new Date().toLocaleDateString('en-CA'); mostrarToast('✅ Transacción registrada.', 'success');
         });
 
         document.getElementById('form-gasto').addEventListener('submit', (e) => {
@@ -1652,14 +2009,41 @@
             const kmGasto = parseInt(document.getElementById('gasto-km').value || 0); const autoId = document.getElementById('gasto-auto').value;
             db.movimientos.push({ id: Date.now().toString(), tipo: 'gasto', isDriverReport: false, autoId: autoId, monto: parseFloat(document.getElementById('gasto-monto').value || 0), concepto: document.getElementById('gasto-concepto').value, km: kmGasto, fecha: new Date().getTime(), nota: document.getElementById('gasto-nota').value });
             const auto = db.autos.find(a => String(a.id) === String(autoId)); if(auto && kmGasto > (auto.kmActual || 0)) auto.kmActual = kmGasto;
-            guardarLocal(); e.target.reset(); alert('Gasto registrado.');
+            guardarLocal(); e.target.reset(); mostrarToast('✅ Gasto registrado.', 'success');
         });
 
-        function editarAuto(id) { const a = db.autos.find(x => String(x.id) === String(id)); document.getElementById('edit-auto-id').value = a.id; document.getElementById('auto-placa').value = a.placa; document.getElementById('auto-modelo').value = a.modelo; document.getElementById('auto-tarifa').value = a.tarifaDiaria||''; document.getElementById('auto-anio').value = a.anio || ''; document.getElementById('auto-vin').value = a.vin || ''; document.getElementById('auto-mant-km').value = a.limiteMant || ''; document.getElementById('auto-venc-doc').value = a.vencDoc || ''; document.getElementById('auto-conductor').value = a.conductorId || ''; document.getElementById('auto-socio').value = a.socioId || ''; document.getElementById('auto-is-leasing').checked = a.isLeasing || false; document.getElementById('auto-leasing-total').value = a.leasingTotalDias || ''; document.getElementById('auto-leasing-pagados').value = a.leasingDiasPrevios || 0; document.getElementById('leasing-fields').style.display = a.isLeasing ? 'grid' : 'none'; cambiarModulo('mod-autos'); }
-        function eliminarAuto(id) { if(confirm('¿Eliminar vehículo?')) { db.autos = db.autos.filter(a => String(a.id) !== String(id)); guardarLocal(); } }
-        function editarConductor(id) { const c = db.conductores.find(x => String(x.id) === String(id)); document.getElementById('edit-cond-id').value = c.id; document.getElementById('cond-nombre').value = c.nombre; document.getElementById('cond-usuario').value = c.usuario || ''; document.getElementById('cond-cedula').value = c.cedula || ''; document.getElementById('cond-telefono').value = c.telefono || ''; document.getElementById('cond-licencia').value = c.licencia || ''; document.getElementById('cond-hora-limite').value = c.horaLimite || '23:59'; document.getElementById('cond-pin').value = c.pin || '1234'; cambiarModulo('mod-conductores'); }
-        function eliminarConductor(id) { if(confirm('¿Eliminar conductor?')) { db.conductores = db.conductores.filter(c => String(c.id) !== String(id)); db.autos.forEach(a=>{if(String(a.conductorId)===String(id)) a.conductorId='';}); guardarLocal(); } }
-        function eliminarMovimiento(id) { if(confirm('¿Eliminar registro financiero?')) { db.movimientos = db.movimientos.filter(m => String(m.id) !== String(id)); guardarLocal(); } }
+        function editarAuto(id) { const a = db.autos.find(x => String(x.id) === String(id)); document.getElementById('edit-auto-id').value = a.id; document.getElementById('auto-placa').value = a.placa; document.getElementById('auto-modelo').value = a.modelo; document.getElementById('auto-tarifa').value = a.tarifaDiaria||''; document.getElementById('auto-anio').value = a.anio || ''; document.getElementById('auto-vin').value = a.vin || ''; document.getElementById('auto-mant-km').value = a.limiteMant || ''; document.getElementById('auto-venc-doc').value = a.vencDoc || ''; document.getElementById('auto-conductor').value = a.conductorId || ''; document.getElementById('auto-socio').value = a.socioId || ''; document.getElementById('auto-is-leasing').checked = a.isLeasing || false; document.getElementById('auto-leasing-total').value = a.leasingTotalDias || ''; document.getElementById('auto-leasing-pagados').value = a.leasingDiasPrevios || 0; document.getElementById('leasing-fields').style.display = a.isLeasing ? 'grid' : 'none'; cambiarModulo('mod-autos'); window.scrollTo(0,0); mostrarToast('Modo edición activado', 'info'); }
+        function eliminarAuto(id) { if(confirm('¿Eliminar vehículo?')) { db.autos = db.autos.filter(a => String(a.id) !== String(id)); guardarLocal(); mostrarToast('Vehículo borrado.', 'success'); } }
+        
+        function editarConductor(id) { 
+            const c = db.conductores.find(x => String(x.id) === String(id)); 
+            document.getElementById('edit-cond-id').value = c.id; 
+            document.getElementById('cond-nombre').value = c.nombre; 
+            document.getElementById('cond-usuario').value = c.usuario || ''; 
+            document.getElementById('cond-cedula').value = c.cedula || ''; 
+            document.getElementById('cond-telefono').value = c.telefono || ''; 
+            document.getElementById('cond-licencia').value = c.licencia || ''; 
+            document.getElementById('cond-horas-gracia').value = c.horasGracia || 24; 
+            document.getElementById('cond-pin').value = c.pin || '1234'; 
+            
+            document.getElementById('title-form-conductor').innerHTML = `✏️ Editando a: ${c.nombre}`;
+            
+            cambiarModulo('mod-conductores'); 
+            
+            // Subir de manera suave y exacta al formulario
+            setTimeout(() => {
+                const formElement = document.getElementById('card-form-conductor');
+                formElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Efecto de brillo azul
+                formElement.style.boxShadow = "0 0 20px var(--primary-light)";
+                setTimeout(() => { formElement.style.boxShadow = "0 1px 3px rgba(0,0,0,0.03)"; }, 2000);
+            }, 100);
+            
+            mostrarToast('Modo edición activado', 'info');
+        }
+        
+        function eliminarConductor(id) { if(confirm('¿Eliminar conductor?')) { db.conductores = db.conductores.filter(c => String(c.id) !== String(id)); db.autos.forEach(a=>{if(String(a.conductorId)===String(id)) a.conductorId='';}); guardarLocal(); mostrarToast('Conductor borrado.', 'success'); } }
+        function eliminarMovimiento(id) { if(confirm('¿Eliminar registro financiero?')) { db.movimientos = db.movimientos.filter(m => String(m.id) !== String(id)); guardarLocal(); mostrarToast('Registro borrado.', 'success'); } }
 
         // INVENTARIO Y CHECKLIST ADMIN
         document.getElementById('form-inventario').addEventListener('submit', (e) => {
@@ -1667,9 +2051,9 @@
             const editId = document.getElementById('edit-inv-id').value;
             const invData = { id: editId || Date.now().toString(), nombre: document.getElementById('inv-nombre').value, categoria: document.getElementById('inv-categoria').value, stock: parseInt(document.getElementById('inv-stock').value || 0), autoId: document.getElementById('inv-auto').value };
             if (editId) { db.inventario[db.inventario.findIndex(i => String(i.id) === String(editId))] = invData; } else { db.inventario.push(invData); }
-            guardarLocal(); e.target.reset(); document.getElementById('edit-inv-id').value = ''; alert('Inventario guardado.');
+            guardarLocal(); e.target.reset(); document.getElementById('edit-inv-id').value = ''; mostrarToast('✅ Inventario guardado.', 'success');
         });
-        function editarInventario(id) { const i = db.inventario.find(x => String(x.id) === String(id)); document.getElementById('edit-inv-id').value = i.id; document.getElementById('inv-nombre').value = i.nombre; document.getElementById('inv-categoria').value = i.categoria; document.getElementById('inv-stock').value = i.stock; document.getElementById('inv-auto').value = i.autoId || ''; }
+        function editarInventario(id) { const i = db.inventario.find(x => String(x.id) === String(id)); document.getElementById('edit-inv-id').value = i.id; document.getElementById('inv-nombre').value = i.nombre; document.getElementById('inv-categoria').value = i.categoria; document.getElementById('inv-stock').value = i.stock; document.getElementById('inv-auto').value = i.autoId || ''; window.scrollTo(0,0); }
         function eliminarInventario(id) { if(confirm('¿Eliminar del inventario?')) { db.inventario = db.inventario.filter(i => String(i.id) !== String(id)); guardarLocal(); } }
 
         document.getElementById('form-checklist').addEventListener('submit', (e) => {
@@ -1697,7 +2081,7 @@
                 auto.kmActual = kmIngresado;
             }
 
-            guardarLocal(); e.target.reset(); document.getElementById('box-uso-inventario').style.display = 'none'; alert('Checklist guardado.');
+            guardarLocal(); e.target.reset(); document.getElementById('box-uso-inventario').style.display = 'none'; mostrarToast('✅ Checklist guardado.', 'success');
         });
 
         // =========================================================================
@@ -1719,6 +2103,9 @@
             document.getElementById('auto-conductor').innerHTML = condOpts; 
             document.getElementById('entrega-conductor').innerHTML = condOpts; 
             document.getElementById('inf-conductor').innerHTML = condOpts;
+            document.getElementById('ajuste-conductor').innerHTML = db.conductores.map(c => `<option value="${c.id}">${c.nombre}</option>`).join(''); 
+            
+            document.getElementById('ext-conductor').innerHTML = db.conductores.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
 
             const filterEl = document.getElementById('filter-beneficiario');
             const valActual = filterEl.value;
@@ -1732,9 +2119,19 @@
             
             const autoOpts = db.autos.map(a => `<option value="${a.id}">${a.placa} - ${a.modelo}</option>`).join('');
             document.getElementById('pago-auto').innerHTML = autoOpts; document.getElementById('gasto-auto').innerHTML = autoOpts; document.getElementById('contrato-auto').innerHTML = autoOpts; document.getElementById('chk-auto').innerHTML = autoOpts; document.getElementById('entrega-auto').innerHTML = autoOpts; document.getElementById('inv-auto').innerHTML = '<option value="">En Almacén Principal</option>' + autoOpts;
-
-            document.getElementById('reporte-conductor').innerHTML = condOpts;
             document.getElementById('reporte-auto').innerHTML = autoOpts;
+            
+            const forzarAutoSelect = document.getElementById('forzar-auto');
+            if(forzarAutoSelect) {
+                let forzarOpts = '';
+                db.autos.forEach(a => {
+                    if(a.conductorId) {
+                        const ch = db.conductores.find(c => String(c.id) === String(a.conductorId));
+                        forzarOpts += `<option value="${a.id}">${a.placa} - ${ch?ch.nombre:'Sin nombre'}</option>`;
+                    }
+                });
+                forzarAutoSelect.innerHTML = forzarOpts || '<option value="">No hay autos con chofer</option>';
+            }
 
             const containerInv = document.getElementById('lista-seleccion-inventario');
             if(containerInv) { containerInv.innerHTML = db.inventario.map(inv => `<div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-bg); padding:8px; border:1px solid var(--border); border-radius:6px;"><span style="font-size:0.75rem;">${inv.nombre} (Stock: ${inv.stock})</span><input type="number" class="uso-inv-input" data-id="${inv.id}" data-nombre="${inv.nombre}" min="0" max="${inv.stock}" value="0" style="width:60px; padding:4px;"></div>`).join('') || '<p style="font-size:0.8rem; color:red;">No hay repuestos en inventario.</p>'; }
@@ -1749,6 +2146,27 @@
                 const averiasPendientes = db.averias.filter(a => a.estado === 'Pendiente');
                 const alAv = document.getElementById('dashboard-alert-averias');
                 if(averiasPendientes.length > 0) { alAv.style.display = 'flex'; } else { alAv.style.display = 'none'; }
+            }
+
+            // NUEVO: ESTATUS DE PAGOS DE HOY EN DASHBOARD
+            const hoyStrDashboard = new Date().toLocaleDateString('en-CA');
+            const tablaHoy = document.getElementById('tabla-estatus-hoy');
+            if(tablaHoy) {
+                let htmlHoy = '';
+                db.autos.forEach(a => {
+                    if(a.conductorId) {
+                        const chofer = db.conductores.find(c => String(c.id) === String(a.conductorId));
+                        // Buscar el cobro de la cuota fija generada "hoy"
+                        const pagoHoy = db.movimientos.find(m => String(m.autoId) === String(a.id) && !m.isDriverReport && new Date(m.fecha).toLocaleDateString('en-CA') === hoyStrDashboard && (m.concepto === 'Cuota Diaria Fija' || m.concepto === 'Registro Manual Admin'));
+                        
+                        let estatus = '<span class="badge badge-danger">Debe Hoy</span>';
+                        if(pagoHoy && pagoHoy.estado === 'Pagado') estatus = '<span class="badge badge-success">Pagado</span>';
+                        if(pagoHoy && pagoHoy.estado === 'Dia Libre') estatus = '<span class="badge badge-blue" style="background:#0284c7;">Día Libre</span>';
+                        
+                        htmlHoy += `<tr><td><strong>${a.placa}</strong><br><small>${chofer ? chofer.nombre : 'Desconocido'}</small></td><td>${estatus}</td></tr>`;
+                    }
+                });
+                tablaHoy.innerHTML = htmlHoy || '<tr><td colspan="2" style="text-align:center;">No hay autos activos.</td></tr>';
             }
 
             document.getElementById('grid-semaforos').innerHTML = db.autos.map(auto => {
@@ -1808,24 +2226,35 @@
             document.getElementById('tabla-conductores-lista').innerHTML = db.conductores.map(c => {
                 const link = `${hostUrl}?driver=${c.id}`;
                 const saldo = obtenerSaldoChofer(c.id);
-                const colorSaldo = saldo >= 0 ? 'var(--success)' : 'var(--danger)';
-                const msjSaldo = saldo >= 0 ? `Saldo a Favor: $${saldo.toFixed(2)}` : `Deuda: $${Math.abs(saldo).toFixed(2)}`;
+                const colorSaldo = saldo > 0 ? 'var(--success)' : (saldo < 0 ? 'var(--danger)' : 'var(--text-muted)');
+                const msjSaldo = saldo > 0 ? `A Favor: $${saldo.toFixed(2)}` : (saldo < 0 ? `Deuda: $${Math.abs(saldo).toFixed(2)}` : `Al Día: $0.00`);
                 let waMsg = `Hola ${c.nombre}, te adjuntamos el link de tu portal diario de Personal Car: ${link}`;
                 if (saldo < 0) waMsg = `Hola ${c.nombre}, recordatorio de Personal Car: Tienes un saldo pendiente de $${Math.abs(saldo).toFixed(2)}. Por favor ingresa tu reporte de pago aquí: ${link}`;
                 const waLink = `https://wa.me/${(c.telefono||'').replace(/\D/g, '')}?text=${encodeURIComponent(waMsg)}`;
+                
+                let isExtended = c.customTimerEnd && c.customTimerEnd > new Date().getTime();
+                let infoGracia = isExtended ? `<span style="color:var(--info);">¡EXTENSIÓN ACTIVA!</span>` : `${c.horasGracia || 24} hrs`;
+
                 return `
                 <div class="list-card">
-                    <div class="list-card-header"><strong style="color:var(--primary); font-size:1.1rem;">${c.nombre}</strong> <span style="color:${colorSaldo}; font-weight:bold;">${msjSaldo}</span></div>
+                    <div class="list-card-header" style="align-items:flex-start;">
+                        <strong style="color:var(--primary); font-size:1.1rem;">${c.nombre}</strong> 
+                        <div style="text-align:right;">
+                            <span style="color:${colorSaldo}; font-weight:bold; font-size:1.1rem; display:block;">${msjSaldo}</span>
+                            <button class="btn-sm btn-dark" style="margin-top:4px; font-size:0.65rem;" onclick="resetearSaldo('${c.id}')">Dejar en $0</button>
+                            <button class="btn-sm btn-blue" style="margin-top:4px; font-size:0.65rem;" onclick="prepararAjuste('${c.id}')">+/- Ajustar</button>
+                        </div>
+                    </div>
                     <div class="list-card-body">
                         <div class="flex-between"><span>Usuario (Login):</span> <strong style="color:var(--info);">${c.usuario || c.cedula || 'Falta crear'}</strong></div>
                         <div class="flex-between"><span>PIN de Login:</span> <strong>${c.pin || '1234'}</strong></div>
-                        <div class="flex-between"><span>Límite de Pago:</span> <strong>${c.horaLimite || '23:59'}</strong></div>
+                        <div class="flex-between"><span>Gracia (Deuda):</span> <strong>${infoGracia}</strong></div>
                         <div class="flex-between"><span>Teléfono:</span> <strong>${c.telefono || '-'}</strong></div>
                     </div>
-                    <div class="list-card-actions" style="justify-content:center;">
+                    <div class="list-card-actions" style="justify-content:center; border-top:1px solid var(--border); padding-top:10px;">
                         <button class="btn-sm btn-green" onclick="window.open('${waLink}', '_blank')">📱 WhatsApp</button> 
-                        <button class="btn-sm btn-dark" onclick="navigator.clipboard.writeText('${link}'); alert('Copiado');">🔗 Link</button> 
-                        <button class="btn-sm btn-blue" onclick="editarConductor('${c.id}')">✏️ Editar</button>
+                        <button class="btn-sm btn-dark" onclick="navigator.clipboard.writeText('${link}'); mostrarToast('Link copiado al portapapeles', 'success');">🔗 Link</button> 
+                        <button class="btn-sm btn-blue" onclick="editarConductor('${c.id}')">✏️ Editar Info</button>
                         <button class="btn-sm btn-red" onclick="eliminarConductor('${c.id}')">🗑️ Borrar</button>
                     </div>
                 </div>`;
@@ -2149,15 +2578,6 @@
             });
             document.getElementById('ec-detalle-tabla').innerHTML = htmlDetalle || '<tr><td colspan="5" style="text-align:center;">Sin registros.</td></tr>';
         }
-
-        function guardarAjustes() {
-            db.ajustes.autoPendientes = document.getElementById('chk-auto-pendientes').checked;
-            db.ajustes.fondoDiario = parseFloat(document.getElementById('cfg-fondo-diario').value || 0);
-            db.ajustes.adminPass = document.getElementById('cfg-admin-pass').value || 'admin123';
-            guardarLocal(); alert('Ajustes guardados.');
-        }
-
-        function renderizarDashboard() { actualizarUI(); }
 
         window.onload = initApp;
     </script>
