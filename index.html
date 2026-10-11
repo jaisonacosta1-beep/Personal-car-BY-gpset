@@ -3241,7 +3241,7 @@
             logDriverAccess(drv.id, 'Acceso Directo por Link Único');
             showView('driver');
             showToast(`Bienvenido ${drv.name}`, 'success');
-            setTimeout(() => triggerDriverPaymentVoiceIfNeeded(true), 600);
+            triggerDriverPaymentVoiceIfNeeded(true);
           } else {
             showToast('Enlace inválido o caducado. Solicita tu link actualizado al administrador.', 'error');
           }
@@ -4573,30 +4573,34 @@
       const graceHours = Number((appState.soundSettings && appState.soundSettings.graceHours) || 12);
       const amountInWords = numberToSpanishWords(bal);
 
-      // El cargo diario ocurre a la 1:00 AM; el periodo de gracia dura las horas configuradas desde la 1:00 AM
-      const graceDeadline = new Date(now);
-      graceDeadline.setHours(1 + graceHours, 0, 0, 0);
+      // El cargo diario ocurre a la 1:00 AM; si es entre 12:00 AM y 12:59 AM se toma la 1:00 AM del ciclo actual
+      const graceStart = new Date(now);
+      if (now.getHours() < 1) {
+        graceStart.setDate(graceStart.getDate() - 1);
+      }
+      graceStart.setHours(1, 0, 0, 0);
+      const graceDeadline = new Date(graceStart.getTime() + (graceHours * 3600 * 1000));
 
       const iconWrap = document.getElementById('driver-immob-icon-wrap');
       const titleEl = document.getElementById('driver-immob-title');
       const descEl = document.getElementById('driver-immob-desc');
       const countEl = document.getElementById('driver-immob-countdown');
 
-      // Está en periodo de gracia si solo debe 1 día o menos y aún no vence la hora límite de gracia
-      if (daysOwed <= 1 && now < graceDeadline) {
+      // Está en periodo de gracia si debe la cuota del día (<= 1 día) y aún no vence la hora límite de gracia
+      if (daysOwed <= 1.05 && now < graceDeadline) {
         const diffSec = Math.max(0, Math.floor((graceDeadline - now) / 1000));
         const hrs = String(Math.floor(diffSec / 3600)).padStart(2, '0');
         const mins = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
         const secs = String(diffSec % 60).padStart(2, '0');
 
-        banner.className = 'p-4 rounded-3xl border-2 border-amber-400 bg-amber-50 text-amber-950 shadow-sm transition-all';
+        banner.className = 'p-4 rounded-3xl border-2 border-amber-400 bg-amber-50 text-amber-950 shadow-md transition-all badge-pulse';
         if (iconWrap) iconWrap.className = 'w-10 h-10 rounded-2xl bg-amber-500 flex items-center justify-center flex-shrink-0';
-        titleEl.textContent = `⏳ Periodo de Gracia (${graceHours} Horas)`;
-        descEl.textContent = `Hay un pago pendiente por la suma de ${amountInWords.toUpperCase()} ($${bal.toFixed(2)}).`;
+        titleEl.textContent = `⏳ ESTÁS EN PERIODO DE GRACIA DE PAGO (${graceHours} HORAS)`;
+        descEl.textContent = `Atención: Te encuentras en el periodo de gracia. Hay un pago pendiente por la suma de ${amountInWords.toUpperCase()} ($${bal.toFixed(2)}). Realiza tu pago dentro del tiempo de gracia para evitar inmovilización.`;
         countEl.textContent = `${hrs}:${mins}:${secs} (Tiempo de gracia restante)`;
       } else {
         // Si venció el plazo de gracia o acumula más de 1 día: Orden de Inmovilización en palabras textuales
-        const refDeadline = now >= graceDeadline ? graceDeadline : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        const refDeadline = now >= graceDeadline ? graceDeadline : graceStart;
         const extraDaysMs = Math.max(0, Math.floor(daysOwed - 1)) * 86400000;
         const overtimeSec = Math.max(0, Math.floor(((now - refDeadline) + extraDaysMs) / 1000));
         const oHrs = String(Math.floor(overtimeSec / 3600)).padStart(2, '0');
@@ -5605,6 +5609,7 @@
 
     // MOTOR DE SÍNTESIS DE VOZ CON SELECTOR DE ESTILOS Y VOCES DEL DISPOSITIVO
     let lastDriverVoiceTimestamp = 0;
+    let driverGraceToastShownForId = null;
 
     function populateDeviceVoicesInSelector() {
       if (!('speechSynthesis' in window)) return;
@@ -5641,7 +5646,12 @@
         return;
       }
       try {
-        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+          window.speechSynthesis.cancel();
+        }
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
         const utter = new SpeechSynthesisUtterance(text);
         utter.lang = 'es-ES';
 
@@ -5711,7 +5721,7 @@
     function testDriverVoiceAlert(mode) {
       saveVoiceAndGraceConfig();
       if (mode === 'grace') {
-        speakTextWithSelectedVoice('Atención conductor. Hay un pago pendiente por la suma de veinticinco dólares.');
+        speakTextWithSelectedVoice('Atención conductor. Estás en el periodo de gracia de pago. Hay un pago pendiente por la suma de veinticinco dólares.');
       } else {
         speakTextWithSelectedVoice('Atención conductor. El plazo de gracia ha vencido. El vehículo podrá ser inmovilizado en cualquier momento.');
       }
@@ -5720,30 +5730,63 @@
     function triggerDriverPaymentVoiceIfNeeded(forceImmediate = false) {
       if (currentSession.role !== 'driver') return;
       const snd = Object.assign({ driverVoice: true, graceHours: 12 }, appState.soundSettings || {});
-      if (snd.driverVoice === false) return;
-
-      const nowMs = Date.now();
-      if (!forceImmediate && (nowMs - lastDriverVoiceTimestamp) < 18000) return;
 
       const driver = appState.drivers.find(d => d.id === currentSession.driverId);
       const bal = driver ? (Number(driver.balance) || 0) : 0;
       if (!driver || bal <= 0 || driver.billingPaused) return;
 
-      lastDriverVoiceTimestamp = nowMs;
       const rate = Number(driver.dailyRate) || 25;
       const daysOwed = bal / rate;
       const now = new Date();
       const graceHours = Number(snd.graceHours || 12);
-      const graceDeadline = new Date(now);
-      graceDeadline.setHours(1 + graceHours, 0, 0, 0);
+      const graceStart = new Date(now);
+      if (now.getHours() < 1) {
+        graceStart.setDate(graceStart.getDate() - 1);
+      }
+      graceStart.setHours(1, 0, 0, 0);
+      const graceDeadline = new Date(graceStart.getTime() + (graceHours * 3600 * 1000));
       const words = numberToSpanishWords(bal);
+      const isInGracePeriod = (daysOwed <= 1.05 && now < graceDeadline);
 
-      if (daysOwed <= 1 && now < graceDeadline) {
-        speakTextWithSelectedVoice(`Hay un pago pendiente por la suma de ${words}.`);
+      if (forceImmediate && driverGraceToastShownForId !== driver.id) {
+        driverGraceToastShownForId = driver.id;
+        if (isInGracePeriod) {
+          const diffMin = Math.max(1, Math.floor((graceDeadline - now) / 60000));
+          const remH = Math.floor(diffMin / 60);
+          const remM = diffMin % 60;
+          showToast(`⏳ Estás en Periodo de Gracia (${remH}h ${remM}m restantes) · Pendiente: $${bal.toFixed(2)}`, 'warning');
+        } else {
+          showToast(`🚨 Plazo de gracia vencido · Orden de inmovilización ($${bal.toFixed(2)})`, 'error');
+        }
+      }
+
+      if (snd.driverVoice === false) return;
+
+      const nowMs = Date.now();
+      if (!forceImmediate && (nowMs - lastDriverVoiceTimestamp) < 16000) return;
+      lastDriverVoiceTimestamp = nowMs;
+
+      if (isInGracePeriod) {
+        playAdminAlertTone('payments');
+        setTimeout(() => {
+          speakTextWithSelectedVoice(`Atención conductor. Estás en el periodo de gracia de pago. Hay un pago pendiente por la suma de ${words}.`);
+        }, 350);
       } else {
-        speakTextWithSelectedVoice(`El vehículo podrá ser inmovilizado en cualquier momento. Hay un pago pendiente por la suma de ${words}.`);
+        playAdminAlertTone('overdue');
+        setTimeout(() => {
+          speakTextWithSelectedVoice(`Atención conductor. El plazo de gracia ha vencido. El vehículo podrá ser inmovilizado en cualquier momento. Hay un pago pendiente por la suma de ${words}.`);
+        }, 350);
       }
     }
+
+    // Desbloqueo automático de voz al primer toque cuando el chofer entra por Link Único
+    ['touchstart', 'click'].forEach(evtName => {
+      document.addEventListener(evtName, () => {
+        if (currentSession.role === 'driver' && lastDriverVoiceTimestamp === 0) {
+          triggerDriverPaymentVoiceIfNeeded(true);
+        }
+      }, { passive: true });
+    });
 
     // GENERADOR DE SONIDOS DIFERENCIADOS Y BUCLE DE 10 SEGUNDOS (WEB AUDIO API)
     let sharedAudioCtx = null;
@@ -6324,15 +6367,19 @@
       currentSession.role = 'driver';
       currentSession.driverId = drv.id;
       activeRenderedDriverId = drv.id;
+      driverGraceToastShownForId = null;
+      lastDriverVoiceTimestamp = 0;
       logDriverAccess(drv.id, 'Ingreso con Usuario y Clave');
       showView('driver');
       showToast(`Bienvenido ${drv.name}`, 'success');
-      setTimeout(() => triggerDriverPaymentVoiceIfNeeded(true), 600);
+      triggerDriverPaymentVoiceIfNeeded(true);
     };
 
     document.getElementById('btn-logout').onclick = () => {
       resetDriverPaymentFormState();
       activeRenderedDriverId = null;
+      driverGraceToastShownForId = null;
+      lastDriverVoiceTimestamp = 0;
       currentSession.role = null;
       currentSession.driverId = null;
       showView('auth');
