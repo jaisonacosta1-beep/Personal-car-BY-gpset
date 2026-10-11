@@ -669,6 +669,52 @@
             </form>
           </div>
 
+          <!-- SECCIÓN: BOT DE TELEGRAM (NOTIFICACIONES Y FOTOS AL INSTANTE) -->
+          <div class="p-5 bg-sky-50/70 rounded-2xl border border-sky-200 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold">
+                  <i data-lucide="send" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <h4 class="text-sm font-black text-sky-950">Bot de Telegram (Alertas y Capturas en Vivo)</h4>
+                  <p class="text-[11px] text-sky-800">Recibe al instante en tu Telegram los pagos con foto del comprobante, fallas mecánicas y accesos.</p>
+                </div>
+              </div>
+              <label class="inline-flex items-center cursor-pointer select-none bg-white px-3 py-1.5 rounded-xl border border-sky-300">
+                <input type="checkbox" id="cfg-tg-enabled" class="w-4 h-4 text-sky-600 rounded">
+                <span class="ml-2 text-xs font-black text-sky-950">Activar Bot</span>
+              </label>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-bold text-sky-900 mb-1">Bot Token (de @BotFather)</label>
+                <input type="text" id="cfg-tg-token" placeholder="Ej. 123456789:AAH..." class="w-full text-xs font-mono p-2.5 rounded-xl border border-sky-300 bg-white">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-sky-900 mb-1">Chat ID (Tu ID o ID del Grupo)</label>
+                <input type="text" id="cfg-tg-chatid" placeholder="Ej. 987654321 o -100123456" class="w-full text-xs font-mono p-2.5 rounded-xl border border-sky-300 bg-white">
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <label class="inline-flex items-center cursor-pointer text-xs font-bold text-sky-900">
+                <input type="checkbox" id="cfg-tg-notify-login" class="w-4 h-4 text-sky-600 rounded mr-1.5">
+                <span>Notificar también cuando un chofer entra al portal</span>
+              </label>
+              <div class="flex items-center space-x-2 ml-auto">
+                <button type="button" onclick="testTelegramBotConnection()" class="px-4 py-2 rounded-xl bg-white hover:bg-sky-100 text-sky-700 border border-sky-300 text-xs font-black shadow-2xs">
+                  📲 Probar Telegram
+                </button>
+                <button type="button" onclick="saveTelegramBotConfig()" class="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs flex items-center space-x-1.5">
+                  <i data-lucide="save" class="w-4 h-4"></i>
+                  <span>Guardar Telegram</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- SECCIÓN: CONFIGURACIÓN VISIBLE DE FIREBASE -->
           <div class="p-5 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-4">
             <div class="flex items-center justify-between">
@@ -2191,7 +2237,11 @@
       yappyPhone: "",
       yappyName: "",
       bankAccount: "",
-      bankHolder: ""
+      bankHolder: "",
+      tgEnabled: false,
+      tgToken: "",
+      tgChatId: "",
+      tgNotifyLogin: false
     };
 
     let db = null;
@@ -2270,7 +2320,22 @@
         if (parsed.cars) appState = parsed;
         if (!appState.accessLogs) appState.accessLogs = [];
         if (!appState.faultReports) appState.faultReports = [];
-        if (appState.adminCreds) adminCredentials = appState.adminCreds;
+        if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
+        if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
+      } catch(e){}
+    }
+    const savedBrandingBackup = localStorage.getItem('autorent_branding_backup');
+    if (savedBrandingBackup) {
+      try {
+        brandingConfig = Object.assign(brandingConfig, JSON.parse(savedBrandingBackup));
+        appState.branding = brandingConfig;
+      } catch(e){}
+    }
+    const savedCredsBackup = localStorage.getItem('autorent_creds_backup');
+    if (savedCredsBackup) {
+      try {
+        adminCredentials = Object.assign(adminCredentials, JSON.parse(savedCredsBackup));
+        appState.adminCreds = adminCredentials;
       } catch(e){}
     }
 
@@ -2353,6 +2418,79 @@
           document.getElementById('cfg-pay-bank-account').value = adminCredentials.bankAccount || '';
           document.getElementById('cfg-pay-bank-name').value = adminCredentials.bankHolder || '';
         }
+        if (document.getElementById('cfg-tg-token')) {
+          document.getElementById('cfg-tg-enabled').checked = !!adminCredentials.tgEnabled;
+          document.getElementById('cfg-tg-token').value = adminCredentials.tgToken || '';
+          document.getElementById('cfg-tg-chatid').value = adminCredentials.tgChatId || '';
+          document.getElementById('cfg-tg-notify-login').checked = !!adminCredentials.tgNotifyLogin;
+        }
+      }
+    }
+
+    // FUNCIÓN PARA ENVIAR NOTIFICACIONES Y FOTOS AL BOT DE TELEGRAM
+    async function sendTelegramNotification(textMessage, base64Photo = null, forceTest = false) {
+      const enabled = forceTest || !!adminCredentials.tgEnabled;
+      const token = (adminCredentials.tgToken || '').trim();
+      const chatId = (adminCredentials.tgChatId || '').trim();
+      if (!enabled || !token || !chatId) return false;
+
+      try {
+        if (base64Photo && base64Photo.startsWith('data:image')) {
+          const res = await fetch(base64Photo);
+          const blob = await res.blob();
+          const formData = new FormData();
+          formData.append('chat_id', chatId);
+          formData.append('photo', blob, 'comprobante.jpg');
+          formData.append('caption', textMessage.substring(0, 1020));
+          formData.append('parse_mode', 'HTML');
+
+          const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            body: formData
+          });
+          if (tgRes.ok) return true;
+        }
+
+        const msgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: textMessage,
+            parse_mode: 'HTML'
+          })
+        });
+        return msgRes.ok;
+      } catch (err) {
+        console.warn('Aviso Telegram:', err);
+        return false;
+      }
+    }
+
+    function saveTelegramBotConfig() {
+      adminCredentials.tgEnabled = !!document.getElementById('cfg-tg-enabled').checked;
+      adminCredentials.tgToken = document.getElementById('cfg-tg-token').value.trim();
+      adminCredentials.tgChatId = document.getElementById('cfg-tg-chatid').value.trim();
+      adminCredentials.tgNotifyLogin = !!document.getElementById('cfg-tg-notify-login').checked;
+      saveStateAndBroadcast();
+      showToast('✓ Configuración de Telegram guardada', 'success');
+    }
+
+    async function testTelegramBotConnection() {
+      saveTelegramBotConfig();
+      if (!adminCredentials.tgToken || !adminCredentials.tgChatId) {
+        showToast('Ingresa tu Bot Token y Chat ID primero', 'warning');
+        return;
+      }
+      const ok = await sendTelegramNotification(
+        `✅ <b>Bot Conectado con Éxito</b>\n🏢 <b>Empresa:</b> ${brandingConfig.companyName}\n📲 Recibirás aquí los reportes de pago con foto y alertas de la flota.`,
+        null,
+        true
+      );
+      if (ok) {
+        showToast('✓ Mensaje de prueba enviado a tu Telegram', 'success');
+      } else {
+        showToast('No se pudo enviar. Verifica el Token, Chat ID y haber iniciado el Bot con /start', 'error');
       }
     }
 
@@ -2416,8 +2554,17 @@
     }
 
     function saveStateAndBroadcast() {
+      const nameInputEl = document.getElementById('cfg-brand-name');
+      if (nameInputEl && nameInputEl.value.trim()) {
+        brandingConfig.companyName = nameInputEl.value.trim();
+      }
       appState.branding = brandingConfig;
       appState.adminCreds = adminCredentials;
+      try {
+        localStorage.setItem('autorent_branding_backup', JSON.stringify(brandingConfig));
+        localStorage.setItem('autorent_creds_backup', JSON.stringify(adminCredentials));
+      } catch (e) {}
+
       const sanitizedState = JSON.parse(JSON.stringify(appState));
       try {
         localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(sanitizedState));
@@ -2462,9 +2609,21 @@
             dismissedAlerts: normalizeCloudList(cloudData.dismissedAlerts),
             branding: cloudData.branding || brandingConfig
           };
-          if (appState.adminCreds) adminCredentials = appState.adminCreds;
-          if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
+          if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
+          if (appState.branding) {
+            const prevLogo = brandingConfig.logoBase64;
+            const prevName = brandingConfig.companyName;
+            brandingConfig = Object.assign(brandingConfig, appState.branding);
+            if (!brandingConfig.logoBase64 && prevLogo && !brandingConfig.logoExplicitlyRemoved) {
+              brandingConfig.logoBase64 = prevLogo;
+            }
+            if ((!brandingConfig.companyName || brandingConfig.companyName === 'AutoRent Pro') && prevName && prevName !== 'AutoRent Pro') {
+              brandingConfig.companyName = prevName;
+            }
+          }
           try {
+            localStorage.setItem('autorent_branding_backup', JSON.stringify(brandingConfig));
+            localStorage.setItem('autorent_creds_backup', JSON.stringify(adminCredentials));
             localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
           } catch (storageErr) {
             console.warn('No se pudo guardar copia en localStorage:', storageErr);
@@ -2474,6 +2633,7 @@
         }
 
         applyBrandingUI();
+        populateSettingsForms();
         updateSelects();
         checkDailyFeeAutomation();
         if (!currentSession.role) checkUrlParameters();
@@ -2519,6 +2679,12 @@
       if (appState.accessLogs.length > 200) appState.accessLogs.pop();
 
       saveStateAndBroadcast();
+
+      if (adminCredentials && adminCredentials.tgEnabled && adminCredentials.tgNotifyLogin) {
+        sendTelegramNotification(
+          `🔑 <b>Acceso de Conductor</b>\n👤 <b>Chofer:</b> ${driver.name}\n🚗 <b>Auto:</b> ${logEntry.carPlate}\n📲 <b>Entrada:</b> ${accessType}\n🕒 <b>Hora:</b> ${dateStr} - ${timeStr}`
+        );
+      }
     }
 
     function renderAccessLogsTable() {
@@ -3238,6 +3404,8 @@
             currentSession.role = 'driver';
             currentSession.driverId = drv.id;
             activeRenderedDriverId = drv.id;
+            driverGraceToastShownForId = null;
+            lastDriverVoiceTimestamp = 0;
             logDriverAccess(drv.id, 'Acceso Directo por Link Único');
             showView('driver');
             showToast(`Bienvenido ${drv.name}`, 'success');
@@ -4763,6 +4931,18 @@
       appState.payments.unshift(newPayment);
       saveStateAndBroadcast();
 
+      // Enviar alerta inmediata + foto del comprobante al Bot de Telegram
+      const tgCaption = `💵 <b>NUEVO PAGO REPORTADO (${brandingConfig.companyName})</b>\n\n` +
+        `👤 <b>Conductor:</b> ${driver.name}\n` +
+        `🚗 <b>Vehículo:</b> ${car ? `${car.model} (${car.plate})` : 'Sin auto'}\n` +
+        `💰 <b>Monto:</b> $${amount.toFixed(2)} USD\n` +
+        `🏦 <b>Método:</b> ${method}\n` +
+        `🔢 <b>Referencia:</b> ${ref}\n` +
+        `⚡ <b>Kilometraje:</b> ${kmCheck.km.toLocaleString()} Km\n` +
+        `📅 <b>Fecha:</b> ${date}` +
+        (newPayment.aiDuplicateWarning ? `\n\n🚨 <b>¡ALERTA!: Captura o referencia marcada como DUPLICADA</b>` : '');
+      sendTelegramNotification(tgCaption, isCash ? null : tempCompressedReceipt.base64);
+
       if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
         const spokenSentAmount = numberToSpanishWords(amount);
         speakTextWithSelectedVoice(`Reporte de pago enviado con éxito por la suma de ${spokenSentAmount}.`);
@@ -5293,6 +5473,16 @@
         if (!Array.isArray(appState.faultReports)) appState.faultReports = [];
         appState.faultReports.unshift(faultObj);
         saveStateAndBroadcast();
+
+        sendTelegramNotification(
+          `🔧 <b>REPORTE DE FALLA MECÁNICA</b>\n\n` +
+          `👤 <b>Conductor:</b> ${drv.name}\n` +
+          `🚗 <b>Vehículo:</b> ${faultObj.carLabel}\n` +
+          `⚠️ <b>Tipo:</b> ${faultObj.type}\n` +
+          `📝 <b>Detalle:</b> ${faultObj.notes}`,
+          faultObj.photo || null
+        );
+
         closeModal('modal-driver-fault-report');
         showToast('🔧 Reporte de falla enviado al Administrador', 'success');
       });
@@ -5610,6 +5800,7 @@
     // MOTOR DE SÍNTESIS DE VOZ CON SELECTOR DE ESTILOS Y VOCES DEL DISPOSITIVO
     let lastDriverVoiceTimestamp = 0;
     let driverGraceToastShownForId = null;
+    let driverAudioGestureUnlocked = false;
 
     function populateDeviceVoicesInSelector() {
       if (!('speechSynthesis' in window)) return;
@@ -5762,26 +5953,29 @@
 
       if (snd.driverVoice === false) return;
 
+      // Si entró por Link Único y aún no ha tocado la pantalla, reservamos la voz para el primer toque
+      if (!driverAudioGestureUnlocked) {
+        lastDriverVoiceTimestamp = 0;
+        return;
+      }
+
       const nowMs = Date.now();
       if (!forceImmediate && (nowMs - lastDriverVoiceTimestamp) < 16000) return;
       lastDriverVoiceTimestamp = nowMs;
 
       if (isInGracePeriod) {
         playAdminAlertTone('payments');
-        setTimeout(() => {
-          speakTextWithSelectedVoice(`Atención conductor. Estás en el periodo de gracia de pago. Hay un pago pendiente por la suma de ${words}.`);
-        }, 350);
+        speakTextWithSelectedVoice(`Atención conductor. Estás en el periodo de gracia de pago. Hay un pago pendiente por la suma de ${words}.`);
       } else {
         playAdminAlertTone('overdue');
-        setTimeout(() => {
-          speakTextWithSelectedVoice(`Atención conductor. El plazo de gracia ha vencido. El vehículo podrá ser inmovilizado en cualquier momento. Hay un pago pendiente por la suma de ${words}.`);
-        }, 350);
+        speakTextWithSelectedVoice(`Atención conductor. El plazo de gracia ha vencido. El vehículo podrá ser inmovilizado en cualquier momento. Hay un pago pendiente por la suma de ${words}.`);
       }
     }
 
     // Desbloqueo automático de voz al primer toque cuando el chofer entra por Link Único
-    ['touchstart', 'click'].forEach(evtName => {
+    ['touchstart', 'touchend', 'click'].forEach(evtName => {
       document.addEventListener(evtName, () => {
+        driverAudioGestureUnlocked = true;
         if (currentSession.role === 'driver' && lastDriverVoiceTimestamp === 0) {
           triggerDriverPaymentVoiceIfNeeded(true);
         }
@@ -6128,18 +6322,32 @@
       applyBrandingUI();
     });
 
+    document.getElementById('cfg-brand-name').addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      if (val) {
+        brandingConfig.companyName = val;
+        applyBrandingUI();
+      }
+    });
+
     document.getElementById('input-brand-logo-file').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const base64 = await compressImageFile(file, 400, 400, 0.8);
+      const nameInput = document.getElementById('cfg-brand-name');
+      if (nameInput && nameInput.value.trim()) {
+        brandingConfig.companyName = nameInput.value.trim();
+      }
+      const base64 = await compressImageFile(file, 320, 320, 0.78);
       brandingConfig.logoBase64 = base64;
+      brandingConfig.logoExplicitlyRemoved = false;
       applyBrandingUI();
       saveStateAndBroadcast();
-      showToast('Logo cargado correctamente', 'success');
+      showToast('Logo y marca guardados permanentemente', 'success');
     });
 
     function removeCompanyLogo() {
       brandingConfig.logoBase64 = '';
+      brandingConfig.logoExplicitlyRemoved = true;
       applyBrandingUI();
       saveStateAndBroadcast();
       showToast('Logo removido', 'info');
@@ -6526,4 +6734,3 @@
   </script>
 </body>
 </html>
-```
