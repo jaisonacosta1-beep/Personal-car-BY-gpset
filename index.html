@@ -1177,10 +1177,10 @@
       </div>
 
       <!-- Acta de Entrega del Vehículo (Solo Lectura) -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+      <div id="driver-inspection-card-container" class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4 transition-all">
+        <div id="driver-inspection-card-header" class="flex items-center justify-between border-b border-slate-100 pb-3">
           <div class="flex items-center space-x-2">
-            <div class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <div class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
               <i data-lucide="clipboard-check" class="w-4 h-4"></i>
             </div>
             <div>
@@ -1188,9 +1188,15 @@
               <p class="text-[11px] text-slate-400" id="driver-car-label">Vehículo Asignado</p>
             </div>
           </div>
-          <span class="text-[10px] bg-slate-100 text-slate-600 font-extrabold px-2.5 py-1 rounded-full border border-slate-200 flex items-center">
-            <i data-lucide="lock" class="w-3 h-3 mr-1"></i> Solo Lectura
-          </span>
+          <div class="flex items-center space-x-1.5">
+            <span class="hidden sm:inline-flex text-[10px] bg-slate-100 text-slate-600 font-extrabold px-2.5 py-1 rounded-full border border-slate-200 items-center">
+              <i data-lucide="lock" class="w-3 h-3 mr-1"></i> Solo Lectura
+            </span>
+            <button type="button" id="btn-toggle-driver-checklist" onclick="toggleDriverChecklistMinimize()" class="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-black flex items-center space-x-1 transition shadow-2xs">
+              <i data-lucide="minimize-2" class="w-3.5 h-3.5"></i>
+              <span>Minimizar</span>
+            </button>
+          </div>
         </div>
         <div id="driver-readonly-inspection-view" class="space-y-4"></div>
       </div>
@@ -2793,7 +2799,7 @@
       showToast('Historial de accesos vaciado', 'info');
     }
 
-    // AUTOMATIZACIÓN DE CUOTA A LA 1:00 AM (HORA DE PANAMÁ) & CONTROL DE DÍAS TRANSCURRIDOS
+    // AUTOMATIZACIÓN DE CUOTA A LA 1:00 AM (HORA DE PANAMÁ) & CONTROL DE DÍA CORRIENTE VS DÍA ANTERIOR
     function getPanamaDateParts() {
       const now = new Date();
       const parts = new Intl.DateTimeFormat('en-US', {
@@ -2802,6 +2808,7 @@
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
+        minute: '2-digit',
         hourCycle: 'h23'
       }).formatToParts(now);
 
@@ -2811,8 +2818,45 @@
       const month = map.month;
       const day = map.day;
       const hour = parseInt(map.hour, 10) % 24;
+      const minute = parseInt(map.minute || '0', 10);
       const todayIso = `${year}-${month}-${day}`;
-      return { todayIso, hour };
+      return { todayIso, hour, minute };
+    }
+
+    // Separa la cuota del día corriente (que tiene hasta las 12:30 AM para pagarse) de la deuda del día anterior
+    function getDriverOverdueInfo(driver) {
+      if (!driver) return { totalBalance: 0, runningQuota: 0, overdueBalance: 0, overdueDays: 0 };
+      const bal = Number(driver.balance) || 0;
+      const rate = Number(driver.dailyRate) || 25;
+      if (bal <= 0 || driver.billingPaused) {
+        return { totalBalance: bal, runningQuota: 0, overdueBalance: 0, overdueDays: 0 };
+      }
+
+      const { todayIso, hour, minute } = getPanamaDateParts();
+      const skipSunday = !!(appState.skipSundays || driver.freeSundays);
+      const isTodaySunday = new Date(todayIso + 'T12:00:00').getDay() === 0;
+      const todayChargeable = !(skipSunday && isTodaySunday);
+
+      let runningQuota = 0;
+      if (hour >= 1) {
+        // Después de la 1:00 AM, la cuota cargada hoy corresponde al día corriente (tienen hasta las 12:30 AM para pagarla)
+        if (todayChargeable) runningQuota = rate;
+      } else if (hour === 0 && minute < 30) {
+        // Entre 12:00 AM y 12:29 AM aún no vence el plazo de las 12:30 AM del día en curso
+        runningQuota = rate;
+      } else {
+        // Entre 12:30 AM y 12:59 AM ya inició el periodo de gracia del día anterior y aún no se ha sumado la 1:00 AM
+        runningQuota = 0;
+      }
+
+      const overdueBalance = Number(Math.max(0, bal - runningQuota).toFixed(2));
+      const overdueDays = rate > 0 ? (overdueBalance / rate) : 0;
+      return {
+        totalBalance: bal,
+        runningQuota: Math.min(bal, runningQuota),
+        overdueBalance,
+        overdueDays
+      };
     }
 
     function checkDailyFeeAutomation() {
@@ -2864,21 +2908,17 @@
       }
     }
 
-    // FORMATEADOR DE ESTADO DE CUENTA (DEUDA, CUOTA DEL DÍA, AL DÍA O SALDO A FAVOR)
+    // FORMATEADOR DE ESTADO DE CUENTA (DEUDA ANTERIOR, DÍA CORRIENTE, AL DÍA O SALDO A FAVOR)
     function getOwedDateForDriver(driver) {
-      const { todayIso, hour } = getPanamaDateParts();
+      const { todayIso } = getPanamaDateParts();
       if (!driver) return todayIso;
-      const bal = Number(driver.balance) || 0;
       const rate = Number(driver.dailyRate) || 25;
-      if (bal <= 0 || rate <= 0) return todayIso;
+      const info = getDriverOverdueInfo(driver);
+      if (info.overdueBalance <= 0 || rate <= 0) return todayIso;
 
-      const totalDaysOwed = Math.max(1, Math.ceil((bal - 0.01) / rate));
       const skipSunday = !!(appState.skipSundays || driver.freeSundays);
       const targetDate = new Date(todayIso + 'T12:00:00');
-      const isTodaySunday = targetDate.getDay() === 0;
-      const todayWasCharged = (hour >= 1) && !(skipSunday && isTodaySunday) && !driver.billingPaused;
-
-      let chargeableDaysBack = todayWasCharged ? (totalDaysOwed - 1) : totalDaysOwed;
+      let chargeableDaysBack = Math.max(1, Math.ceil((info.overdueBalance - 0.01) / rate));
 
       while (chargeableDaysBack > 0) {
         targetDate.setDate(targetDate.getDate() - 1);
@@ -2894,23 +2934,27 @@
     function formatDriverBalanceInfo(driver) {
       const bal = Number(driver.balance) || 0;
       const rate = Number(driver.dailyRate) || 25;
+      const info = getDriverOverdueInfo(driver);
+
       if (bal > 0) {
-        if (bal <= rate) {
+        if (info.overdueBalance <= 0) {
           return {
             type: 'current_day',
             amount: bal,
-            label: 'Cuota del Día en Curso:',
-            text: `$${bal.toFixed(2)} (Cuota de Hoy)`,
-            badgeText: `Hoy: $${bal.toFixed(2)}`,
-            colorClass: 'text-amber-600'
+            overdueAmount: 0,
+            label: 'Estado Cuenta:',
+            text: `Al Día · Día Corriente ($${bal.toFixed(2)})`,
+            badgeText: `Al Día (Hoy: $${bal.toFixed(2)})`,
+            colorClass: 'text-emerald-600'
           };
         }
         return {
           type: 'debt',
-          amount: bal,
-          label: 'Saldo Deuda:',
-          text: `$${bal.toFixed(2)}`,
-          badgeText: `Deuda: $${bal.toFixed(2)}`,
+          amount: info.overdueBalance,
+          totalAmount: bal,
+          label: 'Deuda Anterior:',
+          text: `$${info.overdueBalance.toFixed(2)} Pendiente${info.runningQuota > 0 ? ` (+ $${info.runningQuota.toFixed(2)} hoy)` : ''}`,
+          badgeText: `Deuda: $${info.overdueBalance.toFixed(2)}`,
           colorClass: 'text-rose-600'
         };
       } else if (bal < 0) {
@@ -2930,7 +2974,7 @@
           type: 'even',
           amount: 0,
           label: 'Estado Cuenta:',
-          text: '$0.00 (Al Día)',
+          text: 'Al Día ($0.00 · Hoy Pagado)',
           badgeText: 'Al Día ($0.00)',
           colorClass: 'text-emerald-600'
         };
@@ -3731,30 +3775,34 @@
         const car = getDriverAssignedCar(d.id);
         const bal = Number(d.balance) || 0;
         const rate = Number(d.dailyRate) || 25;
-        const daysOwed = bal > 0 ? (bal / rate) : 0;
+        const info = getDriverOverdueInfo(d);
 
         let cardStyle = 'border-emerald-200 bg-emerald-50/40';
         let dotColor = 'bg-emerald-500';
-        let statusTag = '🟢 Al Día ($0.00)';
+        let statusTag = '🟢 Al Día ($0.00 · Hoy Pagado)';
 
         if (d.billingPaused) {
           cardStyle = 'border-slate-300 bg-slate-100/70';
           dotColor = 'bg-slate-500';
-          statusTag = `⏸️ Pausado (${bal > 0 ? 'Deuda: $' + bal.toFixed(2) : bal < 0 ? 'A Favor: +$' + Math.abs(bal).toFixed(2) : '$0.00'})`;
+          statusTag = `⏸️ Pausado (${bal > 0 ? 'Saldo: $' + bal.toFixed(2) : bal < 0 ? 'A Favor: +$' + Math.abs(bal).toFixed(2) : '$0.00'})`;
         } else if (bal < 0) {
           const credit = Math.abs(bal);
           const creditDays = (credit / rate).toFixed(1).replace(/\.0$/, '');
           cardStyle = 'border-emerald-300 bg-emerald-50/70';
           dotColor = 'bg-emerald-500';
           statusTag = `🟢 Saldo a Favor: +$${credit.toFixed(2)} (${creditDays}d)`;
-        } else if (daysOwed >= 2) {
+        } else if (info.overdueDays >= 2) {
           cardStyle = 'border-rose-300 bg-rose-50/70';
           dotColor = 'bg-rose-600 badge-pulse';
-          statusTag = `🔴 Deuda Vencida: $${bal.toFixed(2)} (${daysOwed.toFixed(1).replace(/\.0$/, '')}d)`;
-        } else if (bal > 0) {
+          statusTag = `🔴 Deuda Vencida: $${info.overdueBalance.toFixed(2)} (${info.overdueDays.toFixed(1).replace(/\.0$/, '')}d)`;
+        } else if (info.overdueBalance > 0) {
           cardStyle = 'border-amber-300 bg-amber-50/70';
-          dotColor = 'bg-amber-500';
-          statusTag = `🟡 Cuota de Hoy: $${bal.toFixed(2)} (Día en curso)`;
+          dotColor = 'bg-amber-500 badge-pulse';
+          statusTag = `🟡 Debe Ayer: $${info.overdueBalance.toFixed(2)}${info.runningQuota > 0 ? ` (+ $${info.runningQuota.toFixed(2)} hoy)` : ''}`;
+        } else if (bal > 0) {
+          cardStyle = 'border-emerald-200 bg-emerald-50/40';
+          dotColor = 'bg-emerald-500';
+          statusTag = `🟢 Al Día · Día Corriente ($${bal.toFixed(2)})`;
         }
 
         return `
@@ -4715,7 +4763,7 @@
 
       const balEl = document.getElementById('driver-portal-balance');
       balEl.textContent = balInfo.text;
-      balEl.className = `text-xl font-black ${balInfo.type === 'debt' ? 'text-rose-400' : balInfo.type === 'current_day' ? 'text-amber-300' : 'text-emerald-400'}`;
+      balEl.className = `text-xl font-black ${balInfo.type === 'debt' ? 'text-rose-400' : 'text-emerald-400'}`;
 
       const depBadge = document.getElementById('driver-portal-deposit-badge');
       if (depBadge) {
@@ -4866,39 +4914,56 @@
       return `${words} ${currencyWord}`;
     }
 
+    function getYesterdayGraceWindow(now, graceHours) {
+      // El periodo de gracia de 12 horas inicia a las 12:30 AM (00:30) para cobrar el día anterior
+      const graceStart = new Date(now);
+      if (now.getHours() === 0 && now.getMinutes() < 30) {
+        graceStart.setDate(graceStart.getDate() - 1);
+      }
+      graceStart.setHours(0, 30, 0, 0);
+      const graceDeadline = new Date(graceStart.getTime() + (graceHours * 3600 * 1000));
+      return { graceStart, graceDeadline };
+    }
+
     function updateDriverGraceTimer() {
       const banner = document.getElementById('driver-immobilization-banner');
       if (!banner || currentSession.role !== 'driver') return;
       const driver = appState.drivers.find(d => d.id === currentSession.driverId);
-      const bal = driver ? (Number(driver.balance) || 0) : 0;
 
-      if (!driver || bal <= 0 || driver.billingPaused) {
+      if (!driver || driver.billingPaused) {
         banner.classList.add('hidden');
         return;
       }
 
-      banner.classList.remove('hidden');
-      const rate = Number(driver.dailyRate) || 25;
-      const daysOwed = bal / rate;
-      const now = new Date();
-      const graceHours = Number((appState.soundSettings && appState.soundSettings.graceHours) || 12);
-      const amountInWords = numberToSpanishWords(bal);
-
-      // El cargo diario ocurre a la 1:00 AM; si es entre 12:00 AM y 12:59 AM se toma la 1:00 AM del ciclo actual
-      const graceStart = new Date(now);
-      if (now.getHours() < 1) {
-        graceStart.setDate(graceStart.getDate() - 1);
-      }
-      graceStart.setHours(1, 0, 0, 0);
-      const graceDeadline = new Date(graceStart.getTime() + (graceHours * 3600 * 1000));
-
+      const info = getDriverOverdueInfo(driver);
       const iconWrap = document.getElementById('driver-immob-icon-wrap');
       const titleEl = document.getElementById('driver-immob-title');
       const descEl = document.getElementById('driver-immob-desc');
       const countEl = document.getElementById('driver-immob-countdown');
 
-      // Está en periodo de gracia si debe la cuota del día (<= 1 día) y aún no vence la hora límite de gracia
-      if (daysOwed <= 1.05 && now < graceDeadline) {
+      // Si NO debe nada del día anterior (overdueBalance === 0), está AL DÍA (el día corriente tiene plazo hasta las 12:30 AM)
+      if (info.overdueBalance <= 0) {
+        if (info.totalBalance > 0) {
+          banner.classList.remove('hidden');
+          banner.className = 'p-4 rounded-3xl border-2 border-emerald-300 bg-emerald-50 text-emerald-950 shadow-sm transition-all';
+          if (iconWrap) iconWrap.className = 'w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center flex-shrink-0';
+          titleEl.textContent = '✅ CUENTA AL DÍA · DÍA CORRIENTE EN CURSO';
+          descEl.textContent = `No tienes deudas pendientes de días anteriores. La cuota del día corriente ($${info.runningQuota.toFixed(2)}) tiene plazo para pagarse hasta las 12:30 AM de esta noche.`;
+          countEl.textContent = 'Plazo hoy hasta las 12:30 AM';
+        } else {
+          banner.classList.add('hidden');
+        }
+        return;
+      }
+
+      banner.classList.remove('hidden');
+      const now = new Date();
+      const graceHours = Number((appState.soundSettings && appState.soundSettings.graceHours) || 12);
+      const { graceStart, graceDeadline } = getYesterdayGraceWindow(now, graceHours);
+      const amountInWords = numberToSpanishWords(info.overdueBalance);
+
+      // Está en el periodo de gracia de 12 horas (desde las 12:30 AM hasta las 12:30 PM) por la cuota del día anterior
+      if (info.overdueDays <= 1.05 && now < graceDeadline) {
         const diffSec = Math.max(0, Math.floor((graceDeadline - now) / 1000));
         const hrs = String(Math.floor(diffSec / 3600)).padStart(2, '0');
         const mins = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
@@ -4906,13 +4971,13 @@
 
         banner.className = 'p-4 rounded-3xl border-2 border-amber-400 bg-amber-50 text-amber-950 shadow-md transition-all badge-pulse';
         if (iconWrap) iconWrap.className = 'w-10 h-10 rounded-2xl bg-amber-500 flex items-center justify-center flex-shrink-0';
-        titleEl.textContent = `⏳ ESTÁS EN PERIODO DE GRACIA DE PAGO (${graceHours} HORAS)`;
-        descEl.textContent = `Atención: Te encuentras en el periodo de gracia. Hay un pago pendiente por la suma de ${amountInWords.toUpperCase()} ($${bal.toFixed(2)}). Realiza tu pago dentro del tiempo de gracia para evitar inmovilización.`;
+        titleEl.textContent = `⏳ PERIODO DE GRACIA DEL DÍA ANTERIOR (${graceHours} HORAS)`;
+        descEl.textContent = `Atención: Tienes pendiente el pago del día anterior por la suma de ${amountInWords.toUpperCase()} ($${info.overdueBalance.toFixed(2)}). Realiza tu pago antes de que finalice el periodo de gracia para que tu cuenta quede al día.`;
         countEl.textContent = `${hrs}:${mins}:${secs} (Tiempo de gracia restante)`;
       } else {
-        // Si venció el plazo de gracia o acumula más de 1 día: Orden de Inmovilización en palabras textuales
+        // Si venció el plazo de gracia de 12 horas o acumula más de 1 día anterior sin pagar
         const refDeadline = now >= graceDeadline ? graceDeadline : graceStart;
-        const extraDaysMs = Math.max(0, Math.floor(daysOwed - 1)) * 86400000;
+        const extraDaysMs = Math.max(0, Math.floor(info.overdueDays - 1)) * 86400000;
         const overtimeSec = Math.max(0, Math.floor(((now - refDeadline) + extraDaysMs) / 1000));
         const oHrs = String(Math.floor(overtimeSec / 3600)).padStart(2, '0');
         const oMins = String(Math.floor((overtimeSec % 3600) / 60)).padStart(2, '0');
@@ -4921,7 +4986,7 @@
         banner.className = 'p-4 rounded-3xl border-2 border-rose-700 bg-rose-600 text-white shadow-xl transition-all badge-pulse';
         if (iconWrap) iconWrap.className = 'w-10 h-10 rounded-2xl bg-black/30 flex items-center justify-center flex-shrink-0';
         titleEl.textContent = '🚨 PLAZO DE GRACIA VENCIDO · ORDEN DE INMOVILIZACIÓN';
-        descEl.textContent = `EL VEHÍCULO PODRÁ SER INMOVILIZADO EN CUALQUIER MOMENTO. Hay un pago pendiente por la suma de ${amountInWords.toUpperCase()} ($${bal.toFixed(2)}).`;
+        descEl.textContent = `EL VEHÍCULO PODRÁ SER INMOVILIZADO EN CUALQUIER MOMENTO. Tienes vencido el pago del día anterior por la suma de ${amountInWords.toUpperCase()} ($${info.overdueBalance.toFixed(2)}).`;
         countEl.textContent = `+${oHrs}:${oMins}:${oSecs} (TIEMPO EXTRA EN MORA)`;
       }
     }
@@ -5491,6 +5556,42 @@
           </div>
         ` : ''}
       `;
+
+      const drvId = currentSession.driverId || 'default';
+      const isMinimized = localStorage.getItem('autorent_chk_min_' + drvId) === '1';
+      applyDriverChecklistMinimizeState(isMinimized);
+    }
+
+    function applyDriverChecklistMinimizeState(isMinimized) {
+      const card = document.getElementById('driver-inspection-card-container');
+      const header = document.getElementById('driver-inspection-card-header');
+      const body = document.getElementById('driver-readonly-inspection-view');
+      const btn = document.getElementById('btn-toggle-driver-checklist');
+      if (!card || !header || !body || !btn) return;
+
+      if (isMinimized) {
+        body.classList.add('hidden');
+        card.className = 'bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs transition-all';
+        header.className = 'flex items-center justify-between';
+        btn.innerHTML = '<i data-lucide="maximize-2" class="w-3.5 h-3.5"></i><span>Expandir</span>';
+      } else {
+        body.classList.remove('hidden');
+        card.className = 'bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4 transition-all';
+        header.className = 'flex items-center justify-between border-b border-slate-100 pb-3';
+        btn.innerHTML = '<i data-lucide="minimize-2" class="w-3.5 h-3.5"></i><span>Minimizar</span>';
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function toggleDriverChecklistMinimize() {
+      const body = document.getElementById('driver-readonly-inspection-view');
+      if (!body) return;
+      const willMinimize = !body.classList.contains('hidden');
+      const drvId = currentSession.driverId || 'default';
+      try {
+        localStorage.setItem('autorent_chk_min_' + drvId, willMinimize ? '1' : '0');
+      } catch (e) {}
+      applyDriverChecklistMinimizeState(willMinimize);
     }
 
     // FIRMA DIGITAL CON EL DEDO O MOUSE EN ACTA DE ENTREGA
@@ -6071,21 +6172,17 @@
       const snd = Object.assign({ driverVoice: true, graceHours: 12 }, appState.soundSettings || {});
 
       const driver = appState.drivers.find(d => d.id === currentSession.driverId);
-      const bal = driver ? (Number(driver.balance) || 0) : 0;
-      if (!driver || bal <= 0 || driver.billingPaused) return;
+      if (!driver || driver.billingPaused) return;
 
-      const rate = Number(driver.dailyRate) || 25;
-      const daysOwed = bal / rate;
+      const info = getDriverOverdueInfo(driver);
+      // Si no debe nada del día anterior (solo corre el día corriente), NO emitir alerta de cobro ni voz
+      if (info.overdueBalance <= 0) return;
+
       const now = new Date();
       const graceHours = Number(snd.graceHours || 12);
-      const graceStart = new Date(now);
-      if (now.getHours() < 1) {
-        graceStart.setDate(graceStart.getDate() - 1);
-      }
-      graceStart.setHours(1, 0, 0, 0);
-      const graceDeadline = new Date(graceStart.getTime() + (graceHours * 3600 * 1000));
-      const words = numberToSpanishWords(bal);
-      const isInGracePeriod = (daysOwed <= 1.05 && now < graceDeadline);
+      const { graceDeadline } = getYesterdayGraceWindow(now, graceHours);
+      const words = numberToSpanishWords(info.overdueBalance);
+      const isInGracePeriod = (info.overdueDays <= 1.05 && now < graceDeadline);
 
       if (forceImmediate && driverGraceToastShownForId !== driver.id) {
         driverGraceToastShownForId = driver.id;
@@ -6093,9 +6190,9 @@
           const diffMin = Math.max(1, Math.floor((graceDeadline - now) / 60000));
           const remH = Math.floor(diffMin / 60);
           const remM = diffMin % 60;
-          showToast(`⏳ Estás en Periodo de Gracia (${remH}h ${remM}m restantes) · Pendiente: $${bal.toFixed(2)}`, 'warning');
+          showToast(`⏳ Periodo de Gracia del día anterior (${remH}h ${remM}m restantes) · Pendiente: $${info.overdueBalance.toFixed(2)}`, 'warning');
         } else {
-          showToast(`🚨 Plazo de gracia vencido · Orden de inmovilización ($${bal.toFixed(2)})`, 'error');
+          showToast(`🚨 Plazo de gracia vencido · Pendiente día anterior: $${info.overdueBalance.toFixed(2)}`, 'error');
         }
       }
 
@@ -6113,10 +6210,10 @@
 
       if (isInGracePeriod) {
         playAdminAlertTone('payments');
-        speakTextWithSelectedVoice(`Atención conductor. Estás en el periodo de gracia de pago. Hay un pago pendiente por la suma de ${words}.`);
+        speakTextWithSelectedVoice(`Atención conductor. Estás en el periodo de gracia de pago correspondiente al día anterior por la suma de ${words}.`);
       } else {
         playAdminAlertTone('overdue');
-        speakTextWithSelectedVoice(`Atención conductor. El plazo de gracia ha vencido. El vehículo podrá ser inmovilizado en cualquier momento. Hay un pago pendiente por la suma de ${words}.`);
+        speakTextWithSelectedVoice(`Atención conductor. El plazo de gracia ha vencido. El vehículo podrá ser inmovilizado en cualquier momento. Tienes un pago vencido por la suma de ${words}.`);
       }
     }
 
@@ -6258,9 +6355,8 @@
       if (snd.overdue) {
         const hasOverdueDrivers = (appState.drivers || []).some(d => {
           if (d.billingPaused) return false;
-          const bal = Number(d.balance) || 0;
-          const rate = Number(d.dailyRate) || 25;
-          return (bal / rate) >= 2;
+          const info = getDriverOverdueInfo(d);
+          return info.overdueDays >= 2;
         });
         if (hasOverdueDrivers) {
           playAdminAlertTone('overdue');
@@ -6885,4 +6981,3 @@
   </script>
 </body>
 </html>
-```
