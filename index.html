@@ -2246,6 +2246,20 @@
 
     let db = null;
     let isFirebaseReady = false;
+    let hasInitialCloudSync = false;
+
+    function sortPaymentsNewestFirst(list) {
+      const arr = normalizeCloudList(list);
+      return arr.slice().sort((a, b) => {
+        const timeA = Number(a.createdAt) || 0;
+        const timeB = Number(b.createdAt) || 0;
+        if (timeA !== timeB) return timeB - timeA;
+        const dateA = a.date ? new Date(a.date + 'T12:00:00').getTime() : 0;
+        const dateB = b.date ? new Date(b.date + 'T12:00:00').getTime() : 0;
+        if (dateA !== dateB) return dateB - dateA;
+        return 0;
+      });
+    }
 
     // Estado central de la aplicación
     let appState = {
@@ -2428,50 +2442,89 @@
     }
 
     // FUNCIÓN PARA ENVIAR NOTIFICACIONES Y FOTOS AL BOT DE TELEGRAM
+    function base64ToBlobSafe(base64Data) {
+      const parts = base64Data.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const byteString = atob(parts[1]);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      return new Blob([ab], { type: mime });
+    }
+
     async function sendTelegramNotification(textMessage, base64Photo = null, forceTest = false) {
-      const enabled = forceTest || !!adminCredentials.tgEnabled;
-      const token = (adminCredentials.tgToken || '').trim();
-      const chatId = (adminCredentials.tgChatId || '').trim();
+      const creds = Object.assign({}, appState.adminCreds || {}, adminCredentials || {});
+      const domToken = document.getElementById('cfg-tg-token') ? document.getElementById('cfg-tg-token').value.trim() : '';
+      const domChatId = document.getElementById('cfg-tg-chatid') ? document.getElementById('cfg-tg-chatid').value.trim() : '';
+
+      const token = (creds.tgToken || domToken || '').trim().replace(/^bot/i, '');
+      const chatId = (creds.tgChatId || domChatId || '').trim();
+      const enabled = forceTest || creds.tgEnabled !== false;
+
       if (!enabled || !token || !chatId) return false;
 
-      try {
-        if (base64Photo && base64Photo.startsWith('data:image')) {
-          const res = await fetch(base64Photo);
-          const blob = await res.blob();
+      let sentOk = false;
+
+      // 1. Si hay foto del comprobante, enviarla como FormData simple (sin preflight CORS)
+      if (base64Photo && base64Photo.startsWith('data:image')) {
+        try {
+          const blob = base64ToBlobSafe(base64Photo);
           const formData = new FormData();
           formData.append('chat_id', chatId);
           formData.append('photo', blob, 'comprobante.jpg');
           formData.append('caption', textMessage.substring(0, 1020));
           formData.append('parse_mode', 'HTML');
 
-          const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
             method: 'POST',
             body: formData
           });
-          if (tgRes.ok) return true;
+          if (photoRes && photoRes.ok) return true;
+        } catch (photoErr) {
+          console.warn('Reintentando envío de texto a Telegram:', photoErr);
         }
+      }
+
+      // 2. Enviar mensaje de texto usando petición simple sin encabezados JSON que bloqueen CORS
+      try {
+        const params = new URLSearchParams();
+        params.append('chat_id', chatId);
+        params.append('text', textMessage);
+        params.append('parse_mode', 'HTML');
 
         const msgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: textMessage,
-            parse_mode: 'HTML'
-          })
+          body: params
         });
-        return msgRes.ok;
+        if (msgRes && msgRes.ok) sentOk = true;
       } catch (err) {
-        console.warn('Aviso Telegram:', err);
-        return false;
+        // 3. Respaldo directo no-CORS para WebViews móviles estrictos
+        try {
+          const getUrl = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&parse_mode=HTML&text=${encodeURIComponent(textMessage)}`;
+          await fetch(getUrl, { mode: 'no-cors' });
+          sentOk = true;
+        } catch (fallbackErr) {
+          console.warn('Aviso Telegram:', fallbackErr);
+        }
       }
+
+      return sentOk;
     }
 
     function saveTelegramBotConfig() {
+      const tokenVal = document.getElementById('cfg-tg-token').value.trim().replace(/^bot/i, '');
+      const chatIdVal = document.getElementById('cfg-tg-chatid').value.trim();
+      if (tokenVal && chatIdVal) {
+        document.getElementById('cfg-tg-enabled').checked = true;
+      }
       adminCredentials.tgEnabled = !!document.getElementById('cfg-tg-enabled').checked;
-      adminCredentials.tgToken = document.getElementById('cfg-tg-token').value.trim();
-      adminCredentials.tgChatId = document.getElementById('cfg-tg-chatid').value.trim();
+      adminCredentials.tgToken = tokenVal;
+      adminCredentials.tgChatId = chatIdVal;
       adminCredentials.tgNotifyLogin = !!document.getElementById('cfg-tg-notify-login').checked;
+      appState.adminCreds = Object.assign({}, adminCredentials);
       saveStateAndBroadcast();
       showToast('✓ Configuración de Telegram guardada', 'success');
     }
@@ -2530,21 +2583,16 @@
             isFirebaseReady = true;
             setupFirebaseCloudSync();
           });
-          return;
+        } else {
+          firebase.initializeApp(firebaseConfig);
+          db = firebase.database();
+          isFirebaseReady = true;
+          setupFirebaseCloudSync();
         }
-        firebase.initializeApp(firebaseConfig);
-        db = firebase.database();
-        isFirebaseReady = true;
-        const fbBadge = document.getElementById('cfg-firebase-badge');
-        if (fbBadge) fbBadge.textContent = 'Conectado a ' + (firebaseConfig.projectId || 'Firebase');
       } catch (err) {
-        console.error("Firebase init error:", err);
-        isFirebaseReady = false;
-        const fbBadge = document.getElementById('cfg-firebase-badge');
-        if (fbBadge) fbBadge.textContent = 'Error de Conexión';
+        console.warn("Firebase en modo local:", err);
       }
     }
-    initFirebase();
 
     function normalizeCloudList(val) {
       if (!val) return [];
@@ -2553,13 +2601,14 @@
       return [];
     }
 
-    function saveStateAndBroadcast() {
+    function saveStateAndBroadcast(forceCloudWrite = false) {
       const nameInputEl = document.getElementById('cfg-brand-name');
       if (nameInputEl && nameInputEl.value.trim()) {
         brandingConfig.companyName = nameInputEl.value.trim();
       }
       appState.branding = brandingConfig;
       appState.adminCreds = adminCredentials;
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
       try {
         localStorage.setItem('autorent_branding_backup', JSON.stringify(brandingConfig));
         localStorage.setItem('autorent_creds_backup', JSON.stringify(adminCredentials));
@@ -2569,10 +2618,20 @@
       try {
         localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(sanitizedState));
       } catch (storageErr) {
-        console.warn('Memoria local llena, sincronizando directo con Firebase:', storageErr);
+        try {
+          const lightState = JSON.parse(JSON.stringify(sanitizedState));
+          (lightState.payments || []).slice(15).forEach(p => {
+            if (p.receiptImage && p.receiptImage.startsWith('data:image')) {
+              p.receiptImage = DEFAULT_PLACEHOLDER_RECEIPT;
+            }
+          });
+          localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(lightState));
+        } catch (e2) {
+          console.warn('Memoria local llena, sincronizando directo con Firebase:', e2);
+        }
       }
       
-      if (isFirebaseReady && db) {
+      if (isFirebaseReady && db && (hasInitialCloudSync || forceCloudWrite)) {
         db.ref('rentFlotaEnterpriseV2').set(sanitizedState).catch(err => console.error(err));
       }
     }
@@ -2590,7 +2649,19 @@
 
       db.ref('rentFlotaEnterpriseV2').on('value', (snapshot) => {
         const cloudData = snapshot.val();
+        hasInitialCloudSync = true;
         if (cloudData) {
+          const cloudPayments = normalizeCloudList(cloudData.payments);
+          const localPayments = normalizeCloudList(appState.payments);
+          const mergedPaymentsMap = new Map();
+          cloudPayments.forEach(p => { if (p && p.id) mergedPaymentsMap.set(p.id, p); });
+          localPayments.forEach(p => {
+            if (p && p.id && !mergedPaymentsMap.has(p.id) && p.justReportedLocally) {
+              mergedPaymentsMap.set(p.id, p);
+            }
+          });
+          const mergedPayments = sortPaymentsNewestFirst(Array.from(mergedPaymentsMap.values()));
+
           appState = {
             adminCreds: cloudData.adminCreds || adminCredentials,
             accessLogs: normalizeCloudList(cloudData.accessLogs),
@@ -2602,7 +2673,7 @@
             cars: normalizeCloudList(cloudData.cars),
             drivers: normalizeCloudList(cloudData.drivers),
             expenses: normalizeCloudList(cloudData.expenses),
-            payments: normalizeCloudList(cloudData.payments),
+            payments: mergedPayments,
             inspections: normalizeCloudList(cloudData.inspections),
             faultReports: normalizeCloudList(cloudData.faultReports),
             emergencyContacts: normalizeCloudList(cloudData.emergencyContacts).length ? normalizeCloudList(cloudData.emergencyContacts) : appState.emergencyContacts,
@@ -2629,7 +2700,7 @@
             console.warn('No se pudo guardar copia en localStorage:', storageErr);
           }
         } else {
-          saveStateAndBroadcast();
+          saveStateAndBroadcast(true);
         }
 
         applyBrandingUI();
@@ -3111,113 +3182,132 @@
           img.src = imageBlobOrBase64;
         });
 
-        // Normalizador adaptativo fila por fila: convierte cualquier fondo azul/rojo/oscuro o claro en papel blanco con letra negra nítida
-        const normalizeCanvasRegion = (ctx, width, height) => {
-          const imgData = ctx.getImageData(0, 0, width, height);
-          const d = imgData.data;
-
-          for (let y = 0; y < height; y++) {
-            const rowOffset = y * width * 4;
-            let lightPixels = 0;
-            const sampleStart = Math.floor(width * 0.05);
-            const sampleEnd = Math.ceil(width * 0.95);
-            const sampleTotal = Math.max(1, sampleEnd - sampleStart);
-
-            for (let x = sampleStart; x < sampleEnd; x++) {
-              const idx = rowOffset + x * 4;
-              if (d[idx] > 175 && d[idx + 1] > 175 && d[idx + 2] > 175) {
-                lightPixels++;
-              }
-            }
-
-            const isLightBackgroundRow = (lightPixels / sampleTotal) > 0.45;
-
-            if (!isLightBackgroundRow) {
-              // Fila de fondo azul/rojo/oscuro (ej. encabezado de Banco General "¡Listo! Transferiste $15.00")
-              const isGreenBadge = new Uint8Array(width);
-              for (let x = 0; x < width; x++) {
-                const idx = rowOffset + x * 4;
-                const r = d[idx], g = d[idx + 1], b = d[idx + 2];
-                if (g - r > 22 && g - b > 10 && g > 95) {
-                  isGreenBadge[x] = 1;
-                }
-              }
-
-              for (let x = 0; x < width; x++) {
-                const idx = rowOffset + x * 4;
-                const r = d[idx], g = d[idx + 1], b = d[idx + 2];
-
-                // Borrar tanto el círculo verde como el check blanco dentro del círculo verde al lado de $15.00
-                let nearGreenLeft = false, nearGreenRight = false;
-                for (let k = Math.max(0, x - 9); k <= x; k++) {
-                  if (isGreenBadge[k]) { nearGreenLeft = true; break; }
-                }
-                for (let k = x; k <= Math.min(width - 1, x + 9); k++) {
-                  if (isGreenBadge[k]) { nearGreenRight = true; break; }
-                }
-                if (isGreenBadge[x] || (nearGreenLeft && nearGreenRight)) {
-                  d[idx] = d[idx + 1] = d[idx + 2] = 255;
-                  continue;
-                }
-
-                // En fondos de color, el texto blanco tiene R, G y B altos simultáneamente (minRGB alto)
-                const minRGB = Math.min(r, g, b);
-                let val = 255;
-                if (minRGB >= 185) {
-                  val = 0;
-                } else if (minRGB > 118) {
-                  val = Math.round(255 - ((minRGB - 118) / 67) * 255);
-                }
-                d[idx] = d[idx + 1] = d[idx + 2] = val;
-              }
-            } else {
-              // Fila de fondo blanco/claro: conservar cualquier texto oscuro o de color como letra negra sobre blanco
-              for (let x = 0; x < width; x++) {
-                const idx = rowOffset + x * 4;
-                const r = d[idx], g = d[idx + 1], b = d[idx + 2];
-                const minRGB = Math.min(r, g, b);
-                const gray = (r * 77 + g * 150 + b * 29) >> 8;
-                const ink = Math.min(minRGB, gray);
-                const val = ink < 175 ? Math.max(0, Math.round((ink - 35) * 1.15)) : 255;
-                d[idx] = d[idx + 1] = d[idx + 2] = val;
-              }
-            }
-          }
-          ctx.putImageData(imgData, 0, 0);
-        };
-
         const scanCanvas = document.createElement('canvas');
         const ctx = scanCanvas.getContext('2d');
-        const targetW = 780;
+        const targetW = 800;
         const scale = targetW / Math.max(img.width || 1, 1);
         const w = Math.max(1, Math.round(img.width * scale));
 
-        // Zoom limpio a la zona del monto superior (sin la estrella de la derecha ni la barra de hora superior)
-        const zoomSrcX = Math.round(img.width * 0.03);
-        const zoomSrcY = Math.round(img.height * 0.08);
-        const zoomSrcW = Math.round(img.width * 0.60);
-        const zoomSrcH = Math.round(img.height * 0.16);
-        const zoomH = Math.max(1, Math.round(zoomSrcH * scale * 1.35));
+        // 1. Franja superior ampliada para encabezados de color (ej. Banco General "$15.00" blanco sobre fondo azul)
+        const hdrSrcX = Math.round(img.width * 0.02);
+        const hdrSrcY = Math.round(img.height * 0.06);
+        const hdrSrcW = Math.round(img.width * 0.65);
+        const hdrSrcH = Math.round(img.height * 0.26);
+        const hdrH = Math.max(1, Math.round(hdrSrcH * scale * 1.4));
 
-        // Cuerpo general del comprobante (desde el 6% hasta el 84% de alto)
-        const bodySrcY = Math.round(img.height * 0.06);
-        const bodySrcH = Math.round(img.height * 0.78);
+        // 2. Cuerpo completo del comprobante (para Yappy, ACH y otros bancos sin perder su contraste original)
+        const bodySrcY = Math.round(img.height * 0.05);
+        const bodySrcH = Math.round(img.height * 0.80);
         const bodyH = Math.max(1, Math.round(bodySrcH * scale));
 
         scanCanvas.width = w;
-        scanCanvas.height = zoomH + bodyH + 24;
+        scanCanvas.height = hdrH + bodyH + 24;
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, scanCanvas.width, scanCanvas.height);
 
-        ctx.drawImage(img, zoomSrcX, zoomSrcY, zoomSrcW, zoomSrcH, 16, 12, Math.round(w * 0.82), zoomH);
-        ctx.drawImage(img, 0, bodySrcY, img.width, bodySrcH, 0, zoomH + 24, w, bodyH);
+        // Dibujar y procesar la franja superior (invierte fondos azules/oscuros y borra el check verde ✅)
+        const hdrDrawW = Math.round(w * 0.88);
+        ctx.drawImage(img, hdrSrcX, hdrSrcY, hdrSrcW, hdrSrcH, 12, 8, hdrDrawW, hdrH);
+        const hdrData = ctx.getImageData(12, 8, hdrDrawW, hdrH);
+        const hd = hdrData.data;
 
-        normalizeCanvasRegion(ctx, scanCanvas.width, scanCanvas.height);
+        // Detectar si el encabezado tiene fondo oscuro o azul
+        let darkOrBlueCount = 0;
+        const totalHdrPixels = hdrDrawW * hdrH;
+        const greenMask = new Uint8Array(totalHdrPixels);
+
+        for (let i = 0; i < totalHdrPixels; i++) {
+          const idx = i * 4;
+          const r = hd[idx], g = hd[idx + 1], b = hd[idx + 2];
+          if (r < 150 || (b - r > 35)) darkOrBlueCount++;
+          // Detectar círculo verde de check al lado del monto
+          if (g > 90 && (g - r) > 20 && (g - b) > 8) {
+            greenMask[i] = 1;
+          }
+        }
+
+        const isColoredHeader = (darkOrBlueCount / Math.max(1, totalHdrPixels)) > 0.35;
+
+        if (isColoredHeader) {
+          for (let y = 0; y < hdrH; y++) {
+            const rowOff = y * hdrDrawW;
+            for (let x = 0; x < hdrDrawW; x++) {
+              const pIdx = rowOff + x;
+              const idx = pIdx * 4;
+
+              // Borrar el círculo verde y el check blanco interno (radio de 10px)
+              let nearGreen = false;
+              if (greenMask[pIdx]) {
+                nearGreen = true;
+              } else {
+                for (let dy = -6; dy <= 6 && !nearGreen; dy += 2) {
+                  const ny = y + dy;
+                  if (ny < 0 || ny >= hdrH) continue;
+                  const nRow = ny * hdrDrawW;
+                  for (let dx = -10; dx <= 10; dx += 2) {
+                    const nx = x + dx;
+                    if (nx >= 0 && nx < hdrDrawW && greenMask[nRow + nx]) {
+                      nearGreen = true;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (nearGreen) {
+                hd[idx] = hd[idx + 1] = hd[idx + 2] = 255;
+                continue;
+              }
+
+              // En el encabezado azul de Banco General el canal Rojo (r) es bajo en el fondo (~35) y alto en las letras blancas (~245)
+              const r = hd[idx], g = hd[idx + 1], b = hd[idx + 2];
+              const minChannel = Math.min(r, g, b);
+              let out = 255;
+              if (minChannel > 110) {
+                out = Math.max(0, Math.min(255, Math.round(255 - (minChannel - 105) * 2.1)));
+              }
+              hd[idx] = hd[idx + 1] = hd[idx + 2] = out;
+            }
+          }
+          ctx.putImageData(hdrData, 12, 8);
+        }
+
+        // Dibujar el cuerpo completo original debajo (optimizado para Yappy claro/oscuro y cualquier banco)
+        const bodyTopY = hdrH + 20;
+        ctx.drawImage(img, 0, bodySrcY, img.width, bodySrcH, 0, bodyTopY, w, bodyH);
+        const bodyData = ctx.getImageData(0, bodyTopY, w, bodyH);
+        const bd = bodyData.data;
+
+        let bodyDarkPixels = 0;
+        const bodyTotal = w * bodyH;
+        for (let i = 0; i < bodyTotal; i += 4) {
+          const idx = i * 4;
+          const lum = (bd[idx] * 77 + bd[idx + 1] * 150 + bd[idx + 2] * 29) >> 8;
+          if (lum < 110) bodyDarkPixels++;
+        }
+        const isDarkModeBody = (bodyDarkPixels / Math.max(1, bodyTotal / 4)) > 0.55;
+
+        for (let i = 0; i < bodyTotal; i++) {
+          const idx = i * 4;
+          const r = bd[idx], g = bd[idx + 1], b = bd[idx + 2];
+          if (isDarkModeBody) {
+            const lum = (r * 77 + g * 150 + b * 29) >> 8;
+            const inv = 255 - lum;
+            bd[idx] = bd[idx + 1] = bd[idx + 2] = inv;
+          } else {
+            // Oscurecer números celestes/azules de Yappy usando el canal mínimo sin destruir el fondo blanco
+            const minC = Math.min(r, g, b);
+            const lum = (r * 77 + g * 150 + b * 29) >> 8;
+            const ink = Math.min(lum, Math.round(minC * 0.7 + lum * 0.3));
+            bd[idx] = bd[idx + 1] = bd[idx + 2] = ink;
+          }
+        }
+        ctx.putImageData(bodyData, 0, bodyTopY);
 
         if (progressBar) progressBar.style.width = '68%';
         if (progressPct) progressPct.textContent = '68%';
 
-        const fastDataUrl = scanCanvas.toDataURL('image/jpeg', 0.90);
+        const fastDataUrl = scanCanvas.toDataURL('image/png');
         const worker = await getFastOcrWorker();
         let result = null;
 
@@ -3233,17 +3323,14 @@
         const rawText = (result && result.data && result.data.text) ? result.data.text : '';
         const combinedText = rawText
           .replace(/[—–]/g, '-')
-          // Corregir cuando el OCR confunde el cero "0" con la letra "O" en decimales
-          .replace(/(\d)[Oo]/g, '$10')
-          .replace(/(\d)[Oo]/g, '$10')
-          .replace(/([.,])[Oo](\d)/g, '$10$2')
-          .replace(/([.,])(\d)[Oo]/g, '$1$20')
-          .replace(/([.,])[Oo][Oo]/g, '$100')
-          // Unir espacios alrededor del punto o coma decimal (ej. 15 . 00 -> 15.00)
-          .replace(/(\d)\s+([.,])\s*(\d{2})\b/g, '$1$2$3')
-          .replace(/(\d)([.,])\s+(\d{2})\b/g, '$1$2$3')
-          // Corregir cuando el signo "$" pegado al monto se lee como un "5" inicial (ej. $15.00 -> 515.00)
-          .replace(/(?:^|[\r\n\s])5([1-9][0-9][.,][0-9]{2})\b/g, ' $$$1');
+          // Unir espacios entre dígitos y el punto o coma decimal (ej. "15 . 00" -> "15.00")
+          .replace(/(\d)\s*([.,])\s*([0-9OoQD]{2})/g, '$1.$3')
+          // Corregir letras O/o/Q/D confundidas con ceros en montos
+          .replace(/(\d)[OoQD]/g, '$10')
+          .replace(/(\d)[OoQD]/g, '$10')
+          .replace(/\.([OoQD])([0-9OoQD])/g, '.0$2')
+          .replace(/\.([0-9])([OoQD])/g, '.$10')
+          .replace(/\.0[OoQD]/g, '.00');
 
         // 1. Buscar código estilo Yappy con guion (#JJZGL-68963133)
         const yappyHyphenRegex = /#?\b([A-Z0-9]{4,8}\s*-\s*[0-9]{5,12})\b/i;
@@ -3258,7 +3345,6 @@
           const labelMatch = combinedText.match(labelRefRegex);
           if (labelMatch && labelMatch[1]) {
             let refCandidate = labelMatch[1].trim().toUpperCase();
-            // Si el símbolo '#' fue leído como un '4' extra al inicio de 10 dígitos en Banco General (#4550731051 -> 44550731051)
             if (/^44[0-9]{9}$/.test(refCandidate)) refCandidate = refCandidate.substring(1);
             detectedRef = '#' + refCandidate;
           } else {
@@ -3292,12 +3378,16 @@
             if (parts[parts.length - 1].length === 2) s = s.replace(',', '.');
             else s = s.replace(/,/g, '');
           }
+          // Si el signo "$" al inicio fue leído como un "5" u "8" pegado a un monto típico (ej. $15.00 -> 515.00, $25.00 -> 525.00)
+          if (/^[58][1-9][0-9]\.[0-9]{2}$/.test(s)) {
+            s = s.substring(1);
+          }
           const num = parseFloat(s);
           return (!isNaN(num) && num >= 1 && num <= 10000) ? num : null;
         };
 
-        // 3A. Buscar por símbolo de moneda ($, S, B/., USD) con decimal o espacio
-        const currencyPrefixRegex = /(?:b\s*[\/\\|lI1]\s*\.?|8\s*\/\s*\.?|usd|us\$|pab|[\$S])\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]{1,4}[.,][0-9]{2}|[0-9]{1,3}\s+[0-9]{2}\b)/gi;
+        // 3A. Buscar por símbolo de moneda ($, S, B/., USD) permitiendo cualquier carácter extra del ícono check al final
+        const currencyPrefixRegex = /(?:b\s*[\/\\|lI1]\s*\.?|8\s*\/\s*\.?|usd|us\$|pab|[\$S])\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]{1,4}[.,][0-9]{2}|[0-9]{1,3}\s+[0-9]{2})/gi;
         for (const m of combinedText.matchAll(currencyPrefixRegex)) {
           const normalized = m[1].trim().replace(/\s+/, '.');
           const val = parseCleanAmount(normalized);
@@ -3307,9 +3397,9 @@
           }
         }
 
-        // 3B. Buscar después de palabras bancarias ("Transferiste", "Enviaste", "Pagaste", "Monto", "Importe", "Total", "Valor")
+        // 3B. Buscar después de palabras clave bancarias ("Transferiste", "Enviaste", "Pagaste", "Listo", "Monto", "Total", "Yappy")
         if (!detectedAmount) {
-          const bankKeywordAmountRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|valor|total|pagado|transferido|debitado|enviado|abono|cantidad)[\s\S]{0,65}?(?:b\s*[\/\\|lI1]\s*\.?|usd|us\$|[\$S])?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]{1,4}[.,][0-9]{2})/gi;
+          const bankKeywordAmountRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|valor|total|pagado|transferido|debitado|enviado|abono|cantidad|yappy)[\s\S]{0,80}?([0-9]{1,4}[.,][0-9]{2})/gi;
           for (const m of combinedText.matchAll(bankKeywordAmountRegex)) {
             const val = parseCleanAmount(m[1]);
             if (val && val >= 1) {
@@ -3319,25 +3409,29 @@
           }
         }
 
-        // 3C. Si el OCR omitió el punto decimal en un monto con ".00" (ej. "$1500" -> 15.00)
+        // 3C. Cualquier número con 2 decimales (ej. 15.00, 25.00, 50.00) aunque el check verde haya agregado un dígito extra
         if (!detectedAmount) {
-          const dotlessCentsRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|total|b\s*[\/\\|lI1]\s*\.?|usd|[\$S])\s*([1-9][0-9]{1,2})00\b/gi;
-          const dotlessMatch = dotlessCentsRegex.exec(combinedText);
-          if (dotlessMatch && dotlessMatch[1]) {
-            const val = parseFloat(dotlessMatch[1]);
-            if (val >= 1 && val <= 999) detectedAmount = val;
-          }
-        }
-
-        // 3D. Respaldo general: primer número con 2 decimales (ej. 15.00, 25.00, 50.00) en la captura
-        if (!detectedAmount) {
-          const decimalRegex = /(?:^|[^0-9])([0-9]{1,4}[.,][0-9]{2})(?:[^0-9]|$)/g;
-          for (const m of combinedText.matchAll(decimalRegex)) {
+          const anyDecimalRegex = /(?:^|[^0-9.])([0-9]{1,4}\.[0-9]{2})/g;
+          for (const m of combinedText.matchAll(anyDecimalRegex)) {
             const val = parseCleanAmount(m[1]);
             if (val && val >= 1) {
               detectedAmount = val;
               break;
             }
+          }
+        }
+
+        // 3D. Respaldo si el OCR omitió el punto decimal en un monto terminado en "00" (ej. "$1500" o "Transferiste 1500" -> 15.00)
+        if (!detectedAmount) {
+          const dotlessCentsRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|total|b\s*[\/\\|lI1]\s*\.?|usd|[\$S])[\s\S]{0,25}?\b([58]?[1-9][0-9]{1,2})00\b/gi;
+          const dotlessMatch = dotlessCentsRegex.exec(combinedText);
+          if (dotlessMatch && dotlessMatch[1]) {
+            let rawInt = dotlessMatch[1];
+            if (rawInt.length === 3 && (rawInt.startsWith('5') || rawInt.startsWith('8'))) {
+              rawInt = rawInt.substring(1);
+            }
+            const val = parseFloat(rawInt);
+            if (val >= 1 && val <= 999) detectedAmount = val;
           }
         }
 
@@ -3679,7 +3773,7 @@
     function renderDashboardPaymentsCard() {
       const container = document.getElementById('dashboard-payments-container');
       const badge = document.getElementById('pending-payments-badge');
-      const allPayments = normalizeCloudList(appState.payments);
+      const allPayments = sortPaymentsNewestFirst(appState.payments);
       const pending = allPayments.filter(p => !p.status || p.status === 'Pendiente');
 
       badge.textContent = `${pending.length} Pendientes`;
@@ -3959,7 +4053,7 @@
     function renderPaymentsHistoryTable(paymentsList) {
       const tbody = document.getElementById('tbody-admin-payments-history');
       if (!tbody) return;
-      const list = normalizeCloudList(paymentsList);
+      const list = sortPaymentsNewestFirst(paymentsList);
       if (list.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-slate-400">No hay pagos en el historial.</td></tr>`;
         return;
@@ -4655,7 +4749,7 @@
 
       // Historial de pagos del chofer
       const historyList = document.getElementById('driver-history-list');
-      const myPayments = normalizeCloudList(appState.payments).filter(p => p.driverId === driver.id).slice(0, 8);
+      const myPayments = sortPaymentsNewestFirst(appState.payments).filter(p => p.driverId === driver.id).slice(0, 8);
       if (myPayments.length === 0) {
         historyList.innerHTML = `<p class="text-slate-400 py-3 text-center">Aún no tienes pagos registrados.</p>`;
       } else {
@@ -4797,23 +4891,24 @@
       const uploaderId = currentSession.driverId;
 
       try {
-        const compressed = await compressImageFile(file, 1000, 1600, 0.82);
+        const ocrHighRes = await compressImageFile(file, 1000, 1600, 0.82);
+        const lightStorageImg = await compressImageFile(file, 650, 1000, 0.60);
         if (currentSession.driverId !== uploaderId) return;
         tempCompressedReceipt = {
-          base64: compressed,
-          fingerprint: generateImageFingerprint(compressed),
+          base64: lightStorageImg,
+          fingerprint: generateImageFingerprint(ocrHighRes),
           driverId: uploaderId
         };
 
         document.getElementById('driver-input-amount').value = '';
-        document.getElementById('receipt-preview-image').src = compressed;
+        document.getElementById('receipt-preview-image').src = lightStorageImg;
         document.getElementById('receipt-preview-container').classList.remove('hidden');
         document.getElementById('receipt-prompt-container').classList.add('hidden');
         const scanBanner = document.getElementById('ocr-scan-result-banner');
         if (scanBanner) { scanBanner.classList.add('hidden'); scanBanner.innerHTML = ''; }
         lucide.createIcons();
 
-        const ocrResult = await processReceiptWithAI(compressed);
+        const ocrResult = await processReceiptWithAI(ocrHighRes);
         if (currentSession.driverId !== uploaderId) return;
 
         if (ocrResult.detectedAmount) {
@@ -4914,6 +5009,8 @@
 
       const newPayment = {
         id: 'PAY-' + Math.floor(10000 + Math.random() * 90000),
+        createdAt: Date.now(),
+        justReportedLocally: true,
         driverId: driver.id,
         driverName: driver.name,
         amount: amount,
@@ -4929,7 +5026,8 @@
 
       if (!Array.isArray(appState.payments)) appState.payments = [];
       appState.payments.unshift(newPayment);
-      saveStateAndBroadcast();
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
+      saveStateAndBroadcast(true);
 
       // Enviar alerta inmediata + foto del comprobante al Bot de Telegram
       const tgCaption = `💵 <b>NUEVO PAGO REPORTADO (${brandingConfig.companyName})</b>\n\n` +
@@ -6486,6 +6584,8 @@
 
       appState.payments.unshift({
         id: 'MAN-' + Math.floor(1000 + Math.random() * 9000),
+        createdAt: Date.now(),
+        justReportedLocally: true,
         driverId: drvId,
         amount,
         date,
@@ -6496,8 +6596,9 @@
         fingerprint: 'man_' + Date.now(),
         reportedKm: car ? car.km : 0
       });
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
 
-      saveStateAndBroadcast();
+      saveStateAndBroadcast(true);
       closeModal('modal-manual-payment');
       renderAdminView();
       showToast('Cobro manual registrado', 'success');
@@ -6724,7 +6825,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       applyBrandingUI();
       populateSettingsForms();
-      setupFirebaseCloudSync();
+      initFirebase();
       updateSelects();
       checkUrlParameters();
       if (!currentSession.role) showView('auth');
