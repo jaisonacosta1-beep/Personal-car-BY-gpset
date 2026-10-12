@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" id="pwa-manifest-link" href="">
   <title>Sistema de Control de Flota y Alquiler</title>
   
   <!-- Tailwind CSS CDN -->
@@ -137,6 +141,12 @@
 
         <!-- Controles de Modo Oscuro, Temas y Sesión -->
         <div class="flex items-center space-x-2 sm:space-x-3">
+          <!-- Botón Instalar como App (PWA) -->
+          <button id="btn-install-pwa" onclick="triggerPWAInstall()" class="hidden px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-black items-center space-x-1 transition shadow-2xs" title="Instalar como Aplicación en el Celular">
+            <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">Instalar App</span>
+          </button>
+
           <!-- Toggle Modo Oscuro -->
           <button id="btn-theme-toggle" class="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition" title="Alternar Modo Oscuro / Claro">
             <i data-lucide="moon" id="theme-toggle-icon" class="w-4 h-4"></i>
@@ -367,6 +377,26 @@
           <div id="dashboard-traffic-light-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
         </div>
 
+        <!-- MEJORA 1: Resumen en Dashboard de Liquidación Pendiente a Socios desde la última liquidación -->
+        <div class="bg-white rounded-3xl border border-purple-200 p-4 sm:p-5 shadow-xs space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div class="flex items-center space-x-2">
+              <div class="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+                <i data-lucide="briefcase" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-black text-slate-900">Liquidación Pendiente a Socios (Desde el Último Pago)</h3>
+                <p class="text-[11px] text-slate-400">Calcula automáticamente: Cobrado de sus autos − Gastos − Pagos ya entregados al socio.</p>
+              </div>
+            </div>
+            <button onclick="openPartnerPayoutModal()" class="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs self-start sm:self-auto">
+              <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+              <span>Registrar Pago a Socio</span>
+            </button>
+          </div>
+          <div id="dashboard-partner-settlement-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+        </div>
+
         <!-- Bandeja de Pagos Reportados y Alertas -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-7 bg-white rounded-3xl border-2 border-indigo-200 p-4 sm:p-5 shadow-xs space-y-4">
@@ -571,16 +601,48 @@
       <section id="panel-tab-partners" class="admin-subpanel hidden space-y-6">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
-            <h3 class="text-lg font-black text-slate-900">Directorio de Socios & Dueños de Autos</h3>
-            <p class="text-xs text-slate-500">Asigna vehículos a cada socio para conocer su rendimiento financiero exacto.</p>
+            <h3 class="text-lg font-black text-slate-900">Directorio de Socios & Liquidaciones</h3>
+            <p class="text-xs text-slate-500">Envía liquidaciones en 1 clic por WhatsApp y lleva el historial de pagos con capturas o efectivo entregado.</p>
           </div>
-          <button onclick="openCreatePartnerModal()" class="px-4 py-2.5 rounded-2xl custom-primary-bg text-white font-bold text-xs flex items-center space-x-2 shadow-sm">
-            <i data-lucide="user-plus" class="w-4 h-4"></i>
-            <span>Nuevo Socio</span>
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="openPartnerPayoutModal()" class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center space-x-2 shadow-sm">
+              <i data-lucide="receipt" class="w-4 h-4"></i>
+              <span>Registrar Pago a Socio (Con Captura)</span>
+            </button>
+            <button onclick="openCreatePartnerModal()" class="px-4 py-2.5 rounded-2xl custom-primary-bg text-white font-bold text-xs flex items-center space-x-2 shadow-sm">
+              <i data-lucide="user-plus" class="w-4 h-4"></i>
+              <span>Nuevo Socio</span>
+            </button>
+          </div>
         </div>
 
         <div id="partners-cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+
+        <!-- Historial de Pagos Realizados a Socios con Capturas de Pantalla / Efectivo -->
+        <div class="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+          <div class="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h4 class="text-xs font-black text-slate-800 uppercase tracking-wider">🧾 Historial de Pagos Entregados a Socios (Evidencia Anti-Confusiones)</h4>
+              <p class="text-[11px] text-slate-400">Respaldo con fecha, monto y foto de captura o efectivo entregado a cada socio.</p>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Fecha</th>
+                  <th class="p-3">Socio</th>
+                  <th class="p-3">Vehículos</th>
+                  <th class="p-3">Método / Ref</th>
+                  <th class="p-3">Monto Entregado</th>
+                  <th class="p-3">Comprobante / Foto</th>
+                  <th class="p-3 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-partner-payouts-history" class="divide-y divide-slate-100 font-medium"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- PESTAÑA 7: AUTOS ENTREGADOS & ACTAS -->
@@ -1122,6 +1184,21 @@
         </div>
       </div>
 
+      <!-- MEJORA 3: RECORDATORIO PREVENTIVO A LAS 10:00 PM PARA CONDUCTORES -->
+      <div id="driver-10pm-reminder-banner" class="hidden p-4 rounded-3xl border-2 border-amber-300 bg-amber-50/90 text-amber-950 shadow-sm">
+        <div class="flex items-start space-x-3">
+          <div class="w-9 h-9 rounded-2xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 font-black">
+            ⏰
+          </div>
+          <div class="flex-1">
+            <span class="text-[10px] font-black uppercase tracking-wider text-amber-800 block">Recordatorio Preventivo de Cierre (10:00 PM - 12:30 AM)</span>
+            <p class="text-xs sm:text-sm font-bold mt-0.5 leading-relaxed">
+              Faltan 2 horas para el cierre de cuota de hoy (12:30 AM). Reporta tu comprobante para mantener tu cuenta al día.
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- BANNER CRÍTICO: CRONÓMETRO DE 12 HORAS O INMOVILIZACIÓN -->
       <div id="driver-immobilization-banner" class="hidden p-4 rounded-3xl border-2 shadow-lg transition-all">
         <div class="flex items-start space-x-3">
@@ -1135,6 +1212,23 @@
               <span class="text-xs font-bold uppercase">Tiempo Restante:</span>
               <span class="font-mono text-base font-black px-3 py-1 rounded-xl bg-black/20" id="driver-immob-countdown">12:00:00</span>
             </div>
+          </div>
+        </div>
+
+        <!-- MEJORA 4: PANTALLA DE BLOQUEO POR GRACIA VENCIDA (MODO INMOVILIZACIÓN ESTRICTO) -->
+        <div id="driver-strict-lock-actions" class="hidden mt-4 pt-4 border-t border-white/25 space-y-2.5">
+          <p class="text-xs font-black uppercase tracking-wide text-white/95">
+            🔒 Portal bloqueado por mora vencida. Regulariza tu pago de inmediato para habilitar todas las secciones:
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button type="button" onclick="handleStrictLockYappyAction()" class="w-full py-3 px-4 rounded-2xl bg-white text-rose-700 hover:bg-rose-50 font-black text-xs sm:text-sm shadow-lg flex items-center justify-center space-x-2">
+              <i data-lucide="smartphone" class="w-4 h-4"></i>
+              <span>📲 Pagar por Yappy ahora</span>
+            </button>
+            <button type="button" onclick="handleStrictLockCallAdmin()" class="w-full py-3 px-4 rounded-2xl bg-slate-900 hover:bg-black text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center space-x-2">
+              <i data-lucide="phone-call" class="w-4 h-4"></i>
+              <span>📞 Llamar al Administrador</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1971,7 +2065,7 @@
     </div>
   </div>
 
-  <!-- MODAL: REGISTRAR / EDITAR SOCIO -->
+      <!-- MODAL: REGISTRAR / EDITAR SOCIO -->
   <div id="modal-add-partner" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
       <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
@@ -2008,6 +2102,66 @@
             <button type="button" onclick="closeModal('modal-add-partner')" class="px-4 py-2 text-xs font-bold text-slate-600">Cancelar</button>
             <button type="submit" class="px-5 py-2 rounded-xl custom-primary-bg text-white font-bold text-xs shadow-md">Guardar Socio</button>
           </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL MEJORA 1: REGISTRAR PAGO / LIQUIDACIÓN A SOCIO CON CAPTURA O EFECTIVO -->
+  <div id="modal-partner-payout" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto no-scrollbar">
+      <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+        <h3 class="font-black text-slate-900 text-base flex items-center">
+          <i data-lucide="check-circle-2" class="w-5 h-5 mr-2 text-emerald-600"></i> Registrar Pago Entregado a Socio
+        </h3>
+        <button onclick="closeModal('modal-partner-payout')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <form id="form-submit-partner-payout" class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Seleccionar Socio</label>
+          <select id="payout-partner-select" required onchange="updatePartnerPayoutSuggestedAmount()" class="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-white"></select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Monto Entregado ($)</label>
+            <input type="number" id="payout-amount" step="0.01" required placeholder="0.00" class="w-full text-sm font-black p-2.5 rounded-xl border border-slate-300">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Fecha de Entrega</label>
+            <input type="date" id="payout-date" required class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Método de Entrega</label>
+            <select id="payout-method" class="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-white">
+              <option value="Yappy">Yappy</option>
+              <option value="ACH / Transferencia">ACH / Transferencia</option>
+              <option value="Efectivo Entregado">💵 Efectivo Entregado</option>
+              <option value="Cheque / Depósito">Cheque / Depósito</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Referencia / Nota</label>
+            <input type="text" id="payout-notes" placeholder="Ej. Liquidación semanal" class="w-full text-xs p-2.5 rounded-xl border border-slate-300">
+          </div>
+        </div>
+
+        <div class="p-3.5 bg-slate-50 rounded-2xl border-2 border-dashed border-emerald-200 text-center space-y-2">
+          <input type="file" id="payout-photo-input" accept="image/*" class="hidden">
+          <img id="payout-photo-preview" src="" alt="Comprobante Socio" class="hidden max-h-40 mx-auto rounded-xl border border-slate-300 object-contain">
+          <button type="button" onclick="document.getElementById('payout-photo-input').click()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs">
+            📷 Subir Captura o Foto del Efectivo Entregado
+          </button>
+          <p class="text-[10px] text-slate-400">Guarda la evidencia visual para evitar cualquier confusión futura.</p>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-100">
+          <button type="button" onclick="closeModal('modal-partner-payout')" class="px-4 py-2 text-xs font-bold text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md">Guardar Pago al Socio</button>
         </div>
       </form>
     </div>
@@ -2329,6 +2483,7 @@
       ],
       expenses: [],
       payments: [],
+      partnerPayouts: [],
       inspections: [],
       faultReports: [],
       emergencyContacts: [
@@ -2346,6 +2501,7 @@
         if (parsed.cars) appState = parsed;
         if (!appState.accessLogs) appState.accessLogs = [];
         if (!appState.faultReports) appState.faultReports = [];
+        if (!appState.partnerPayouts) appState.partnerPayouts = [];
         if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
         if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
       } catch(e){}
@@ -2686,6 +2842,7 @@
             drivers: normalizeCloudList(cloudData.drivers),
             expenses: normalizeCloudList(cloudData.expenses),
             payments: mergedPayments,
+            partnerPayouts: normalizeCloudList(cloudData.partnerPayouts),
             inspections: normalizeCloudList(cloudData.inspections),
             faultReports: normalizeCloudList(cloudData.faultReports),
             emergencyContacts: normalizeCloudList(cloudData.emergencyContacts).length ? normalizeCloudList(cloudData.emergencyContacts) : appState.emergencyContacts,
@@ -3784,6 +3941,7 @@
       document.getElementById('stat-active-cars').textContent = `${activeCars} / ${filteredCars.length}`;
 
       renderDashboardTrafficLight();
+      renderDashboardPartnerSettlements();
       renderDashboardPaymentsCard();
       renderDashboardMaintenanceAlerts();
       renderDashboardRecentExpenses(filteredExpenses);
@@ -4095,13 +4253,16 @@
       appState.cars.forEach(car => {
         const nextOilKm = (Number(car.oilLastKm) || 0) + (Number(car.oilInterval) || 5000);
         const remainingKm = nextOilKm - (Number(car.km) || 0);
+        const oilDaysEst = estimateOilChangeDays(car);
         if (remainingKm <= 500) {
           alerts.push({
             level: remainingKm <= 100 ? 'danger' : 'warning',
             isOilAlert: true,
             carId: car.id,
             title: `Cambio de Aceite: ${car.model} (${car.plate})`,
-            desc: remainingKm <= 0 ? `Vencido por ${Math.abs(remainingKm).toLocaleString()} Km` : `Faltan ${remainingKm.toLocaleString()} Km (Meta: ${nextOilKm.toLocaleString()} Km)`
+            desc: remainingKm <= 0
+              ? `Vencido por ${Math.abs(remainingKm).toLocaleString()} Km (Requiere cambio inmediato)`
+              : `Faltan ${remainingKm.toLocaleString()} Km · Cambio requerido en aprox. ${oilDaysEst.days} día(s) (~${oilDaysEst.dailyKm} Km/día)`
           });
         }
 
@@ -4242,6 +4403,7 @@
         const driver = appState.drivers.find(d => d.id === car.driverId);
         const partner = appState.partners.find(p => p.id === car.partnerId);
         const nextOil = (Number(car.oilLastKm) || 0) + (Number(car.oilInterval) || 5000);
+        const oilEst = estimateOilChangeDays(car);
         return `
           <div class="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4">
             <div class="space-y-2">
@@ -4264,6 +4426,7 @@
                 <div class="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200/70">
                   <span class="text-[10px] text-amber-800 block font-bold uppercase">Próx. Aceite</span>
                   <span class="font-black text-amber-900">${nextOil.toLocaleString()} Km</span>
+                  <span class="block text-[10px] font-extrabold text-amber-700 mt-0.5">${oilEst.label}</span>
                 </div>
               </div>
             </div>
@@ -4694,23 +4857,43 @@
     function renderPartnersSection() {
       const container = document.getElementById('partners-cards-container');
       if (!container) return;
+      renderPartnerPayoutsHistory();
       if (appState.partners.length === 0) {
         container.innerHTML = `<p class="text-xs text-slate-400 col-span-full text-center py-6">No hay socios registrados.</p>`;
         return;
       }
       container.innerHTML = appState.partners.map(p => {
         const carsCount = appState.cars.filter(c => c.partnerId === p.id).length;
+        const settlement = calculatePartnerSettlement(p.id);
         return `
           <div class="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-3">
-            <div>
+            <div class="space-y-2">
               <div class="flex justify-between items-start">
                 <h4 class="font-black text-slate-900 text-base">${p.name}</h4>
                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-50 text-purple-700 border border-purple-200">${p.share || 100}%</span>
               </div>
-              <p class="text-xs text-slate-500 mt-1">${p.phone || 'Sin teléfono'} · <strong>${carsCount} auto(s)</strong></p>
-              <p class="text-[11px] text-slate-400 mt-1">${p.notes || ''}</p>
+              <p class="text-xs text-slate-500">${p.phone || 'Sin teléfono'} · <strong>${carsCount} auto(s)</strong> (${settlement.platesLabel})</p>
+              <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1 text-xs">
+                <div class="flex justify-between"><span>Cobrado Total:</span><strong class="text-emerald-600">$${settlement.collected.toFixed(2)}</strong></div>
+                <div class="flex justify-between"><span>Gastos Taller:</span><strong class="text-rose-600">-$${settlement.expenses.toFixed(2)}</strong></div>
+                <div class="flex justify-between"><span>Ya Entregado al Socio:</span><strong class="text-indigo-600">-$${settlement.alreadyPaid.toFixed(2)}</strong></div>
+                <div class="flex justify-between pt-1 border-t border-slate-200 text-sm font-black">
+                  <span>Pendiente a Dar Hoy:</span>
+                  <span class="${settlement.pendingToPay > 0 ? 'text-amber-600' : 'text-emerald-600'}">$${settlement.pendingToPay.toFixed(2)}</span>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-400">${p.notes || ''}</p>
             </div>
-            <button onclick="openEditPartnerModal('${p.id}')" class="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">Editar Socio</button>
+            <div class="space-y-2 pt-2 border-t border-slate-100">
+              <button onclick="sendPartnerWeeklySettlementWhatsApp('${p.id}')" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center space-x-1.5 shadow-xs">
+                <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                <span>📲 Enviar Liquidación Semanal</span>
+              </button>
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="openPartnerPayoutModal('${p.id}')" class="py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-bold text-xs">Registrar Pago</button>
+                <button onclick="openEditPartnerModal('${p.id}')" class="py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">Editar Socio</button>
+              </div>
+            </div>
           </div>
         `;
       }).join('');
@@ -4969,8 +5152,20 @@
       if (!banner || currentSession.role !== 'driver') return;
       const driver = appState.drivers.find(d => d.id === currentSession.driverId);
 
+      // MEJORA 3: Recordatorio preventivo entre 10:00 PM y 12:29 AM (hora de Panamá)
+      const reminder10pm = document.getElementById('driver-10pm-reminder-banner');
+      if (reminder10pm && driver && !driver.billingPaused) {
+        const { hour, minute } = getPanamaDateParts();
+        const isPreventiveWindow = (hour === 22 || hour === 23 || (hour === 0 && minute < 30));
+        const hasPendingCurrentQuota = (Number(driver.balance) || 0) > 0;
+        reminder10pm.classList.toggle('hidden', !(isPreventiveWindow && hasPendingCurrentQuota));
+      } else if (reminder10pm) {
+        reminder10pm.classList.add('hidden');
+      }
+
       if (!driver || driver.billingPaused) {
         banner.classList.add('hidden');
+        toggleStrictImmobilizationLockUI(false);
         return;
       }
 
@@ -4982,6 +5177,7 @@
 
       // Si NO debe nada del día anterior (overdueBalance === 0), está AL DÍA (el día corriente tiene plazo hasta las 12:30 AM)
       if (info.overdueBalance <= 0) {
+        toggleStrictImmobilizationLockUI(false);
         if (info.totalBalance > 0) {
           banner.classList.remove('hidden');
           banner.className = 'p-4 rounded-3xl border-2 border-emerald-300 bg-emerald-50 text-emerald-950 shadow-sm transition-all';
@@ -5003,6 +5199,7 @@
 
       // Está en el periodo de gracia de 12 horas (desde las 12:30 AM hasta las 12:30 PM) por la cuota del día anterior
       if (info.overdueDays <= 1.05 && now < graceDeadline) {
+        toggleStrictImmobilizationLockUI(false);
         const diffSec = Math.max(0, Math.floor((graceDeadline - now) / 1000));
         const hrs = String(Math.floor(diffSec / 3600)).padStart(2, '0');
         const mins = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
@@ -5014,7 +5211,8 @@
         descEl.textContent = `Atención: Tienes pendiente el pago del día anterior por la suma de ${amountInWords.toUpperCase()} ($${info.overdueBalance.toFixed(2)}). Realiza tu pago antes de que finalice el periodo de gracia para que tu cuenta quede al día.`;
         countEl.textContent = `${hrs}:${mins}:${secs} (Tiempo de gracia restante)`;
       } else {
-        // Si venció el plazo de gracia de 12 horas o acumula más de 1 día anterior sin pagar
+        // Si venció el plazo de gracia de 12 horas o acumula más de 1 día anterior sin pagar -> Activa Modo Inmovilización Estricto
+        toggleStrictImmobilizationLockUI(true);
         const refDeadline = now >= graceDeadline ? graceDeadline : graceStart;
         const extraDaysMs = Math.max(0, Math.floor(info.overdueDays - 1)) * 86400000;
         const overtimeSec = Math.max(0, Math.floor(((now - refDeadline) + extraDaysMs) / 1000));
@@ -7031,6 +7229,319 @@
     function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
     function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
+    // =========================================================================
+    // NUEVAS 5 MEJORAS MODULARES (SOCIOS + ACEITE EN DÍAS + 10PM + BLOQUEO + PWA)
+    // =========================================================================
+
+    // MEJORA 1: CÁLCULO DE LIQUIDACIÓN A SOCIOS, WHATSAPP 1-CLIC E HISTORIAL CON CAPTURAS
+    let tempPartnerPayoutPhoto = '';
+
+    function calculatePartnerSettlement(partnerId) {
+      const partner = (appState.partners || []).find(p => p.id === partnerId);
+      const shareRatio = partner ? ((Number(partner.share) || 100) / 100) : 1;
+      const partnerCars = (appState.cars || []).filter(c => c.partnerId === partnerId);
+      const carIds = partnerCars.map(c => c.id);
+      const driverIds = partnerCars.map(c => c.driverId).filter(Boolean);
+      const platesLabel = partnerCars.length > 0 ? partnerCars.map(c => c.plate).join(', ') : 'Sin autos';
+
+      const collected = (appState.payments || [])
+        .filter(p => p.status === 'Aprobado' && driverIds.includes(p.driverId))
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const expenses = (appState.expenses || [])
+        .filter(e => carIds.includes(e.carId))
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      const netTotal = (collected - expenses) * shareRatio;
+
+      const payouts = (appState.partnerPayouts || []).filter(po => po.partnerId === partnerId);
+      const alreadyPaid = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
+      const lastPayoutDate = payouts.length > 0 ? payouts[0].date : 'Sin liquidación previa';
+      const pendingToPay = Number(Math.max(0, netTotal - alreadyPaid).toFixed(2));
+
+      return {
+        collected: Number(collected.toFixed(2)),
+        expenses: Number(expenses.toFixed(2)),
+        netTotal: Number(netTotal.toFixed(2)),
+        alreadyPaid: Number(alreadyPaid.toFixed(2)),
+        pendingToPay,
+        lastPayoutDate,
+        platesLabel
+      };
+    }
+
+    function renderDashboardPartnerSettlements() {
+      const grid = document.getElementById('dashboard-partner-settlement-grid');
+      if (!grid) return;
+      const partners = appState.partners || [];
+      if (partners.length === 0) {
+        grid.innerHTML = `<p class="text-xs text-slate-400 col-span-full text-center py-2">No hay socios registrados.</p>`;
+        return;
+      }
+
+      grid.innerHTML = partners.map(p => {
+        const s = calculatePartnerSettlement(p.id);
+        return `
+          <div class="p-3.5 rounded-2xl border-2 ${s.pendingToPay > 0 ? 'border-purple-300 bg-purple-50/40' : 'border-emerald-200 bg-emerald-50/40'} flex flex-col justify-between gap-2">
+            <div>
+              <div class="flex items-center justify-between">
+                <h4 class="text-xs font-black text-slate-900 truncate">${p.name}</h4>
+                <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-white border border-purple-200 text-purple-700">${p.share || 100}%</span>
+              </div>
+              <p class="text-[10px] text-slate-500 mt-0.5">🚗 Autos: <strong>${s.platesLabel}</strong> · Últ. pago: ${s.lastPayoutDate}</p>
+              <div class="mt-2 flex items-baseline justify-between">
+                <span class="text-[11px] font-bold text-slate-600">Por Entregar Hoy:</span>
+                <span class="text-base font-black ${s.pendingToPay > 0 ? 'text-purple-700' : 'text-emerald-600'}">$${s.pendingToPay.toFixed(2)}</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 pt-2 border-t border-slate-200/60">
+              <button onclick="sendPartnerWeeklySettlementWhatsApp('${p.id}')" class="flex-1 py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center justify-center space-x-1">
+                <span>📲 WhatsApp</span>
+              </button>
+              <button onclick="openPartnerPayoutModal('${p.id}')" class="flex-1 py-1.5 px-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold">
+                💸 Pagar / Foto
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function sendPartnerWeeklySettlementWhatsApp(partnerId) {
+      const p = (appState.partners || []).find(x => x.id === partnerId);
+      if (!p) return;
+      const s = calculatePartnerSettlement(partnerId);
+      const cleanPhone = (p.phone || '').replace(/[^0-9]/g, '');
+      const msg = `Hola ${p.name}, tu resumen de esta semana para el auto [${s.platesLabel}]: Cobrado: $${s.collected.toFixed(2)} | Gastos: $${s.expenses.toFixed(2)} | Pagos previos entregados: $${s.alreadyPaid.toFixed(2)} | Ganancia Neta a transferir hoy: $${s.pendingToPay.toFixed(2)}.`;
+      const waUrl = cleanPhone
+        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`
+        : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+      window.open(waUrl, '_blank');
+    }
+
+    function updatePartnerPayoutSuggestedAmount() {
+      const sel = document.getElementById('payout-partner-select');
+      const amtInput = document.getElementById('payout-amount');
+      if (!sel || !amtInput || !sel.value) return;
+      const s = calculatePartnerSettlement(sel.value);
+      amtInput.value = s.pendingToPay > 0 ? s.pendingToPay.toFixed(2) : '';
+    }
+
+    function openPartnerPayoutModal(partnerId = '') {
+      const sel = document.getElementById('payout-partner-select');
+      if (sel) {
+        sel.innerHTML = (appState.partners || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        if (partnerId) sel.value = partnerId;
+      }
+      tempPartnerPayoutPhoto = '';
+      const prev = document.getElementById('payout-photo-preview');
+      if (prev) { prev.src = ''; prev.classList.add('hidden'); }
+      const dateInput = document.getElementById('payout-date');
+      if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+      const notesInput = document.getElementById('payout-notes');
+      if (notesInput) notesInput.value = '';
+      updatePartnerPayoutSuggestedAmount();
+      openModal('modal-partner-payout');
+    }
+
+    const payoutPhotoInput = document.getElementById('payout-photo-input');
+    if (payoutPhotoInput) {
+      payoutPhotoInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          tempPartnerPayoutPhoto = await compressImageFile(file, 750, 1000, 0.65);
+          const prev = document.getElementById('payout-photo-preview');
+          if (prev) {
+            prev.src = tempPartnerPayoutPhoto;
+            prev.classList.remove('hidden');
+          }
+          showToast('✓ Captura de pago al socio adjuntada', 'success');
+        } catch (err) {}
+      });
+    }
+
+    const formPartnerPayout = document.getElementById('form-submit-partner-payout');
+    if (formPartnerPayout) {
+      formPartnerPayout.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const partnerId = document.getElementById('payout-partner-select').value;
+        const partner = (appState.partners || []).find(p => p.id === partnerId);
+        if (!partner) return;
+        const s = calculatePartnerSettlement(partnerId);
+        const amount = parseFloat(document.getElementById('payout-amount').value) || 0;
+        const date = document.getElementById('payout-date').value || new Date().toISOString().split('T')[0];
+        const method = document.getElementById('payout-method').value;
+        const notes = document.getElementById('payout-notes').value.trim() || 'Liquidación entregada';
+
+        if (!Array.isArray(appState.partnerPayouts)) appState.partnerPayouts = [];
+        appState.partnerPayouts.unshift({
+          id: 'PO-' + Date.now(),
+          partnerId: partner.id,
+          partnerName: partner.name,
+          plates: s.platesLabel,
+          amount,
+          date,
+          method,
+          notes,
+          receiptPhoto: tempPartnerPayoutPhoto || ''
+        });
+
+        saveStateAndBroadcast();
+        closeModal('modal-partner-payout');
+        renderAdminView();
+        showToast(`✓ Pago de $${amount.toFixed(2)} registrado a ${partner.name}`, 'success');
+      });
+    }
+
+    function renderPartnerPayoutsHistory() {
+      const tbody = document.getElementById('tbody-partner-payouts-history');
+      if (!tbody) return;
+      const list = appState.partnerPayouts || [];
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-400">Aún no hay pagos registrados a socios.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(po => `
+        <tr class="hover:bg-slate-50">
+          <td class="p-3 font-mono text-slate-500">${po.date}</td>
+          <td class="p-3 font-black text-slate-900">${po.partnerName}</td>
+          <td class="p-3 text-indigo-700 font-bold">${po.plates || '-'}</td>
+          <td class="p-3"><span class="font-bold text-slate-700">${po.method}</span><br><span class="text-[10px] text-slate-400">${po.notes || ''}</span></td>
+          <td class="p-3 font-black text-emerald-600">$${Number(po.amount || 0).toFixed(2)}</td>
+          <td class="p-3">
+            ${po.receiptPhoto ? `
+              <button onclick="openDirectPhotoViewer('${po.receiptPhoto}', 'Comprobante Entregado a ${po.partnerName} ($${Number(po.amount).toFixed(2)})')" class="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[11px]">
+                📷 Ver Captura / Foto
+              </button>
+            ` : `<span class="text-[10px] text-slate-400">Sin captura</span>`}
+          </td>
+          <td class="p-3 text-right">
+            <button onclick="deletePartnerPayout('${po.id}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 font-bold text-xs">Borrar</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function deletePartnerPayout(payoutId) {
+      appState.partnerPayouts = (appState.partnerPayouts || []).filter(po => po.id !== payoutId);
+      saveStateAndBroadcast();
+      renderAdminView();
+      showToast('Registro de pago a socio eliminado', 'info');
+    }
+
+    // MEJORA 2: PROYECCIÓN PREDICTIVA DE CAMBIO DE ACEITE EN DÍAS RESTANTES
+    function estimateOilChangeDays(car) {
+      if (!car) return { days: 0, dailyKm: 120, label: 'N/A' };
+      const nextOilKm = (Number(car.oilLastKm) || 0) + (Number(car.oilInterval) || 5000);
+      const remainingKm = nextOilKm - (Number(car.km) || 0);
+      if (remainingKm <= 0) {
+        return { days: 0, dailyKm: 120, label: '⚠️ Cambio requerido hoy' };
+      }
+
+      let dailyKm = 120; // Promedio diario estándar en alquiler si aún no hay historial suficiente
+      const carDriverPayments = (appState.payments || [])
+        .filter(p => p.driverId === car.driverId && Number(p.reportedKm) > 0 && p.date)
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      if (carDriverPayments.length >= 2) {
+        const first = carDriverPayments[0];
+        const last = carDriverPayments[carDriverPayments.length - 1];
+        const kmDiff = Number(last.reportedKm) - Number(first.reportedKm);
+        const daysDiff = Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / 86400000));
+        if (kmDiff > 20) {
+          dailyKm = Math.max(40, Math.min(450, Math.round(kmDiff / daysDiff)));
+        }
+      }
+
+      const estDays = Math.max(1, Math.ceil(remainingKm / dailyKm));
+      return {
+        days: estDays,
+        dailyKm,
+        label: `⏳ En aprox. ${estDays} día(s)`
+      };
+    }
+
+    // MEJORA 4: MODO INMOVILIZACIÓN ESTRICTO POR GRACIA VENCIDA (OCULTA SECCIONES SECUNDARIAS)
+    function toggleStrictImmobilizationLockUI(isLocked) {
+      const lockActions = document.getElementById('driver-strict-lock-actions');
+      if (lockActions) lockActions.classList.toggle('hidden', !isLocked);
+
+      const inspCard = document.getElementById('driver-inspection-card-container');
+      if (inspCard) inspCard.classList.toggle('hidden', !!isLocked);
+
+      const rtoCard = document.getElementById('driver-rto-card');
+      if (rtoCard) {
+        if (isLocked) {
+          rtoCard.classList.add('hidden');
+        } else {
+          const drv = appState.drivers.find(d => d.id === currentSession.driverId);
+          if (drv && drv.isRentToOwn) rtoCard.classList.remove('hidden');
+        }
+      }
+    }
+
+    function handleStrictLockYappyAction() {
+      copyDriverPaymentInfo('yappy');
+      const formEl = document.getElementById('form-driver-submit-payment');
+      if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function handleStrictLockCallAdmin() {
+      const rawPhone = (adminCredentials && adminCredentials.whatsapp) ? adminCredentials.whatsapp : '+50760000000';
+      const cleanPhone = rawPhone.replace(/[^0-9+]/g, '');
+      window.location.href = `tel:${cleanPhone}`;
+    }
+
+    // MEJORA 5: BOTÓN DE INSTALAR COMO APP (PWA / ACCESO DIRECTO MÓVIL)
+    let deferredPWAPrompt = null;
+
+    function initPWAInstallSupport() {
+      try {
+        const manifestObj = {
+          name: brandingConfig.companyName || 'AutoRent Pro',
+          short_name: brandingConfig.companyName || 'AutoRent',
+          start_url: window.location.href,
+          display: 'standalone',
+          background_color: '#0f172a',
+          theme_color: brandingConfig.primaryColor || '#4f46e5',
+          icons: [
+            {
+              src: brandingConfig.logoBase64 || 'https://placehold.co/192x192/4f46e5/ffffff.png?text=AR',
+              sizes: '192x192',
+              type: 'image/png'
+            }
+          ]
+        };
+        const blob = new Blob([JSON.stringify(manifestObj)], { type: 'application/json' });
+        const manifestUrl = URL.createObjectURL(blob);
+        const linkEl = document.getElementById('pwa-manifest-link');
+        if (linkEl) linkEl.setAttribute('href', manifestUrl);
+      } catch (e) {}
+
+      const installBtn = document.getElementById('btn-install-pwa');
+      if (installBtn) {
+        installBtn.classList.remove('hidden');
+        installBtn.classList.add('inline-flex');
+      }
+
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPWAPrompt = e;
+      });
+    }
+
+    async function triggerPWAInstall() {
+      if (deferredPWAPrompt) {
+        deferredPWAPrompt.prompt();
+        await deferredPWAPrompt.userChoice;
+        deferredPWAPrompt = null;
+      } else {
+        showToast('📲 Para instalar como App: abre el menú de tu navegador (⋮ o Compartir) y selecciona "Agregar a la pantalla de inicio".', 'info');
+      }
+    }
+
     function showToast(message, type = 'success') {
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');
@@ -7052,6 +7563,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       applyBrandingUI();
       populateSettingsForms();
+      initPWAInstallSupport();
       initFirebase();
       updateSelects();
       checkUrlParameters();
@@ -7062,4 +7574,3 @@
   </script>
 </body>
 </html>
-```
