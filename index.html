@@ -3039,15 +3039,43 @@
 
     // VERIFICADOR DE NÚMERO DE REFERENCIA DUPLICADO
     function normalizeRefCode(ref) {
-      return String(ref || '').trim().toUpperCase().replace(/^#/, '').replace(/\s+/g, '');
+      return String(ref || '')
+        .trim()
+        .toUpperCase()
+        .replace(/^#/, '')
+        .replace(/[\s\-._:]/g, '');
+    }
+
+    function normalizeRefOcrCanonical(ref) {
+      return normalizeRefCode(ref)
+        .replace(/[OQ]/g, '0')
+        .replace(/[IL]/g, '1')
+        .replace(/S/g, '5');
     }
 
     function isReferenceDuplicated(refStr, excludePaymentId = null) {
       const clean = normalizeRefCode(refStr);
       if (!clean || clean.length < 4) return false;
-      return appState.payments.some(p => {
-        if (excludePaymentId && p.id === excludePaymentId) return false;
-        return normalizeRefCode(p.concept) === clean;
+      const ignored = ['EFECTIVO', 'SR', 'SINREFERENCIA', 'MANUALADMIN', 'COBRODIRECTODECUOTA'];
+      if (ignored.includes(clean)) return false;
+
+      const cleanCanon = normalizeRefOcrCanonical(refStr);
+      const cleanDigits = cleanCanon.replace(/\D/g, '');
+
+      return (appState.payments || []).some(p => {
+        if (!p || (excludePaymentId && p.id === excludePaymentId)) return false;
+        const pClean = normalizeRefCode(p.concept);
+        if (!pClean || pClean.length < 4 || ignored.includes(pClean)) return false;
+        if (pClean === clean) return true;
+
+        const pCanon = normalizeRefOcrCanonical(p.concept);
+        if (pCanon === cleanCanon) return true;
+
+        const pDigits = pCanon.replace(/\D/g, '');
+        if (cleanDigits.length >= 6 && pDigits.length >= 6 && cleanDigits === pDigits) {
+          return true;
+        }
+        return false;
       });
     }
 
@@ -3276,8 +3304,8 @@
         const hdrH = Math.max(1, Math.round(hdrSrcH * scale * 1.45));
 
         // 2. Cuerpo completo del comprobante
-        const bodySrcY = Math.round(img.height * 0.04);
-        const bodySrcH = Math.round(img.height * 0.84);
+        const bodySrcY = 0;
+        const bodySrcH = img.height;
         const bodyH = Math.max(1, Math.round(bodySrcH * scale));
 
         scanCanvas.width = w;
@@ -3374,24 +3402,20 @@
           }
           const avgR = sumR / Math.max(1, cnt);
           const avgLum = sumLum / Math.max(1, cnt);
-          const isDarkRow = (avgR < 145 || avgLum < 150);
+          const isDarkRow = (avgR < 135 && avgLum < 140);
 
           for (let x = 0; x < w; x++) {
             const idx = (rowOff + x) * 4;
             const r = bd[idx], g = bd[idx + 1], b = bd[idx + 2];
             const lum = (r * 77 + g * 150 + b * 29) >> 8;
             if (isDarkRow) {
-              if (g > 90 && (g - r) > 20 && (g - b) > 8) {
-                bd[idx] = bd[idx + 1] = bd[idx + 2] = 255;
-              } else {
-                const diff = Math.max(r - avgR, lum - avgLum);
-                const out = diff > 28 ? Math.max(0, Math.round(255 - diff * 2.8)) : 255;
-                bd[idx] = bd[idx + 1] = bd[idx + 2] = out;
-              }
+              const inv = 255 - lum;
+              const stretched = inv < 180 ? Math.max(0, Math.round(inv * 0.55)) : 255;
+              bd[idx] = bd[idx + 1] = bd[idx + 2] = stretched;
             } else {
               const minC = Math.min(r, g, b);
               const ink = Math.min(lum, Math.round(minC * 0.65 + lum * 0.35));
-              bd[idx] = bd[idx + 1] = bd[idx + 2] = ink;
+              bd[idx] = bd[idx + 1] = bd[idx + 2] = ink < 210 ? Math.max(0, Math.round((ink - 30) * 0.85)) : 255;
             }
           }
         }
@@ -3414,6 +3438,7 @@
         if (progressPct) progressPct.textContent = '100%';
 
         const rawText = (result && result.data && result.data.text) ? result.data.text : '';
+        const refSearchText = rawText.replace(/[—–−]/g, '-');
         const combinedText = rawText
           .replace(/[—–]/g, '-')
           .replace(/(\d)\s*([.,])\s*([0-9OoQD]{2})/g, '$1.$3')
@@ -3423,33 +3448,47 @@
           .replace(/\.([0-9])([OoQD])/g, '.$10');
 
         // 1. Buscar código estilo Yappy con guion (#JJZGL-68963133)
-        const yappyHyphenRegex = /#?\b([A-Z0-9]{4,8}\s*-\s*[0-9]{5,12})\b/i;
-        const yappyMatch = combinedText.match(yappyHyphenRegex);
-        if (yappyMatch && yappyMatch[1]) {
-          detectedRef = '#' + yappyMatch[1].replace(/\s+/g, '').toUpperCase();
+        const yappyHyphenRegex = /#?\b([A-Z0-9]{3,8})\s*[-_.]\s*([0-9]{5,12})\b/gi;
+        for (const m of refSearchText.matchAll(yappyHyphenRegex)) {
+          if (/[A-Z]/i.test(m[1])) {
+            detectedRef = '#' + (m[1] + '-' + m[2]).replace(/\s+/g, '').toUpperCase();
+            break;
+          }
         }
 
         // 2. Si no tiene guion, buscar patrones de Transferencia Bancaria / ACH / Comprobante
         if (!detectedRef) {
-          const labelRefRegex = /(?:confirmaci[oó]n|referencia|comprobante|operaci[oó]n|transacci[oó]n|documento|secuencia|autorizaci[oó]n|ach|nro|n[uú]mero|no\.?|id)\s*(?:de\s+[a-z]+)?\s*[:.#\-]?\s*[\r\n\s]*#?([A-Z0-9\-]{5,22})/i;
-          const labelMatch = combinedText.match(labelRefRegex);
-          if (labelMatch && labelMatch[1]) {
-            let refCandidate = labelMatch[1].trim().toUpperCase();
-            if (/^44[0-9]{9}$/.test(refCandidate)) refCandidate = refCandidate.substring(1);
-            detectedRef = '#' + refCandidate;
-          } else {
-            const hashCodeRegex = /#\s*([A-Z0-9\-]{6,20})/i;
-            const hashMatch = combinedText.match(hashCodeRegex);
-            if (hashMatch && hashMatch[1]) {
-              detectedRef = '#' + hashMatch[1].trim().toUpperCase();
-            } else {
-              const standaloneDigits = combinedText.match(/\b([0-9]{7,16})\b/);
-              if (standaloneDigits && standaloneDigits[1]) {
-                let refDigits = standaloneDigits[1];
-                if (/^44[0-9]{9}$/.test(refDigits)) refDigits = refDigits.substring(1);
-                detectedRef = '#' + refDigits;
-              }
+          const labelRefRegex = /(?:confirmaci[oó]n|referencia|comprobante|operaci[oó]n|transacci[oó]n|documento|secuencia|autorizaci[oó]n|control|ach|nro|n[uú]mero|no\.?|c[oó]digo)\s*(?:de\s+[a-záéíóúñ]+)?\s*[:.#\-]?\s*[\r\n\s]*#?\s*([A-Z0-9][A-Z0-9\-]{4,22})/gi;
+          for (const m of refSearchText.matchAll(labelRefRegex)) {
+            let refCandidate = m[1].trim().toUpperCase().replace(/^-+|-+$/g, '');
+            const digitCount = (refCandidate.match(/\d/g) || []).length;
+            const isDateLike = /^\d{1,4}[-]\d{1,2}[-]\d{1,4}$/.test(refCandidate);
+            const isPhoneLike = /^6\d{3}-\d{4}$/.test(refCandidate);
+            if (digitCount >= 3 && !isDateLike && !isPhoneLike) {
+              if (/^44[0-9]{9}$/.test(refCandidate)) refCandidate = refCandidate.substring(1);
+              detectedRef = '#' + refCandidate;
+              break;
             }
+          }
+        }
+
+        if (!detectedRef) {
+          const hashCodeRegex = /#\s*([A-Z0-9][A-Z0-9\-]{5,20})/gi;
+          for (const m of refSearchText.matchAll(hashCodeRegex)) {
+            const candidate = m[1].trim().toUpperCase();
+            if ((candidate.match(/\d/g) || []).length >= 3) {
+              detectedRef = '#' + candidate;
+              break;
+            }
+          }
+        }
+
+        if (!detectedRef) {
+          const standaloneDigits = refSearchText.match(/\b([0-9]{7,16})\b/);
+          if (standaloneDigits && standaloneDigits[1]) {
+            let refDigits = standaloneDigits[1];
+            if (/^44[0-9]{9}$/.test(refDigits)) refDigits = refDigits.substring(1);
+            detectedRef = '#' + refDigits;
           }
         }
 
@@ -5025,6 +5064,18 @@
         const ocrResult = await processReceiptWithAI(ocrHighRes);
         if (currentSession.driverId !== uploaderId) return;
 
+        const matchedImgPayment = (appState.payments || []).find(p =>
+          p && (
+            (p.fingerprint && p.fingerprint === tempCompressedReceipt.fingerprint) ||
+            (p.receiptImage && p.receiptImage !== DEFAULT_PLACEHOLDER_RECEIPT && p.receiptImage === lightStorageImg)
+          )
+        );
+        const isImgDup = !!matchedImgPayment;
+
+        if (!ocrResult.detectedRef && matchedImgPayment && matchedImgPayment.concept && matchedImgPayment.concept !== 'EFECTIVO') {
+          ocrResult.detectedRef = matchedImgPayment.concept;
+        }
+
         if (ocrResult.detectedAmount) {
           document.getElementById('driver-input-amount').value = ocrResult.detectedAmount.toFixed(2);
         }
@@ -5033,27 +5084,29 @@
           updateReferenceDuplicateBadge(ocrResult.detectedRef);
         }
 
-        const isImgDup = (appState.payments || []).some(p => p.fingerprint && p.fingerprint === tempCompressedReceipt.fingerprint);
-        const isRefDup = ocrResult.detectedRef ? isReferenceDuplicated(ocrResult.detectedRef) : false;
+        const currentRefValue = ocrResult.detectedRef || document.getElementById('driver-input-ref').value;
+        const isRefDup = currentRefValue ? isReferenceDuplicated(currentRefValue) : false;
         const statusText = document.getElementById('ia-scan-status-text');
 
         if (isImgDup || isRefDup) {
-          if (statusText) statusText.textContent = '⚠️ ¡Atención! Captura o referencia ya registrada.';
+          const usedRefLabel = currentRefValue ? ` (${currentRefValue})` : '';
+          if (statusText) statusText.textContent = `⚠️ ¡Atención! Captura o referencia${usedRefLabel} ya fue utilizada.`;
           if (scanBanner) {
             scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
             scanBanner.innerHTML = `
               <div class="flex items-start space-x-2.5">
                 <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">🚨</div>
                 <div class="text-xs">
-                  <p class="font-black text-rose-800 uppercase">¡Captura de Pantalla Duplicada!</p>
-                  <p class="font-semibold text-rose-700 mt-0.5">Esta captura o número de referencia ya fue subido anteriormente. Por favor verifica y sube el comprobante correcto.</p>
+                  <p class="font-black text-rose-800 uppercase">¡Captura o Referencia Ya Utilizada!</p>
+                  <p class="font-semibold text-rose-700 mt-0.5">El comprobante o número de referencia <strong>${currentRefValue || 'de esta imagen'}</strong> ya fue registrado anteriormente. No se permite enviar la misma captura dos veces.</p>
                 </div>
               </div>
             `;
             scanBanner.classList.remove('hidden');
           }
+          showToast(`🚫 Captura repetida: La referencia ${currentRefValue || ''} ya fue utilizada`, 'error');
           if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
-            speakTextWithSelectedVoice('Atención. Esta captura o número de referencia ya fue registrado anteriormente.');
+            speakTextWithSelectedVoice('Atención. Esta captura o número de referencia ya fue utilizada anteriormente.');
           }
         } else {
           if (statusText) {
@@ -5118,7 +5171,35 @@
       }
 
       const dupRef = !isCash && isReferenceDuplicated(ref);
-      const dupImg = !isCash && tempCompressedReceipt && appState.payments.some(p => p.fingerprint && p.fingerprint === tempCompressedReceipt.fingerprint);
+      const dupImg = !isCash && tempCompressedReceipt && (appState.payments || []).some(p =>
+        p && (
+          (p.fingerprint && p.fingerprint === tempCompressedReceipt.fingerprint) ||
+          (p.receiptImage && p.receiptImage !== DEFAULT_PLACEHOLDER_RECEIPT && p.receiptImage === tempCompressedReceipt.base64)
+        )
+      );
+
+      if (dupRef || dupImg) {
+        updateReferenceDuplicateBadge(ref);
+        const scanBanner = document.getElementById('ocr-scan-result-banner');
+        if (scanBanner) {
+          scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
+          scanBanner.innerHTML = `
+            <div class="flex items-start space-x-2.5">
+              <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">🚨</div>
+              <div class="text-xs">
+                <p class="font-black text-rose-800 uppercase">¡Envío Bloqueado: Comprobante Ya Utilizado!</p>
+                <p class="font-semibold text-rose-700 mt-0.5">Esta captura de pantalla o el número de referencia <strong>${ref || ''}</strong> ya fue registrado anteriormente. Sube un comprobante válido.</p>
+              </div>
+            </div>
+          `;
+          scanBanner.classList.remove('hidden');
+        }
+        showToast('🚫 No permitido: Esta captura o número de referencia ya fue utilizada anteriormente', 'error');
+        if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
+          speakTextWithSelectedVoice('No se puede enviar el reporte. Esta captura o número de referencia ya fue utilizada anteriormente.');
+        }
+        return;
+      }
 
       if (car) car.km = kmCheck.km;
 
@@ -6981,3 +7062,4 @@
   </script>
 </body>
 </html>
+```
