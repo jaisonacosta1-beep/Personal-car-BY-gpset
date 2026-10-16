@@ -115,7 +115,7 @@
 </head>
 <body class="h-full antialiased flex flex-col bg-slate-50 text-slate-800">
 
-  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm w-full px-3"></div>
+  <div id="toast-container" class="fixed top-4 right-4 z-[9999] flex flex-col space-y-2 pointer-events-none max-w-sm w-full px-3"></div>
 
   <!-- Barra de Navegación Superior -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
@@ -1425,7 +1425,8 @@
                 <option value="Yappy">Yappy (Banco General)</option>
                 <option value="ACH / Transferencia">ACH / Transferencia</option>
                 <option value="Depósito en Cuenta">Depósito en Cuenta</option>
-                <option value="Efectivo">💵 Efectivo (Sin Captura ni Referencia)</option>
+                <option value="Efectivo en Local">💵 Efectivo (Dejado en el Local/Base)</option>
+                <option value="Efectivo al Admin">💵 Efectivo (Entregado al Admin)</option>
               </select>
             </div>
             <div id="driver-ref-field-wrap">
@@ -1459,6 +1460,93 @@
       <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-3">
         <h3 class="font-bold text-slate-900 text-sm">Mis Pagos Recientes</h3>
         <div id="driver-history-list" class="divide-y divide-slate-100 text-xs"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ======================================================== -->
+  <!-- VISTA 4: PORTAL DE SOCIO INVERSIONISTA / CAJERO          -->
+  <!-- ======================================================== -->
+  <main id="view-partner" class="flex-1 hidden bg-slate-900 text-slate-100 p-4 sm:p-6 lg:p-8">
+    <div class="max-w-3xl mx-auto space-y-6">
+      
+      <!-- Encabezado del Socio -->
+      <div class="bg-gradient-to-tr from-indigo-900 via-slate-800 to-black rounded-3xl p-6 shadow-xl space-y-4 border border-slate-700">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-[10px] uppercase tracking-wider font-extrabold text-indigo-400">Portal de Socio Inversionista</span>
+            <h2 id="partner-portal-name" class="text-2xl font-black mt-0.5 text-white">Nombre Socio</h2>
+          </div>
+          <button onclick="document.getElementById('btn-logout').click()" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md">
+            Salir
+          </button>
+        </div>
+      </div>
+
+      <!-- Caja: Aprobación de Efectivo Rápida -->
+      <div class="bg-slate-800 rounded-3xl border border-slate-700 p-5 shadow-lg space-y-4">
+        <div class="flex items-center space-x-2 border-b border-slate-700 pb-3">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+            💵
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-white">Caja: Efectivo por Aprobar</h3>
+            <p class="text-[11px] text-slate-400">Confirma si recibiste el efectivo en mano de tus choferes.</p>
+          </div>
+        </div>
+        <div id="partner-cash-approvals" class="space-y-2"></div>
+      </div>
+
+      <!-- Resumen del Corte -->
+      <div class="bg-slate-800 rounded-3xl border border-slate-700 p-5 shadow-lg space-y-4">
+        <div class="flex items-center space-x-2 border-b border-slate-700 pb-3">
+          <div class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center">
+            📊
+          </div>
+          <h3 class="text-sm font-black text-white">Resumen de Liquidación Actual</h3>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div class="p-3 bg-slate-900 rounded-xl border border-slate-700">
+            <span class="block text-[10px] text-slate-400 font-bold uppercase">En Banco (Yappy/ACH)</span>
+            <span id="partner-portal-bank" class="text-indigo-400 font-black text-base">$0.00</span>
+          </div>
+          <div class="p-3 bg-slate-900 rounded-xl border border-slate-700">
+            <span class="block text-[10px] text-slate-400 font-bold uppercase">Efectivo en Mano</span>
+            <span id="partner-portal-cash" class="text-emerald-400 font-black text-base">$0.00</span>
+          </div>
+          <div class="p-3 bg-slate-900 rounded-xl border border-slate-700">
+            <span class="block text-[10px] text-slate-400 font-bold uppercase">Gastos de Taller</span>
+            <span id="partner-portal-expenses" class="text-rose-400 font-black text-base">-$0.00</span>
+          </div>
+          <div class="p-3 bg-slate-900 rounded-xl border border-slate-700">
+            <span class="block text-[10px] text-slate-400 font-bold uppercase">Ya Depositado</span>
+            <span id="partner-portal-paid" class="text-sky-400 font-black text-base">-$0.00</span>
+          </div>
+          <div class="col-span-2 p-3 bg-slate-700 rounded-xl border border-slate-600 flex justify-between items-center">
+            <span class="text-[10px] text-white font-bold uppercase">Corte Pendiente a Recibir</span>
+            <span id="partner-portal-pending" class="text-white font-black text-lg">$0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historial de Pagos Aprobados -->
+      <div class="bg-slate-800 rounded-3xl border border-slate-700 p-5 shadow-lg">
+        <h3 class="text-sm font-black text-white mb-3">Historial de Pagos Aprobados</h3>
+        <div id="partner-approved-payments-list" class="divide-y divide-slate-700 text-xs"></div>
+      </div>
+
+      <!-- Gastos y Liquidaciones -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="bg-slate-800 rounded-3xl border border-slate-700 p-5 shadow-lg">
+          <h3 class="text-sm font-black text-white mb-3">Historial de Gastos de Mantenimiento</h3>
+          <div id="partner-expenses-list" class="divide-y divide-slate-700 text-xs"></div>
+        </div>
+        
+        <div class="bg-slate-800 rounded-3xl border border-slate-700 p-5 shadow-lg">
+          <h3 class="text-sm font-black text-white mb-3">Liquidaciones Recibidas</h3>
+          <div id="partner-payouts-list" class="divide-y divide-slate-700 text-xs"></div>
+        </div>
       </div>
 
     </div>
@@ -1544,7 +1632,8 @@
               <option value="Yappy">Yappy</option>
               <option value="ACH / Transferencia">ACH / Transferencia</option>
               <option value="Depósito en Cuenta">Depósito en Cuenta</option>
-              <option value="Efectivo">Efectivo</option>
+              <option value="Efectivo en Local">Efectivo en Local</option>
+              <option value="Efectivo al Admin">Efectivo al Admin</option>
               <option value="Manual Admin">Manual Admin</option>
             </select>
           </div>
@@ -1878,6 +1967,20 @@
       <form id="form-submit-adddriver" class="space-y-3">
         <input type="hidden" id="edit-driver-id" value="">
         
+        <!-- MEJORA IA: BOTÓN ESCÁNER DE DOCUMENTOS -->
+        <div class="p-3 bg-blue-50 border border-blue-200 border-dashed rounded-2xl flex flex-col items-center justify-center space-y-2 mb-2">
+          <span class="text-xs font-black text-blue-900 flex items-center">
+            <i data-lucide="scan-face" class="w-4 h-4 mr-1.5 text-blue-600"></i> Auto-Completar con IA
+          </span>
+          <p class="text-[10px] text-blue-700 text-center">Sube foto de la licencia o cédula y Gemini llenará el Nombre y Vencimiento por ti.</p>
+          <input type="file" id="input-scan-id" accept="image/*" class="hidden" onchange="scanDriverIdWithAI(event)">
+          <button type="button" onclick="document.getElementById('input-scan-id').click()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-sm w-full sm:w-auto flex items-center justify-center space-x-1.5 transition">
+            <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+            <span id="ai-scan-btn-text">📸 Escanear Documento</span>
+          </button>
+          <div id="ai-scan-status-msg" class="hidden w-full text-[11px] font-bold p-2 rounded-xl text-center"></div>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">Nombre Completo</label>
@@ -2055,6 +2158,14 @@
         <div>
           <label class="block text-xs font-bold text-slate-700 mb-1">Descripción / Proveedor</label>
           <input type="text" id="expense-notes" placeholder="Ej. Cambio de pastillas de freno" required class="w-full text-xs p-2.5 rounded-xl border border-slate-300">
+        </div>
+
+        <div class="p-3.5 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 text-center space-y-2">
+          <input type="file" id="expense-photo-input" accept="image/*" class="hidden">
+          <img id="expense-photo-preview" src="" alt="Factura" class="hidden max-h-40 mx-auto rounded-xl border border-slate-300 object-contain shadow-sm">
+          <button type="button" onclick="document.getElementById('expense-photo-input').click()" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-xs transition">
+            📷 Subir Foto de Factura (Opcional)
+          </button>
         </div>
 
         <div class="flex justify-end space-x-2 pt-3 border-t border-slate-100">
@@ -2363,6 +2474,230 @@
       </div>
     </div>
   </div>
+
+  <!-- ========================================================== -->
+  <!-- MÓDULO NUEVO: ASISTENTE DE INTELIGENCIA ARTIFICIAL (VOZ)   -->
+  <!-- ========================================================== -->
+  
+  <!-- Botón Flotante del Asistente (Centro-Derecha, garantizado) -->
+  <button id="btn-ai-assistant" onclick="startAIAssistant()" style="display: none;" class="fixed top-1/2 right-2 sm:right-6 transform -translate-y-1/2 z-[100] w-14 h-14 bg-gradient-to-tr from-blue-500 via-purple-500 to-pink-500 rounded-full shadow-[0_0_20px_rgba(147,51,234,0.5)] text-white flex items-center justify-center hover:scale-110 hover:shadow-[0_0_30px_rgba(147,51,234,0.8)] transition-all border-2 border-white/30" title="Asistente de Voz Gemini">
+    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a.75.75 0 0 1 .74.67l.01.08 1.14 8.08 8.08 1.14a.75.75 0 0 1 .08 1.48l-.08.01-8.08 1.14-1.14 8.08a.75.75 0 0 1-1.48.08l-.01-.08-1.14-8.08-8.08-1.14a.75.75 0 0 1-.08-1.48l.08-.01 8.08-1.14 1.14-8.08a.75.75 0 0 1 .67-.74Z"/></svg>
+  </button>
+
+  <!-- Tarjeta Flotante de Respuesta Visual de Gemini -->
+  <div id="ai-response-card" class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-[105] hidden bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-3xl shadow-2xl border border-purple-500/40 transition-all">
+    <div class="flex items-start justify-between gap-2 border-b border-white/10 pb-2.5 mb-2.5">
+      <div class="flex items-center space-x-2">
+        <div class="w-7 h-7 rounded-xl bg-gradient-to-tr from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a.75.75 0 0 1 .74.67l.01.08 1.14 8.08 8.08 1.14a.75.75 0 0 1 .08 1.48l-.08.01-8.08 1.14-1.14 8.08a.75.75 0 0 1-1.48.08l-.01-.08-1.14-8.08-8.08-1.14a.75.75 0 0 1-.08-1.48l.08-.01 8.08-1.14 1.14-8.08a.75.75 0 0 1 .67-.74Z"/></svg>
+        </div>
+        <span class="text-xs font-black tracking-wide text-purple-300 uppercase" id="ai-response-title">Súper Cerebro Gemini</span>
+      </div>
+      <div class="flex items-center space-x-1">
+        <button type="button" onclick="replayLastGeminiSpeech()" class="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-indigo-200" title="Volver a escuchar">🔊 Escuchar</button>
+        <button type="button" onclick="closeGeminiResponseCard()" class="p-1 rounded-lg bg-white/10 hover:bg-rose-500/30 text-slate-300 hover:text-white text-xs font-black">✕</button>
+      </div>
+    </div>
+    <p id="ai-response-body" class="text-xs sm:text-sm text-slate-100 leading-relaxed font-medium whitespace-pre-line"></p>
+  </div>
+
+  <!-- Overlay de Escucha Activa -->
+  <div id="ai-listening-overlay" class="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-[110] hidden flex flex-col items-center justify-center text-white p-4 transition-opacity">
+    <div class="relative flex items-center justify-center mb-6">
+      <div class="absolute w-32 h-32 bg-gradient-to-tr from-blue-500 via-purple-500 to-pink-500 rounded-full opacity-40 animate-ping"></div>
+      <div class="absolute w-40 h-40 bg-gradient-to-tr from-blue-400 via-purple-400 to-pink-400 rounded-full opacity-20 animate-pulse"></div>
+      <div class="relative z-10 w-24 h-24 bg-gradient-to-tr from-blue-600 via-purple-600 to-pink-600 rounded-full flex items-center justify-center shadow-2xl border-2 border-white/30">
+        <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a.75.75 0 0 1 .74.67l.01.08 1.14 8.08 8.08 1.14a.75.75 0 0 1 .08 1.48l-.08.01-8.08 1.14-1.14 8.08a.75.75 0 0 1-1.48.08l-.01-.08-1.14-8.08-8.08-1.14a.75.75 0 0 1-.08-1.48l.08-.01 8.08-1.14 1.14-8.08a.75.75 0 0 1 .67-.74Z"/></svg>
+      </div>
+    </div>
+    <h2 class="text-2xl sm:text-3xl font-black mb-2 tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Gemini Escuchando...</h2>
+    <p id="ai-transcript-text" class="text-indigo-200 text-base sm:text-lg font-medium text-center max-w-md px-3">
+      Habla ahora o escribe tu pregunta abajo:
+    </p>
+
+    <!-- Barra para escribir o enviar manualmente si el micrófono del celular se corta -->
+    <div class="w-full max-w-md mt-6 flex items-center gap-2 bg-white/10 p-2 rounded-2xl border border-white/20">
+      <input type="text" id="ai-manual-input" placeholder="O escribe aquí (ej. ¿Qué puedes hacer?)" class="flex-1 bg-transparent text-white placeholder-indigo-300 text-xs sm:text-sm font-semibold px-3 py-2 focus:outline-none">
+      <button type="button" onclick="submitManualGeminiQuestion()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-black text-xs shadow-md whitespace-nowrap">
+        Enviar ➤
+      </button>
+    </div>
+
+    <button onclick="stopAIAssistant(true)" class="mt-6 px-6 py-2.5 rounded-full border border-white/20 bg-white/10 hover:bg-white/20 text-white font-bold text-xs sm:text-sm shadow-lg backdrop-blur-sm transition-all">
+      Cancelar
+    </button>
+  </div>
+
+  <script>
+    // Lógica del Asistente de Voz (Reconocimiento y Acción Visual)
+    let aiSpeechRecognition = null;
+    let lastCapturedVoiceText = '';
+    let commandAlreadyDispatched = false;
+    let lastGeminiSpokenAnswer = '';
+
+    // Asegurar que el botón del asistente siempre sea visible si el Admin está conectado
+    setInterval(() => {
+      const adminView = document.getElementById('view-admin');
+      const aiBtn = document.getElementById('btn-ai-assistant');
+      if (adminView && aiBtn) {
+        if (!adminView.classList.contains('hidden')) {
+          aiBtn.style.display = 'flex';
+        } else {
+          aiBtn.style.display = 'none';
+        }
+      }
+    }, 500);
+
+    function showGeminiResponseCard(title, message, isLoading = false) {
+      const card = document.getElementById('ai-response-card');
+      const titleEl = document.getElementById('ai-response-title');
+      const bodyEl = document.getElementById('ai-response-body');
+      if (!card || !titleEl || !bodyEl) return;
+      titleEl.textContent = title || 'Súper Cerebro Gemini';
+      bodyEl.textContent = message || '';
+      bodyEl.className = isLoading
+        ? 'text-xs sm:text-sm text-indigo-200 leading-relaxed font-bold animate-pulse'
+        : 'text-xs sm:text-sm text-slate-100 leading-relaxed font-medium whitespace-pre-line';
+      card.classList.remove('hidden');
+    }
+
+    function closeGeminiResponseCard() {
+      const card = document.getElementById('ai-response-card');
+      if (card) card.classList.add('hidden');
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+    }
+
+    function replayLastGeminiSpeech() {
+      if (lastGeminiSpokenAnswer) {
+        speakTextWithSelectedVoice(lastGeminiSpokenAnswer);
+      }
+    }
+
+    function submitManualGeminiQuestion() {
+      const input = document.getElementById('ai-manual-input');
+      const text = input ? input.value.trim() : '';
+      const finalQuery = text || lastCapturedVoiceText.trim();
+      if (!finalQuery) {
+        showToast('Habla al micrófono o escribe tu consulta primero', 'warning');
+        return;
+      }
+      commandAlreadyDispatched = true;
+      if (input) input.value = '';
+      stopAIAssistant(true);
+      processAIAssistantCommand(finalQuery);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const manualInput = document.getElementById('ai-manual-input');
+      if (manualInput) {
+        manualInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitManualGeminiQuestion();
+          }
+        });
+      }
+    });
+
+    function initSpeechRecognition() {
+      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        return false;
+      }
+      const SpeechReg = window.SpeechRecognition || window.webkitSpeechRecognition;
+      aiSpeechRecognition = new SpeechReg();
+      aiSpeechRecognition.continuous = false;
+      aiSpeechRecognition.interimResults = true;
+      aiSpeechRecognition.lang = 'es-PA';
+
+      aiSpeechRecognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        const displayText = (finalTranscript || interimTranscript || '').trim();
+        if (displayText) {
+          lastCapturedVoiceText = displayText;
+          document.getElementById('ai-transcript-text').innerHTML = `<span class="text-white font-black text-xl">"${displayText}"</span>`;
+          const manualInput = document.getElementById('ai-manual-input');
+          if (manualInput) manualInput.value = displayText;
+        }
+
+        if (finalTranscript && !commandAlreadyDispatched) {
+          commandAlreadyDispatched = true;
+          setTimeout(() => {
+            stopAIAssistant(true);
+            processAIAssistantCommand(finalTranscript.trim());
+          }, 450);
+        }
+      };
+
+      // En celulares, a veces el micrófono se cierra en onend sin haber disparado isFinal: aquí lo rescatamos siempre
+      aiSpeechRecognition.onend = () => {
+        const overlay = document.getElementById('ai-listening-overlay');
+        const isOverlayOpen = overlay && !overlay.classList.contains('hidden');
+        if (!commandAlreadyDispatched && lastCapturedVoiceText.trim().length > 1 && isOverlayOpen) {
+          commandAlreadyDispatched = true;
+          const captured = lastCapturedVoiceText.trim();
+          stopAIAssistant(true);
+          processAIAssistantCommand(captured);
+        }
+      };
+
+      aiSpeechRecognition.onerror = (event) => {
+        if (event.error !== 'aborted' && event.error !== 'no-speech') {
+          showToast('Micrófono ocupado o sin permiso. Puedes escribir tu pregunta en la barra.', 'warning');
+        }
+      };
+      return true;
+    }
+
+    function startAIAssistant() {
+      lastCapturedVoiceText = '';
+      commandAlreadyDispatched = false;
+
+      // Desbloquear el canal de voz del teléfono inmediatamente al tocar el botón
+      if ('speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const unlockUtter = new SpeechSynthesisUtterance('');
+          unlockUtter.volume = 0;
+          window.speechSynthesis.speak(unlockUtter);
+        } catch (e) {}
+      }
+
+      document.getElementById('ai-listening-overlay').classList.remove('hidden');
+      document.getElementById('ai-transcript-text').innerHTML = `Prueba decir o escribir: <br><span class="font-bold text-white">"¿Qué puedes hacer?"</span> o <span class="font-bold text-white">"Resumen del negocio"</span>`;
+      const manualInput = document.getElementById('ai-manual-input');
+      if (manualInput) manualInput.value = '';
+
+      if (!aiSpeechRecognition) {
+        initSpeechRecognition();
+      }
+      
+      if (aiSpeechRecognition) {
+        try {
+          aiSpeechRecognition.start();
+          playAdminAlertTone('driverNotes');
+        } catch(e) {}
+      }
+    }
+
+    function stopAIAssistant(forceCancel = false) {
+      if (forceCancel) {
+        lastCapturedVoiceText = '';
+      }
+      document.getElementById('ai-listening-overlay').classList.add('hidden');
+      if (aiSpeechRecognition) {
+        try { aiSpeechRecognition.stop(); } catch(e) {}
+      }
+    }
+  </script>
 
   <script>
     // Configuración base de Firebase
@@ -3829,7 +4164,7 @@
     function handleDriverPaymentMethodChange() {
       const methodSelect = document.getElementById('driver-input-method');
       if (!methodSelect) return;
-      const isCash = methodSelect.value === 'Efectivo';
+      const isCash = methodSelect.value.includes('Efectivo');
 
       const uploadSection = document.getElementById('driver-receipt-upload-section');
       const refWrap = document.getElementById('driver-ref-field-wrap');
@@ -4838,6 +5173,35 @@
       showToast('Gasto eliminado', 'info');
     }
 
+    let tempExpensePhoto = '';
+    const expensePhotoInput = document.getElementById('expense-photo-input');
+    if (expensePhotoInput) {
+      expensePhotoInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          tempExpensePhoto = await compressImageFile(file, 750, 1000, 0.65);
+          const prev = document.getElementById('expense-photo-preview');
+          if (prev) {
+            prev.src = tempExpensePhoto;
+            prev.classList.remove('hidden');
+          }
+          showToast('✓ Factura adjuntada', 'success');
+        } catch (err) {}
+      });
+    }
+
+    // Interceptamos cuando se abre un modal para limpiar la foto previa
+    const originalOpenModal = openModal;
+    openModal = function(id) {
+      if (id === 'modal-add-expense') {
+        tempExpensePhoto = '';
+        const prev = document.getElementById('expense-photo-preview');
+        if (prev) { prev.src = ''; prev.classList.add('hidden'); }
+      }
+      originalOpenModal(id);
+    }
+
     document.getElementById('form-submit-expense').addEventListener('submit', (e) => {
       e.preventDefault();
       appState.expenses.unshift({
@@ -4846,12 +5210,13 @@
         amount: parseFloat(document.getElementById('expense-amount').value) || 0,
         date: document.getElementById('expense-date').value || new Date().toISOString().split('T')[0],
         category: document.getElementById('expense-category').value,
-        notes: document.getElementById('expense-notes').value.trim()
+        notes: document.getElementById('expense-notes').value.trim(),
+        photo: tempExpensePhoto || ''
       });
       saveStateAndBroadcast();
       closeModal('modal-add-expense');
       renderAdminView();
-      showToast('Gasto registrado', 'success');
+      showToast('Gasto registrado con factura', 'success');
     });
 
     function renderPartnersSection() {
@@ -4885,6 +5250,10 @@
               <p class="text-[11px] text-slate-400">${p.notes || ''}</p>
             </div>
             <div class="space-y-2 pt-2 border-t border-slate-100">
+              <button onclick="copyPartnerUniqueLink('${p.id}')" class="w-full py-2.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-black text-xs flex items-center justify-center space-x-1.5 shadow-xs">
+                <i data-lucide="link" class="w-4 h-4"></i>
+                <span>🔗 Copiar Link de Socio / Cajero</span>
+              </button>
               <button onclick="sendPartnerWeeklySettlementWhatsApp('${p.id}')" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center space-x-1.5 shadow-xs">
                 <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
                 <span>📲 Enviar Liquidación Semanal</span>
@@ -5358,7 +5727,7 @@
       }
 
       const method = document.getElementById('driver-input-method').value;
-      const isCash = method === 'Efectivo';
+      const isCash = method.includes('Efectivo');
       const amount = parseFloat(document.getElementById('driver-input-amount').value) || 0;
       const date = document.getElementById('driver-input-date').value || new Date().toISOString().split('T')[0];
       const ref = isCash ? 'EFECTIVO' : document.getElementById('driver-input-ref').value.trim().toUpperCase();
@@ -6329,6 +6698,7 @@
     let lastDriverVoiceTimestamp = 0;
     let driverGraceToastShownForId = null;
     let driverAudioGestureUnlocked = false;
+    let activeAlertsTime = {};
 
     function populateDeviceVoicesInSelector() {
       if (!('speechSynthesis' in window)) return;
@@ -6424,6 +6794,11 @@
         }
 
         window.speechSynthesis.speak(utter);
+        
+        // Límite de seguridad: apagar la voz si dura más de 30 segundos
+        setTimeout(() => {
+          if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+        }, 30000);
       } catch (e) {}
     }
 
@@ -6451,11 +6826,21 @@
       const snd = Object.assign({ driverVoice: true, graceHours: 12 }, appState.soundSettings || {});
 
       const driver = appState.drivers.find(d => d.id === currentSession.driverId);
-      if (!driver || driver.billingPaused) return;
+      if (!driver || driver.billingPaused) {
+        activeAlertsTime['driverVoice'] = 0;
+        return;
+      }
 
       const info = getDriverOverdueInfo(driver);
       // Si no debe nada del día anterior (solo corre el día corriente), NO emitir alerta de cobro ni voz
-      if (info.overdueBalance <= 0) return;
+      if (info.overdueBalance <= 0) {
+        activeAlertsTime['driverVoice'] = 0;
+        return;
+      }
+
+      // Evitar que la alerta de voz se repita por más de 30 segundos
+      if (!activeAlertsTime['driverVoice']) activeAlertsTime['driverVoice'] = Date.now();
+      if (!forceImmediate && (Date.now() - activeAlertsTime['driverVoice'] > 30000)) return;
 
       const now = new Date();
       const graceHours = Number(snd.graceHours || 12);
@@ -6611,14 +6996,25 @@
       // Si está en Modo Conductor, reproduce alerta de nota o voz hablada de pago/inmovilización
       if (currentSession.role === 'driver') {
         triggerDriverPaymentVoiceIfNeeded(false);
-        if (!snd.driverNotes) return;
+        if (!snd.driverNotes) {
+          activeAlertsTime['driverNotes'] = 0;
+          return;
+        }
         const driver = appState.drivers.find(d => d.id === currentSession.driverId);
         const gen = (appState.generalDriverNotice || '').trim();
         const per = driver ? (driver.personalNote || '').trim() : '';
-        if (!gen && !per) return;
+        if (!gen && !per) {
+          activeAlertsTime['driverNotes'] = 0;
+          return;
+        }
         const currentSig = `${gen}||${per}`;
         if (silencedDriverNoteSignature !== currentSig) {
-          playAdminAlertTone('driverNotes');
+          if (!activeAlertsTime['driverNotes']) activeAlertsTime['driverNotes'] = Date.now();
+          if (Date.now() - activeAlertsTime['driverNotes'] <= 30000) {
+            playAdminAlertTone('driverNotes');
+          }
+        } else {
+          activeAlertsTime['driverNotes'] = 0;
         }
         return;
       }
@@ -6627,8 +7023,12 @@
 
       const hasPendingPayments = normalizeCloudList(appState.payments).some(p => !p.status || p.status === 'Pendiente');
       if (snd.payments && hasPendingPayments) {
-        playAdminAlertTone('payments');
-        return;
+        if (!activeAlertsTime['payments']) activeAlertsTime['payments'] = Date.now();
+        if (Date.now() - activeAlertsTime['payments'] <= 30000) {
+          playAdminAlertTone('payments');
+        }
+      } else {
+        activeAlertsTime['payments'] = 0;
       }
 
       if (snd.overdue) {
@@ -6638,9 +7038,15 @@
           return info.overdueDays >= 2;
         });
         if (hasOverdueDrivers) {
-          playAdminAlertTone('overdue');
-          return;
+          if (!activeAlertsTime['overdue']) activeAlertsTime['overdue'] = Date.now();
+          if (Date.now() - activeAlertsTime['overdue'] <= 30000) {
+            playAdminAlertTone('overdue');
+          }
+        } else {
+          activeAlertsTime['overdue'] = 0;
         }
+      } else {
+        activeAlertsTime['overdue'] = 0;
       }
 
       if (snd.maintenance) {
@@ -6653,8 +7059,15 @@
           return false;
         });
         if (hasMaintAlerts) {
-          playAdminAlertTone('maintenance');
+          if (!activeAlertsTime['maintenance']) activeAlertsTime['maintenance'] = Date.now();
+          if (Date.now() - activeAlertsTime['maintenance'] <= 30000) {
+            playAdminAlertTone('maintenance');
+          }
+        } else {
+          activeAlertsTime['maintenance'] = 0;
         }
+      } else {
+        activeAlertsTime['maintenance'] = 0;
       }
     }
 
@@ -7244,9 +7657,20 @@
       const driverIds = partnerCars.map(c => c.driverId).filter(Boolean);
       const platesLabel = partnerCars.length > 0 ? partnerCars.map(c => c.plate).join(', ') : 'Sin autos';
 
-      const collected = (appState.payments || [])
+      let collectedBank = 0;
+      let collectedCash = 0;
+
+      (appState.payments || [])
         .filter(p => p.status === 'Aprobado' && driverIds.includes(p.driverId))
-        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        .forEach(p => {
+          if (p.method === 'Efectivo en Local') {
+            collectedCash += (Number(p.amount) || 0);
+          } else {
+            collectedBank += (Number(p.amount) || 0);
+          }
+        });
+
+      const collected = collectedBank + collectedCash;
 
       const expenses = (appState.expenses || [])
         .filter(e => carIds.includes(e.carId))
@@ -7257,9 +7681,13 @@
       const payouts = (appState.partnerPayouts || []).filter(po => po.partnerId === partnerId);
       const alreadyPaid = payouts.reduce((sum, po) => sum + (Number(po.amount) || 0), 0);
       const lastPayoutDate = payouts.length > 0 ? payouts[0].date : 'Sin liquidación previa';
-      const pendingToPay = Number(Math.max(0, netTotal - alreadyPaid).toFixed(2));
+      
+      // ADMIN DEBE = Ganancia Neta - Efectivo en mano (que ya tiene el socio) - Dinero ya depositado al banco del socio
+      const pendingToPay = Number((netTotal - collectedCash - alreadyPaid).toFixed(2));
 
       return {
+        collectedBank: Number(collectedBank.toFixed(2)),
+        collectedCash: Number(collectedCash.toFixed(2)),
         collected: Number(collected.toFixed(2)),
         expenses: Number(expenses.toFixed(2)),
         netTotal: Number(netTotal.toFixed(2)),
@@ -7571,6 +7999,747 @@
       lucide.createIcons();
       setTimeout(() => { getFastOcrWorker(); }, 1200);
     });
+
+    /* ==========================================
+       NUEVAS FUNCIONES: PORTAL DE SOCIO / CAJERO
+       (Inyectadas de forma segura y aislada)
+       ========================================== */
+    function getOrAssignPartnerToken(part) {
+      if (!part) return '';
+      if (!part.accessToken) {
+        part.accessToken = 'ptk_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36).slice(-4);
+        saveStateAndBroadcast();
+      }
+      return part.accessToken;
+    }
+
+    function copyPartnerUniqueLink(partnerId) {
+      const p = appState.partners.find(x => x.id === partnerId);
+      if (!p) return;
+      const token = getOrAssignPartnerToken(p);
+      const baseUrl = window.location.origin + window.location.pathname;
+      const uniqueUrl = `${baseUrl}?socio=${p.id}&key=${token}`;
+      const tempInput = document.createElement('input');
+      tempInput.value = uniqueUrl;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+      showToast(`✓ Link seguro para ${p.name} copiado al portapapeles`, 'success');
+    }
+
+    function renderPartnerView() {
+      const partnerId = currentSession.partnerId;
+      const part = appState.partners.find(p => p.id === partnerId);
+      if (!part) return;
+
+      document.getElementById('partner-portal-name').textContent = part.name;
+
+      // 1. Corte y Balance
+      const s = calculatePartnerSettlement(partnerId);
+      document.getElementById('partner-portal-bank').textContent = `$${s.collectedBank.toFixed(2)}`;
+      document.getElementById('partner-portal-cash').textContent = `$${s.collectedCash.toFixed(2)}`;
+      document.getElementById('partner-portal-expenses').textContent = `-$${s.expenses.toFixed(2)}`;
+      document.getElementById('partner-portal-paid').textContent = `-$${s.alreadyPaid.toFixed(2)}`;
+      
+      const pendingEl = document.getElementById('partner-portal-pending');
+      if (s.pendingToPay < 0) {
+        pendingEl.textContent = `Socio debe: $${Math.abs(s.pendingToPay).toFixed(2)}`;
+        pendingEl.classList.replace('text-white', 'text-rose-400');
+      } else {
+        pendingEl.textContent = `$${s.pendingToPay.toFixed(2)}`;
+        pendingEl.classList.replace('text-rose-400', 'text-white');
+      }
+
+      // 2. Aprobación de Efectivo
+      const partnerCars = (appState.cars || []).filter(c => c.partnerId === partnerId);
+      const driverIds = partnerCars.map(c => c.driverId).filter(Boolean);
+      const carIds = partnerCars.map(c => c.id);
+
+      const pendingCash = (appState.payments || []).filter(p =>
+        (!p.status || p.status === 'Pendiente') && 
+        p.method === 'Efectivo en Local' && 
+        driverIds.includes(p.driverId)
+      );
+
+      const cashContainer = document.getElementById('partner-cash-approvals');
+      if (pendingCash.length === 0) {
+        cashContainer.innerHTML = '<p class="text-xs text-slate-500 text-center py-4 border border-dashed border-slate-200 rounded-xl bg-slate-50">Todo al día. No hay efectivo pendiente de confirmar.</p>';
+      } else {
+        cashContainer.innerHTML = pendingCash.map(p => {
+          const drv = appState.drivers.find(d => d.id === p.driverId);
+          return `
+            <div class="p-3 bg-white border border-emerald-200 rounded-xl shadow-xs mb-2">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h5 class="text-xs font-black text-slate-900">${drv ? drv.name : 'Conductor'}</h5>
+                  <p class="text-[10px] text-slate-500">${p.date} · Pago Reportado</p>
+                </div>
+                <div class="font-black text-emerald-600 text-sm">
+                  $${Number(p.amount).toFixed(2)}
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-slate-100">
+                <button onclick="rejectCashPaymentPartner('${p.id}')" class="py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs border border-rose-200">Rechazar</button>
+                <button onclick="approveCashPaymentPartner('${p.id}')" class="py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-xs">✅ Sí, lo recibí</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 3. Historial de Pagos Aprobados
+      const approvedContainer = document.getElementById('partner-approved-payments-list');
+      if (approvedContainer) {
+        const approvedPayments = (appState.payments || []).filter(p => 
+          p.status === 'Aprobado' && 
+          driverIds.includes(p.driverId) &&
+          p.method === 'Efectivo en Local'
+        ).slice(0, 15);
+        if (approvedPayments.length === 0) {
+          approvedContainer.innerHTML = '<p class="text-xs text-slate-500 text-center py-4">No hay pagos en efectivo aprobados aún.</p>';
+        } else {
+          approvedContainer.innerHTML = approvedPayments.map(p => {
+            const drv = appState.drivers.find(d => d.id === p.driverId);
+            return `
+              <div class="py-2.5 flex items-center justify-between border-b border-slate-700 last:border-0">
+                <div>
+                  <span class="font-black text-slate-100">${drv ? drv.name : 'Conductor'}</span>
+                  <span class="block text-[10px] text-slate-400">${p.date} · <span class="text-emerald-400 font-bold">${p.method}</span></span>
+                </div>
+                <span class="font-black text-emerald-400">$${Number(p.amount).toFixed(2)}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // 4. Historial de Gastos
+      const expContainer = document.getElementById('partner-expenses-list');
+      const partnerExpenses = (appState.expenses || []).filter(e => carIds.includes(e.carId));
+      if (partnerExpenses.length === 0) {
+        expContainer.innerHTML = '<p class="text-xs text-slate-500 text-center py-4">No hay gastos registrados en tus vehículos.</p>';
+      } else {
+        expContainer.innerHTML = partnerExpenses.map(e => {
+          const c = partnerCars.find(x => x.id === e.carId);
+          return `
+            <div class="py-2.5 flex items-center justify-between border-b border-slate-50 last:border-0">
+              <div>
+                <span class="font-black text-slate-900">${e.category}</span>
+                <span class="block text-[10px] text-slate-500">${e.date} · Auto: ${c ? c.plate : ''}</span>
+                <span class="block text-[11px] text-slate-600">${e.notes || ''}</span>
+              </div>
+              <span class="font-black text-rose-600">-$${Number(e.amount).toFixed(2)}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function approveCashPaymentPartner(paymentId) {
+      approvePayment(paymentId);
+      renderPartnerView();
+      showToast('Efectivo confirmado y saldo actualizado', 'success');
+      
+      const p = appState.payments.find(x => x.id === paymentId);
+      const drv = appState.drivers.find(d => d.id === (p ? p.driverId : ''));
+      if(p && drv && adminCredentials && adminCredentials.tgEnabled) {
+         sendTelegramNotification(
+          `✅ <b>EFECTIVO RECIBIDO POR SOCIO</b>\n\n` +
+          `👤 <b>Socio:</b> ${appState.partners.find(x=>x.id===currentSession.partnerId)?.name || 'Socio'}\n` +
+          `🚗 <b>Chofer:</b> ${drv.name}\n` +
+          `💵 <b>Monto Aprobado:</b> $${Number(p.amount).toFixed(2)} USD\n`
+        );
+      }
+    }
+
+    function rejectCashPaymentPartner(paymentId) {
+      rejectPayment(paymentId);
+      renderPartnerView();
+    }
+
+    // INTERCEPCIÓN SEGURA (DECORADOR) PARA NO ROMPER LA LÓGICA PRINCIPAL
+    const originalCheckUrlParams = checkUrlParameters;
+    checkUrlParameters = function() {
+      originalCheckUrlParams();
+      const params = new URLSearchParams(window.location.search);
+      const partnerParam = params.get('socio');
+      const keyParam = params.get('key');
+      
+      if (partnerParam && !directLinkLoginHandled) {
+        const part = appState.partners.find(p => p.id === partnerParam);
+        if (part) {
+          const validToken = getOrAssignPartnerToken(part);
+          if (keyParam && keyParam === validToken) {
+            directLinkLoginHandled = true;
+            currentSession.role = 'partner';
+            currentSession.partnerId = part.id;
+            showView('partner');
+            showToast(`Bienvenido Inversionista ${part.name}`, 'success');
+          } else {
+            showToast('Enlace de socio inválido o caducado.', 'error');
+          }
+        }
+      }
+    };
+
+    const originalShowView = showView;
+    showView = function(view) {
+      const viewPartnerEl = document.getElementById('view-partner');
+      if (viewPartnerEl) viewPartnerEl.classList.add('hidden');
+      
+      originalShowView(view);
+      
+      if (view === 'partner') {
+        document.getElementById('view-auth').classList.add('hidden');
+        document.getElementById('view-admin').classList.add('hidden');
+        document.getElementById('view-driver').classList.add('hidden');
+        
+        if (viewPartnerEl) viewPartnerEl.classList.remove('hidden');
+        const userBar = document.getElementById('user-session-bar');
+        if(userBar) userBar.classList.remove('hidden');
+        
+        const part = appState.partners.find(p => p.id === currentSession.partnerId);
+        document.getElementById('session-user-name').textContent = part ? part.name.split(' ')[0] : 'Socio';
+        document.getElementById('session-user-role').textContent = 'Inversionista';
+        renderPartnerView();
+      }
+    };
+
+    // Renderizar liquidaciones en el portal de socio
+    function renderPartnerViewPayouts(partnerId) {
+      const cont = document.getElementById('partner-payouts-list');
+      if(!cont) return;
+      const payouts = (appState.partnerPayouts || []).filter(po => po.partnerId === partnerId);
+      if(payouts.length === 0){
+        cont.innerHTML = '<p class="text-xs text-slate-500 py-3 text-center">Aún no has recibido liquidaciones registradas.</p>';
+        return;
+      }
+      cont.innerHTML = payouts.map(po => `
+        <div class="py-2.5 flex items-center justify-between border-b border-slate-50 last:border-0">
+          <div>
+            <span class="font-black text-slate-900">$${Number(po.amount).toFixed(2)}</span>
+            <span class="block text-[10px] text-slate-500">${po.date} · ${po.method}</span>
+          </div>
+          ${po.receiptPhoto ? `<button onclick="openDirectPhotoViewer('${po.receiptPhoto}', 'Comprobante de Liquidación')" class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200">Ver Foto</button>` : `<span class="text-[10px] text-slate-400">Sin foto</span>`}
+        </div>
+      `).join('');
+    }
+
+    // Hook al original renderPartnerView
+    const origRenderPartnerView = renderPartnerView;
+    renderPartnerView = function() {
+      if(typeof origRenderPartnerView === 'function') origRenderPartnerView();
+      
+      const partnerId = currentSession.partnerId;
+      const part = appState.partners.find(p => p.id === partnerId);
+      if (!part) return;
+
+      const partnerCars = (appState.cars || []).filter(c => c.partnerId === partnerId);
+      const carIds = partnerCars.map(c => c.id);
+      
+      // Mostrar Facturas de Gastos en el portal del socio
+      const expContainer = document.getElementById('partner-expenses-list');
+      if(expContainer) {
+        const partnerExpenses = (appState.expenses || []).filter(e => carIds.includes(e.carId));
+        if (partnerExpenses.length > 0) {
+          expContainer.innerHTML = partnerExpenses.map(e => {
+            const c = partnerCars.find(x => x.id === e.carId);
+            return `
+              <div class="py-3 flex flex-col border-b border-slate-50 last:border-0">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <span class="font-black text-slate-900">${e.category}</span>
+                    <span class="block text-[10px] text-slate-500">${e.date} · Auto: ${c ? c.plate : ''}</span>
+                    <span class="block text-[11px] text-slate-600">${e.notes || ''}</span>
+                  </div>
+                  <span class="font-black text-rose-600">-$${Number(e.amount).toFixed(2)}</span>
+                </div>
+                ${e.photo ? `
+                  <button onclick="openDirectPhotoViewer('${e.photo}', 'Factura de Gasto')" class="mt-2 self-start px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] border border-slate-300 flex items-center space-x-1">
+                    <i data-lucide="file-text" class="w-3 h-3"></i><span>Ver Factura</span>
+                  </button>
+                ` : ''}
+              </div>
+            `;
+          }).join('');
+          if(window.lucide) lucide.createIcons();
+        } else {
+           expContainer.innerHTML = '<p class="text-xs text-slate-500 text-center py-4">No hay gastos registrados en tus vehículos.</p>';
+        }
+      }
+      
+      renderPartnerViewPayouts(partnerId);
+    };
+  </script>
+
+  <!-- === MÓDULO SÚPER CEREBRO: GEMINI AI (TOTALMENTE AISLADO Y SEGURO) === -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1. Inyectar la interfaz gráfica en la pestaña de Ajustes sin romper el HTML existente
+      const checkSettingsTimer = setInterval(() => {
+        const settingsPanel = document.getElementById('panel-tab-settings');
+        if (settingsPanel && !document.getElementById('gemini-injected-block')) {
+          const settingsContainer = settingsPanel.querySelector('.bg-white.rounded-3xl');
+          if (settingsContainer) {
+            const geminiBlock = document.createElement('div');
+            geminiBlock.id = 'gemini-injected-block';
+            geminiBlock.className = 'p-5 bg-gradient-to-tr from-indigo-50 via-purple-50 to-pink-50 rounded-2xl border border-purple-200 space-y-4 mt-6 shadow-sm';
+            geminiBlock.innerHTML = `
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-purple-600 to-pink-600 text-white flex items-center justify-center font-bold shadow-md">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a.75.75 0 0 1 .74.67l.01.08 1.14 8.08 8.08 1.14a.75.75 0 0 1 .08 1.48l-.08.01-8.08 1.14-1.14 8.08a.75.75 0 0 1-1.48.08l-.01-.08-1.14-8.08-8.08-1.14a.75.75 0 0 1-.08-1.48l.08-.01 8.08-1.14 1.14-8.08a.75.75 0 0 1 .67-.74Z"/></svg>
+                  </div>
+                  <div>
+                    <h4 class="text-sm font-black text-purple-950">Súper Cerebro: Inteligencia Artificial Gemini</h4>
+                    <p class="text-[11px] text-purple-800">Conecta la API de Google Gemini para darle razonamiento avanzado a tu Asistente.</p>
+                  </div>
+                </div>
+                <span id="gemini-status-badge" class="px-2.5 py-1 rounded-full text-[10px] font-black bg-white text-slate-500 border border-slate-200 shadow-2xs">
+                  No Verificado
+                </span>
+              </div>
+              <div class="space-y-3 pt-1">
+                <div>
+                  <label class="block text-[11px] font-bold text-purple-900 mb-1">Tu API Key de Gemini (Gratuita en Google AI Studio)</label>
+                  <input type="text" id="cfg-gemini-apikey" placeholder="Ej. AQ.Ab... o AIzaSy..." class="w-full text-xs font-mono p-2.5 rounded-xl border border-purple-300 bg-white shadow-inner focus:ring-2 focus:ring-purple-500 outline-none transition-all">
+                </div>
+                <div id="gemini-error-box" class="hidden p-3 bg-rose-50 border border-rose-300 text-rose-900 text-[10px] font-mono rounded-xl break-all shadow-inner whitespace-pre-wrap"></div>
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-purple-200/50">
+                  <button type="button" onclick="testGeminiConnection()" class="px-4 py-2.5 rounded-xl bg-white hover:bg-purple-100 text-purple-700 border border-purple-300 text-xs font-black shadow-2xs transition-colors">
+                    ⚡ Probar Conexión
+                  </button>
+                  <button type="button" onclick="saveGeminiKey()" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:opacity-90 text-white text-xs font-bold shadow-md flex items-center space-x-1.5 transition-all">
+                    <span>Guardar Clave Gemini</span>
+                  </button>
+                </div>
+              </div>
+            `;
+            settingsContainer.appendChild(geminiBlock);
+            
+            const savedKey = (adminCredentials && adminCredentials.geminiApiKey) ? adminCredentials.geminiApiKey : (localStorage.getItem('autorent_gemini_key') || '');
+            document.getElementById('cfg-gemini-apikey').value = savedKey;
+            
+            clearInterval(checkSettingsTimer);
+          }
+        }
+      }, 1000);
+
+      window.saveGeminiKey = function() {
+        const keyInput = document.getElementById('cfg-gemini-apikey').value.trim();
+        const key = keyInput.replace(/[\s\n\r]/g, '');
+        localStorage.setItem('autorent_gemini_key', key);
+        
+        if (adminCredentials) {
+          adminCredentials.geminiApiKey = key;
+          appState.adminCreds = adminCredentials;
+          saveStateAndBroadcast();
+        }
+        
+        if (typeof showToast === 'function') showToast('✓ Clave de Gemini guardada y sincronizada', 'success');
+      };
+
+      window.testGeminiConnection = async function() {
+        const key = document.getElementById('cfg-gemini-apikey').value.trim().replace(/[\s\n\r]/g, '');
+        const badge = document.getElementById('gemini-status-badge');
+        const errorBox = document.getElementById('gemini-error-box');
+        
+        errorBox.classList.add('hidden');
+        errorBox.textContent = '';
+        
+        if (!key) {
+          if (typeof showToast === 'function') showToast('Primero ingresa tu clave API en el recuadro', 'warning');
+          return;
+        }
+
+        badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 border border-amber-300 badge-pulse';
+        badge.textContent = 'Buscando mejor servidor...';
+
+        try {
+          // 1. Consultamos a Google qué modelos están activos en esta cuenta
+          const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+          if (!listRes.ok) {
+            const errTxt = await listRes.text();
+            throw new Error(errTxt);
+          }
+          const listData = await listRes.json();
+          const available = (listData.models || [])
+            .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+            .map(m => m.name.replace('models/', ''));
+
+          const preferredOrder = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+          let selectedModel = preferredOrder.find(p => available.includes(p)) || available.find(a => a.includes('flash')) || available[0] || 'gemini-2.5-flash';
+
+          localStorage.setItem('autorent_gemini_model', selectedModel);
+          localStorage.setItem('autorent_gemini_models_list', JSON.stringify(available));
+          localStorage.setItem('autorent_gemini_key', key);
+
+          badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700 border border-emerald-300';
+          badge.innerHTML = `🟢 En Línea (${selectedModel})`;
+          if (typeof showToast === 'function') showToast(`¡Súper Cerebro Gemini conectado (${selectedModel})!`, 'success');
+        } catch (err) {
+          console.error(err);
+          badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-700 border border-rose-300';
+          badge.innerHTML = '🔴 Error de Conexión';
+          
+          errorBox.textContent = "Detalle del error:\n\n" + err.message;
+          errorBox.classList.remove('hidden');
+        }
+      };
+
+      // === FUNCIÓN DE ESCÁNER DE IDENTIDAD CON GEMINI VISION ===
+      window.scanDriverIdWithAI = async function(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        const btnText = document.getElementById('ai-scan-btn-text');
+        const statusMsg = document.getElementById('ai-scan-status-msg');
+        const showScanStatus = (msg, type) => {
+          if (statusMsg) {
+            statusMsg.textContent = msg;
+            statusMsg.className = `w-full text-[11px] font-bold p-2 rounded-xl text-center ${
+              type === 'error' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+              type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+              'bg-indigo-100 text-indigo-800 border border-indigo-300'
+            }`;
+            statusMsg.classList.remove('hidden');
+          }
+          if (typeof showToast === 'function') showToast(msg, type === 'error' ? 'error' : type === 'success' ? 'success' : 'info');
+        };
+
+        const apiKey = ((adminCredentials && adminCredentials.geminiApiKey) ? adminCredentials.geminiApiKey : (localStorage.getItem('autorent_gemini_key') || '')).trim().replace(/[\s\n\r]/g, '');
+        if (!apiKey) {
+          showScanStatus('⚠️ Primero guarda tu Clave Gemini en la pestaña Ajustes & Claves', 'error');
+          event.target.value = '';
+          return;
+        }
+
+        btnText.textContent = '⏳ Analizando documento (3-5 seg)...';
+        showScanStatus('⏳ Leyendo datos de la licencia o cédula...', 'info');
+
+        // Helper con límite de tiempo de 10 segundos para que nunca se quede congelado
+        const fetchWithTimeout = async (url, options, timeoutMs = 10000) => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+
+        try {
+          const base64Img = await compressImageFile(file, 800, 800, 0.72);
+          const base64Data = base64Img.split(',')[1];
+          const mimeMatch = base64Img.match(/:(.*?);/);
+          const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+
+          const prompt = 'Analiza esta foto de licencia de conducir o cédula. Extrae el Nombre Completo de la persona y la Fecha de Vencimiento/Expiración (si hay dos fechas como expedición y vencimiento, toma la fecha mayor/futura). Responde SOLO con este JSON exacto sin markdown: {"nombre":"Nombre Apellido","vence":"YYYY-MM-DD"}';
+
+          const savedModel = localStorage.getItem('autorent_gemini_model') || 'gemini-2.0-flash';
+          const visionModels = [...new Set([
+            'gemini-2.0-flash',
+            savedModel,
+            'gemini-2.5-flash',
+            'gemini-2.0-flash-lite'
+          ].filter(Boolean))];
+
+          let parsed = null;
+          let lastErr = '';
+
+          for (const modelName of visionModels) {
+            try {
+              const response = await fetchWithTimeout(
+                `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{
+                      parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: mimeType, data: base64Data } }
+                      ]
+                    }],
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 250 }
+                  })
+                },
+                10000
+              );
+
+              if (response.ok) {
+                const data = await response.json();
+                const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+                const combinedText = parts.map(p => p.text || '').join(' ').replace(/```json/gi, '').replace(/```/g, '').trim();
+                const jsonMatch = combinedText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  parsed = JSON.parse(jsonMatch[0]);
+                  break;
+                }
+              } else {
+                const errJson = await response.json().catch(() => ({}));
+                lastErr = errJson.error?.message || `HTTP ${response.status}`;
+              }
+            } catch (errNet) {
+              lastErr = errNet.name === 'AbortError' ? 'Tiempo de espera agotado en servidor' : errNet.message;
+            }
+          }
+
+          // Respaldo OCR local inmediato si el servidor de Google está saturado
+          if (!parsed && typeof Tesseract !== 'undefined') {
+            showScanStatus('⚡ Usando lector local de respaldo...', 'info');
+            const worker = (typeof getFastOcrWorker === 'function') ? await getFastOcrWorker() : null;
+            const ocrRes = worker ? await worker.recognize(base64Img) : await Tesseract.recognize(base64Img, 'spa');
+            const rawTxt = (ocrRes && ocrRes.data && ocrRes.data.text) ? ocrRes.data.text : '';
+            const dateMatches = [...rawTxt.matchAll(/\b(\d{2})[\/\-](\d{2})[\/\-](20\d{2})\b/g)];
+            let bestDate = '';
+            if (dateMatches.length > 0) {
+              const lastD = dateMatches[dateMatches.length - 1];
+              bestDate = `${lastD[3]}-${lastD[2]}-${lastD[1]}`;
+            }
+            const lines = rawTxt.split('\n').map(l => l.trim()).filter(l => /^[A-ZÁÉÍÓÚÑ\s]{6,38}$/.test(l) && !/REPUBLICA|PANAMA|LICENCIA|TRIBUNAL|AUTORIDAD|TRANSITO|NACIONAL|FECHA|TIPO|SEXO/i.test(l));
+            parsed = {
+              nombre: lines[0] || '',
+              vence: bestDate
+            };
+          }
+
+          if (!parsed) {
+            throw new Error(lastErr || 'No se recibió respuesta del escáner');
+          }
+
+          // Normalizar fecha si vino como DD/MM/YYYY o DD-MM-YYYY
+          let cleanDate = String(parsed.vence || '').trim();
+          const dmyMatch = cleanDate.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+          if (dmyMatch) {
+            cleanDate = `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+          }
+
+          let filledFields = [];
+          if (parsed.nombre && String(parsed.nombre).trim()) {
+            const cleanName = String(parsed.nombre).trim();
+            const nameInput = document.getElementById('newdriver-name');
+            if (nameInput) {
+              nameInput.value = cleanName;
+              nameInput.classList.add('ring-2', 'ring-emerald-500');
+              setTimeout(() => nameInput.classList.remove('ring-2', 'ring-emerald-500'), 2500);
+            }
+            const userField = document.getElementById('newdriver-username');
+            if (userField && !userField.value.trim()) {
+              userField.value = cleanName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+            }
+            filledFields.push(`Nombre: ${cleanName}`);
+          }
+
+          if (cleanDate && /^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+            const licInput = document.getElementById('newdriver-license-expiry');
+            if (licInput) {
+              licInput.value = cleanDate;
+              licInput.classList.add('ring-2', 'ring-emerald-500');
+              setTimeout(() => licInput.classList.remove('ring-2', 'ring-emerald-500'), 2500);
+            }
+            filledFields.push(`Vence: ${cleanDate}`);
+          }
+
+          if (filledFields.length > 0) {
+            showScanStatus(`✓ Auto-completado: ${filledFields.join(' · ')}`, 'success');
+          } else {
+            showScanStatus('⚠️ No se distinguieron el nombre o fecha. Intenta con una foto más enfocada.', 'error');
+          }
+
+        } catch (e) {
+          console.error(e);
+          showScanStatus('❌ Error al escanear: ' + e.message.substring(0, 80), 'error');
+        } finally {
+          btnText.textContent = '📸 Escanear Documento';
+          event.target.value = '';
+        }
+      };
+    });
+
+    // Función avanzada que conecta toda la base de datos de AutoRent Pro con Gemini y evita fallos 503
+    async function processAIAssistantCommand(transcript) {
+      const cleanTranscript = String(transcript || '').trim();
+      if (!cleanTranscript) return;
+
+      const apiKey = ((adminCredentials && adminCredentials.geminiApiKey) ? adminCredentials.geminiApiKey : (localStorage.getItem('autorent_gemini_key') || '')).trim().replace(/[\s\n\r]/g, '');
+      
+      if (!apiKey) {
+        const noKeyMsg = "Hola. Para poder responderte, primero pega y guarda tu clave API de Gemini en la pestaña Ajustes y Claves.";
+        showGeminiResponseCard("Falta Clave Gemini", noKeyMsg, false);
+        speakTextWithSelectedVoice(noKeyMsg);
+        return;
+      }
+
+      // Mostrar de inmediato en pantalla que Gemini recibió la orden y está pensando
+      showGeminiResponseCard(`Tú: "${cleanTranscript}"`, "✨ Gemini está analizando los datos de tu flota...", true);
+
+      try {
+        // 1. Recopilamos TODA la radiografía del sistema en tiempo real sin alterar los datos
+        const totalCobrado = document.getElementById('stat-collected') ? document.getElementById('stat-collected').textContent : '$0.00';
+        const totalGastado = document.getElementById('stat-expenses') ? document.getElementById('stat-expenses').textContent : '$0.00';
+        const gananciaNeta = document.getElementById('stat-net-profit') ? document.getElementById('stat-net-profit').textContent : '$0.00';
+
+        const choferesDetalle = (appState.drivers || []).map(d => {
+          const car = typeof getDriverAssignedCar === 'function' ? getDriverAssignedCar(d.id) : null;
+          const bal = Number(d.balance) || 0;
+          let estadoCuenta = "Al día ($0)";
+          if (bal > 0) estadoCuenta = `Debe $${bal.toFixed(2)}`;
+          if (bal < 0) estadoCuenta = `Saldo a favor de +$${Math.abs(bal).toFixed(2)}`;
+          if (d.billingPaused) estadoCuenta += " (Cobro pausado)";
+          return `- ${d.name}: ${estadoCuenta}, Cuota diaria $${d.dailyRate || 25}, Auto: ${car ? car.model + ' Placa ' + car.plate : 'Sin auto'}, Tel: ${d.phone || 'N/A'}${d.isRentToOwn ? ', Plan Opción a Compra (' + (d.rtoPaidDays || 0) + ' cuotas pagadas)' : ''}`;
+        }).join('\n') || 'Sin choferes registrados.';
+
+        const autosDetalle = (appState.cars || []).map(c => {
+          const nextOil = (Number(c.oilLastKm) || 0) + (Number(c.oilInterval) || 5000);
+          const remKm = nextOil - (Number(c.km) || 0);
+          const drv = (appState.drivers || []).find(d => d.id === c.driverId);
+          const part = (appState.partners || []).find(p => p.id === c.partnerId);
+          return `- ${c.model} (Placa ${c.plate}, Año ${c.year || 2023}): Estado ${c.status}, Odómetro ${c.km || 0} Km, Faltan ${remKm} Km para cambio de aceite, Chofer: ${drv ? drv.name : 'Disponible'}, Socio dueño: ${part ? part.name : 'Propio'}, Seguro vence: ${c.insuranceExpiry || 'N/A'}`;
+        }).join('\n') || 'Sin vehículos registrados.';
+
+        const pagosPendientes = (appState.payments || []).filter(p => !p.status || p.status === 'Pendiente');
+        const resumenPendientes = pagosPendientes.length > 0
+          ? pagosPendientes.map(p => `${p.driverName || 'Chofer'} reportó $${Number(p.amount).toFixed(2)} por ${p.method} (${p.date})`).join('; ')
+          : 'No hay pagos pendientes por aprobar en bandeja.';
+
+        const gastosRecientes = (appState.expenses || []).slice(0, 8).map(e => {
+          const c = (appState.cars || []).find(x => x.id === e.carId);
+          return `${e.category} en ${c ? c.plate : 'Auto'}: $${Number(e.amount).toFixed(2)} (${e.notes || ''}, ${e.date})`;
+        }).join('; ') || 'Sin gastos registrados.';
+
+        const sociosDetalle = (appState.partners || []).map(p => {
+          if (typeof calculatePartnerSettlement === 'function') {
+            const s = calculatePartnerSettlement(p.id);
+            return `- Socio ${p.name} (${p.share || 100}%): Autos [${s.platesLabel}], Cobrado $${s.collected.toFixed(2)}, Gastos $${s.expenses.toFixed(2)}, Pendiente por entregarle hoy: $${s.pendingToPay.toFixed(2)}`;
+          }
+          return `- Socio ${p.name}`;
+        }).join('\n') || 'Sin socios registrados.';
+
+        const systemPrompt = `Eres el Gerente Virtual e Inteligencia Artificial oficial de "${brandingConfig.companyName || 'AutoRent Pro'}", un sistema avanzado de control de flota y alquiler de autos.
+
+CAPACIDADES QUE TIENES (para cuando el usuario te pregunte "¿Qué puedes hacer?" o "¿En qué me ayudas?"):
+- Puedes analizar y responder cualquier pregunta sobre ganancias, cobros, deudas de choferes, saldos a favor y pagos pendientes por aprobar.
+- Conoces el estado de cada auto de la flota, su kilometraje, a qué auto le falta poco para cambio de aceite, cuáles están en taller o alquilados y cuándo vencen sus seguros.
+- Sabes cuánto se ha gastado en taller/mantenimiento y cuánto dinero corresponde liquidar a cada socio inversionista.
+- Puedes dar recomendaciones de negocio, hacer cálculos rápidos y abrir automáticamente la pestaña que el usuario necesite ver en pantalla.
+
+RADIOGRAFÍA EN TIEMPO REAL DEL NEGOCIO AHORA MISMO:
+* Finanzas Globales: Total Cobrado: ${totalCobrado} | Total Gastos: ${totalGastado} | Ganancia Neta: ${gananciaNeta}
+* Bandeja de Pagos Pendientes (${pagosPendientes.length}): ${resumenPendientes}
+* Conductores Registrados:
+${choferesDetalle}
+* Flota de Vehículos y Mantenimiento:
+${autosDetalle}
+* Gastos de Taller Recientes: ${gastosRecientes}
+* Socios y Liquidaciones:
+${sociosDetalle}
+
+PREGUNTA O COMANDO DEL USUARIO: "${cleanTranscript}"
+
+INSTRUCCIÓN DE RESPUESTA:
+Responde de forma conversacional, clara, inteligente, directa y natural en español (en 2 a 4 oraciones concisas).
+Devuelve ÚNICAMENTE un objeto JSON válido con estas 2 llaves (sin bloques markdown ni comillas triples):
+{"respuesta": "tu respuesta hablada aquí", "accion": "dashboard" | "flota" | "choferes" | "taller" | "gastos" | "socios" | "actas" | "ajustes" | "ninguna"}`;
+
+        const savedModel = localStorage.getItem('autorent_gemini_model') || 'gemini-2.0-flash';
+        let savedList = [];
+        try { savedList = JSON.parse(localStorage.getItem('autorent_gemini_models_list') || '[]'); } catch(e) {}
+        
+        // Ponemos gemini-2.0-flash y 1.5-flash primero para evitar la saturación (503) de 2.5-flash
+        const fallbackCandidates = [
+          'gemini-2.0-flash',
+          savedModel,
+          'gemini-2.5-flash',
+          'gemini-2.0-flash-lite',
+          'gemini-1.5-flash',
+          ...savedList.filter(m => m.includes('gemini'))
+        ];
+        const uniqueModels = [...new Set(fallbackCandidates.filter(Boolean))];
+
+        let data = null;
+        let lastErrorText = '';
+
+        for (const modelName of uniqueModels) {
+          try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: systemPrompt }] }],
+                generationConfig: { temperature: 0.3 }
+              })
+            });
+
+            if (response.ok) {
+              data = await response.json();
+              localStorage.setItem('autorent_gemini_model', modelName);
+              break;
+            } else {
+              lastErrorText = `${response.status}: ${await response.text()}`;
+            }
+          } catch (netErr) {
+            lastErrorText = netErr.message;
+          }
+        }
+
+        if (!data || !data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+          throw new Error(lastErrorText || "No se recibió respuesta de Google.");
+        }
+
+        let resultText = data.candidates[0].content.parts[0].text || '';
+        resultText = resultText.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+        let resultObj = { respuesta: resultText, accion: 'ninguna' };
+        try {
+          const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            resultObj = JSON.parse(jsonMatch[0]);
+          }
+        } catch (parseErr) {
+          resultObj = { respuesta: resultText.replace(/[{}"']/g, ''), accion: 'ninguna' };
+        }
+
+        const finalAnswer = resultObj.respuesta || "Listo, aquí tienes la información en pantalla.";
+        lastGeminiSpokenAnswer = finalAnswer;
+
+        // Mostrar la respuesta escrita en la tarjeta flotante de pantalla
+        showGeminiResponseCard(`Gemini respondió:`, finalAnswer, false);
+
+        // Navegar si corresponde
+        const act = (resultObj.accion || '').toLowerCase();
+        if ((act === 'dashboard' || act === 'ganancias') && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-dashboard');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else if (act === 'flota' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-fleet');
+        } else if (act === 'choferes' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-drivers');
+        } else if (act === 'taller' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-dashboard');
+          const alertsContainer = document.getElementById('dashboard-maintenance-alerts');
+          if (alertsContainer) alertsContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (act === 'gastos' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-expenses');
+        } else if (act === 'socios' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-partners');
+        } else if (act === 'actas' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-delivered');
+        } else if (act === 'ajustes' && typeof switchAdminTab === 'function') {
+          switchAdminTab('tab-settings');
+        }
+
+        // Hablar la respuesta
+        speakTextWithSelectedVoice(finalAnswer);
+
+      } catch (err) {
+        console.error("Error en Asistente Gemini:", err);
+        const errMsg = "El servidor de Google está ocupado en este momento. Intenta de nuevo en unos segundos.";
+        showGeminiResponseCard("Aviso de Conexión", errMsg + "\n(" + err.message.substring(0, 90) + ")", false);
+        speakTextWithSelectedVoice(errMsg);
+      }
+    }
   </script>
 </body>
 </html>
