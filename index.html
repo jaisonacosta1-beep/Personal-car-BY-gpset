@@ -2821,7 +2821,6 @@
       partnerPayouts: [],
       inspections: [],
       faultReports: [],
-      deletedPaymentIds: [],
       emergencyContacts: [
         { id: 'sos-1', name: 'Grúa 24/7 Chiriquí & Asistencia', phone: '+507 6800-1122', type: 'Grúa / Remolque', notes: 'Servicio de remolque rápido' },
         { id: 'sos-2', name: 'Aseguradora Nacional (Ajustador)', phone: '+507 6900-3344', type: 'Seguro / Ajustador', notes: 'Llamar de inmediato en colisión' }
@@ -2838,7 +2837,6 @@
         if (!appState.accessLogs) appState.accessLogs = [];
         if (!appState.faultReports) appState.faultReports = [];
         if (!appState.partnerPayouts) appState.partnerPayouts = [];
-        if (!appState.deletedPaymentIds) appState.deletedPaymentIds = [];
         if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
         if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
       } catch(e){}
@@ -3106,39 +3104,6 @@
       return [];
     }
 
-    function getDeletedPaymentsSet() {
-      let localDeleted = [];
-      try {
-        localDeleted = JSON.parse(localStorage.getItem('autorent_deleted_payment_ids') || '[]');
-      } catch (e) {}
-      const stateDeleted = normalizeCloudList(appState.deletedPaymentIds);
-      return new Set([...localDeleted, ...stateDeleted]);
-    }
-
-    function markPaymentIdAsDeleted(paymentId) {
-      if (!paymentId) return;
-      const set = getDeletedPaymentsSet();
-      set.add(paymentId);
-      const arr = Array.from(set).slice(-500);
-      appState.deletedPaymentIds = arr;
-      try {
-        localStorage.setItem('autorent_deleted_payment_ids', JSON.stringify(arr));
-      } catch (e) {}
-    }
-
-    function deduplicatePaymentsList(list) {
-      const deletedSet = getDeletedPaymentsSet();
-      const arr = sortPaymentsNewestFirst(list).filter(p => p && p.id && !deletedSet.has(p.id));
-      const seenIds = new Set();
-      const result = [];
-      for (const p of arr) {
-        if (seenIds.has(p.id)) continue;
-        seenIds.add(p.id);
-        result.push(p);
-      }
-      return result;
-    }
-
     function saveStateAndBroadcast(forceCloudWrite = false) {
       const nameInputEl = document.getElementById('cfg-brand-name');
       if (nameInputEl && nameInputEl.value.trim()) {
@@ -3146,8 +3111,7 @@
       }
       appState.branding = brandingConfig;
       appState.adminCreds = adminCredentials;
-      appState.deletedPaymentIds = Array.from(getDeletedPaymentsSet()).slice(-500);
-      appState.payments = deduplicatePaymentsList(appState.payments);
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
       try {
         localStorage.setItem('autorent_branding_backup', JSON.stringify(brandingConfig));
         localStorage.setItem('autorent_creds_backup', JSON.stringify(adminCredentials));
@@ -3170,8 +3134,8 @@
         }
       }
       
-      if (isFirebaseReady && db) {
-        db.ref('rentFlotaEnterpriseV2').set(sanitizedState).catch(err => console.error('Error sincronizando con Firebase:', err));
+      if (isFirebaseReady && db && (hasInitialCloudSync || forceCloudWrite)) {
+        db.ref('rentFlotaEnterpriseV2').set(sanitizedState).catch(err => console.error(err));
       }
     }
 
@@ -3180,13 +3144,9 @@
 
       db.ref('.info/connected').on('value', (snap) => {
         const badge = document.getElementById('cloud-status-badge');
-        if (!badge) return;
-        if (snap.val() === true) {
+        if (snap.val() === true && badge) {
           badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
           badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-pulse mr-1"></span> Firebase Conectado';
-        } else {
-          badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200';
-          badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 badge-pulse mr-1"></span> Reconectando...';
         }
       });
 
@@ -3194,35 +3154,16 @@
         const cloudData = snapshot.val();
         hasInitialCloudSync = true;
         if (cloudData) {
-          const cloudDeleted = normalizeCloudList(cloudData.deletedPaymentIds);
-          const deletedSet = getDeletedPaymentsSet();
-          cloudDeleted.forEach(id => deletedSet.add(id));
-          const mergedDeletedIds = Array.from(deletedSet).slice(-500);
-          try {
-            localStorage.setItem('autorent_deleted_payment_ids', JSON.stringify(mergedDeletedIds));
-          } catch (e) {}
-
           const cloudPayments = normalizeCloudList(cloudData.payments);
           const localPayments = normalizeCloudList(appState.payments);
           const mergedPaymentsMap = new Map();
-
-          cloudPayments.forEach(p => {
-            if (p && p.id && !deletedSet.has(p.id)) {
+          cloudPayments.forEach(p => { if (p && p.id) mergedPaymentsMap.set(p.id, p); });
+          localPayments.forEach(p => {
+            if (p && p.id && !mergedPaymentsMap.has(p.id) && p.justReportedLocally) {
               mergedPaymentsMap.set(p.id, p);
             }
           });
-
-          const nowMs = Date.now();
-          localPayments.forEach(p => {
-            if (p && p.id && !deletedSet.has(p.id) && !mergedPaymentsMap.has(p.id)) {
-              const ageMs = nowMs - (Number(p.createdAt) || 0);
-              if (p.justReportedLocally && ageMs < 20000) {
-                mergedPaymentsMap.set(p.id, p);
-              }
-            }
-          });
-
-          const mergedPayments = deduplicatePaymentsList(Array.from(mergedPaymentsMap.values()));
+          const mergedPayments = sortPaymentsNewestFirst(Array.from(mergedPaymentsMap.values()));
 
           appState = {
             adminCreds: cloudData.adminCreds || adminCredentials,
@@ -3239,7 +3180,6 @@
             partnerPayouts: normalizeCloudList(cloudData.partnerPayouts),
             inspections: normalizeCloudList(cloudData.inspections),
             faultReports: normalizeCloudList(cloudData.faultReports),
-            deletedPaymentIds: mergedDeletedIds,
             emergencyContacts: normalizeCloudList(cloudData.emergencyContacts).length ? normalizeCloudList(cloudData.emergencyContacts) : appState.emergencyContacts,
             dismissedAlerts: normalizeCloudList(cloudData.dismissedAlerts),
             branding: cloudData.branding || brandingConfig
@@ -3274,7 +3214,6 @@
         if (!currentSession.role) checkUrlParameters();
         if (currentSession.role === 'admin') renderAdminView();
         else if (currentSession.role === 'driver') renderDriverView();
-        else if (currentSession.role === 'partner') renderPartnerView();
       });
     }
 
@@ -3590,62 +3529,46 @@
       return car || null;
     }
 
-    // VERIFICADOR DE NÚMERO DE REFERENCIA DUPLICADO (ESTRICTO E INTELIGENTE)
+    // VERIFICADOR DE NÚMERO DE REFERENCIA DUPLICADO
     function normalizeRefCode(ref) {
       return String(ref || '')
         .trim()
         .toUpperCase()
-        .replace(/^(REF|REFERENCIA|CONFIRMACION|CONF|COMPROBANTE|NRO|NO|NUM|CODIGO|COD|ACH|YAPPY)[:.\-\s#]*/i, '')
-        .replace(/[^A-Z0-9]/g, '');
+        .replace(/^#/, '')
+        .replace(/[\s\-._:]/g, '');
     }
 
     function normalizeRefOcrCanonical(ref) {
       return normalizeRefCode(ref)
         .replace(/[OQ]/g, '0')
         .replace(/[IL]/g, '1')
-        .replace(/Z/g, '2')
-        .replace(/S/g, '5')
-        .replace(/B/g, '8');
-    }
-
-    function findDuplicatePaymentByRef(refStr, excludePaymentId = null) {
-      const clean = normalizeRefCode(refStr);
-      if (!clean || clean.length < 3) return null;
-      const ignored = ['EFECTIVO', 'SR', 'SINREFERENCIA', 'MANUALADMIN', 'COBRODIRECTODECUOTA', 'NA', 'NINGUNA'];
-      if (ignored.includes(clean)) return null;
-
-      const deletedSet = getDeletedPaymentsSet();
-      const cleanCanon = normalizeRefOcrCanonical(refStr);
-      const cleanDigits = clean.replace(/\D/g, '');
-
-      return (appState.payments || []).find(p => {
-        if (!p || !p.id || deletedSet.has(p.id)) return false;
-        if (excludePaymentId && p.id === excludePaymentId) return false;
-        const pClean = normalizeRefCode(p.concept);
-        if (!pClean || pClean.length < 3 || ignored.includes(pClean)) return false;
-
-        if (pClean === clean) return true;
-
-        const pCanon = normalizeRefOcrCanonical(p.concept);
-        if (pCanon === cleanCanon && cleanCanon.length >= 4) return true;
-
-        const pDigits = pClean.replace(/\D/g, '');
-        if (cleanDigits.length >= 5 && pDigits.length >= 5) {
-          if (cleanDigits === pDigits) return true;
-          if (cleanDigits.length >= 6 && pDigits.length >= 6 && (cleanDigits.endsWith(pDigits) || pDigits.endsWith(cleanDigits))) {
-            return true;
-          }
-        }
-
-        if (clean.length >= 5 && pClean.length >= 5 && (pClean.includes(clean) || clean.includes(pClean))) {
-          return true;
-        }
-        return false;
-      }) || null;
+        .replace(/S/g, '5');
     }
 
     function isReferenceDuplicated(refStr, excludePaymentId = null) {
-      return !!findDuplicatePaymentByRef(refStr, excludePaymentId);
+      const clean = normalizeRefCode(refStr);
+      if (!clean || clean.length < 4) return false;
+      const ignored = ['EFECTIVO', 'SR', 'SINREFERENCIA', 'MANUALADMIN', 'COBRODIRECTODECUOTA'];
+      if (ignored.includes(clean)) return false;
+
+      const cleanCanon = normalizeRefOcrCanonical(refStr);
+      const cleanDigits = cleanCanon.replace(/\D/g, '');
+
+      return (appState.payments || []).some(p => {
+        if (!p || (excludePaymentId && p.id === excludePaymentId)) return false;
+        const pClean = normalizeRefCode(p.concept);
+        if (!pClean || pClean.length < 4 || ignored.includes(pClean)) return false;
+        if (pClean === clean) return true;
+
+        const pCanon = normalizeRefOcrCanonical(p.concept);
+        if (pCanon === cleanCanon) return true;
+
+        const pDigits = pCanon.replace(/\D/g, '');
+        if (cleanDigits.length >= 6 && pDigits.length >= 6 && cleanDigits === pDigits) {
+          return true;
+        }
+        return false;
+      });
     }
 
     function updateReferenceDuplicateBadge(refValue) {
@@ -3660,13 +3583,12 @@
         return false;
       }
 
-      const matchedDup = findDuplicatePaymentByRef(refValue);
-      const duplicated = !!matchedDup;
+      const duplicated = isReferenceDuplicated(refValue);
       badge.classList.remove('hidden');
 
       if (duplicated) {
         badge.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-600 text-white badge-pulse';
-        badge.textContent = `⚠️ YA USADA (${matchedDup.date || 'Registrada'})`;
+        badge.textContent = '⚠️ REFERENCIA DUPLICADA';
         input.classList.add('border-rose-500', 'bg-rose-50', 'text-rose-700');
         input.classList.remove('border-emerald-500');
         return true;
@@ -3845,70 +3767,11 @@
       const progressPct = document.getElementById('ia-scan-percentage');
 
       if (statusText) statusText.textContent = "Verificando monto y referencia...";
-      if (progressBar) progressBar.style.width = '30%';
-      if (progressPct) progressPct.textContent = '30%';
+      if (progressBar) progressBar.style.width = '35%';
+      if (progressPct) progressPct.textContent = '35%';
 
       let detectedAmount = null;
       let detectedRef = null;
-
-      // PASO 1: Si hay Clave Gemini configurada, usar Visión IA primero para lectura exacta de cualquier banco o Yappy
-      const geminiKey = ((adminCredentials && adminCredentials.geminiApiKey) ? adminCredentials.geminiApiKey : (localStorage.getItem('autorent_gemini_key') || '')).trim().replace(/[\s\n\r]/g, '');
-      if (geminiKey && imageBlobOrBase64 && imageBlobOrBase64.startsWith('data:image')) {
-        try {
-          if (statusText) statusText.textContent = "IA Gemini leyendo comprobante...";
-          if (progressBar) progressBar.style.width = '55%';
-          if (progressPct) progressPct.textContent = '55%';
-
-          const base64Data = imageBlobOrBase64.split(',')[1];
-          const mimeMatch = imageBlobOrBase64.match(/:(.*?);/);
-          const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-          const visionPrompt = 'Analiza este comprobante de pago bancario o Yappy (Panamá). Extrae el monto pagado en números decimales y el código o número de confirmación/referencia completo (ejemplo #JJZGL-68963133 o número de operación). Devuelve ÚNICAMENTE este JSON exacto sin markdown: {"monto": 25.00, "referencia": "#CODIGO"}';
-
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 6500);
-          const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: visionPrompt },
-                  { inlineData: { mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: { temperature: 0.0, maxOutputTokens: 150 }
-            })
-          });
-          clearTimeout(timer);
-
-          if (gRes.ok) {
-            const gData = await gRes.json();
-            const txt = (((gData.candidates || [])[0]?.content?.parts || [])[0]?.text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-            const jMatch = txt.match(/\{[\s\S]*\}/);
-            if (jMatch) {
-              const parsed = JSON.parse(jMatch[0]);
-              const mVal = parseFloat(String(parsed.monto || '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(mVal) && mVal >= 1 && mVal <= 10000) {
-                detectedAmount = mVal;
-              }
-              if (parsed.referencia && String(parsed.referencia).trim().length >= 4) {
-                let cleanR = String(parsed.referencia).trim().toUpperCase();
-                if (!cleanR.startsWith('#')) cleanR = '#' + cleanR.replace(/^#/, '');
-                detectedRef = cleanR;
-              }
-            }
-          }
-        } catch (geminiErr) {
-          console.warn('Usando lector OCR local de respaldo:', geminiErr);
-        }
-      }
-
-      if (detectedAmount && detectedRef) {
-        if (progressBar) progressBar.style.width = '100%';
-        if (progressPct) progressPct.textContent = '100%';
-        return { detectedAmount, detectedRef };
-      }
 
       try {
         const img = new Image();
@@ -4050,8 +3913,8 @@
         }
         ctx.putImageData(bodyData, 0, bodyTopY);
 
-        if (progressBar) progressBar.style.width = '78%';
-        if (progressPct) progressPct.textContent = '78%';
+        if (progressBar) progressBar.style.width = '68%';
+        if (progressPct) progressPct.textContent = '68%';
 
         const fastDataUrl = scanCanvas.toDataURL('image/png');
         const worker = await getFastOcrWorker();
@@ -4077,13 +3940,11 @@
           .replace(/\.([0-9])([OoQD])/g, '.$10');
 
         // 1. Buscar código estilo Yappy con guion (#JJZGL-68963133)
-        if (!detectedRef) {
-          const yappyHyphenRegex = /#?\b([A-Z0-9]{3,10})\s*[-_.]\s*([0-9A-Z]{5,14})\b/gi;
-          for (const m of refSearchText.matchAll(yappyHyphenRegex)) {
-            if (/[A-Z]/i.test(m[1]) && /\d/.test(m[2])) {
-              detectedRef = '#' + (m[1] + '-' + m[2]).replace(/\s+/g, '').toUpperCase();
-              break;
-            }
+        const yappyHyphenRegex = /#?\b([A-Z0-9]{3,8})\s*[-_.]\s*([0-9]{5,12})\b/gi;
+        for (const m of refSearchText.matchAll(yappyHyphenRegex)) {
+          if (/[A-Z]/i.test(m[1])) {
+            detectedRef = '#' + (m[1] + '-' + m[2]).replace(/\s+/g, '').toUpperCase();
+            break;
           }
         }
 
@@ -4124,74 +3985,77 @@
         }
 
         // 3. BÚSQUEDA UNIVERSAL DE MONTO PARA CUALQUIER BANCO, TRANSFERENCIA, ACH O YAPPY
-        if (!detectedAmount) {
-          const parseCleanAmount = (rawStr) => {
-            if (!rawStr) return null;
-            let s = String(rawStr).trim()
-              .replace(/[Ss](\d)/g, '5$1')
-              .replace(/[Il|](\d)/g, '1$1')
-              .replace(/\s+/g, '');
-            if (s.includes(',') && s.includes('.')) {
-              if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
-                s = s.replace(/\./g, '').replace(',', '.');
-              } else {
-                s = s.replace(/,/g, '');
-              }
-            } else if (s.includes(',')) {
-              const parts = s.split(',');
-              if (parts[parts.length - 1].length === 2) s = s.replace(',', '.');
-              else s = s.replace(/,/g, '');
+        const parseCleanAmount = (rawStr) => {
+          if (!rawStr) return null;
+          let s = String(rawStr).trim()
+            .replace(/[Ss](\d)/g, '5$1')
+            .replace(/[Il|](\d)/g, '1$1')
+            .replace(/\s+/g, '');
+          if (s.includes(',') && s.includes('.')) {
+            if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+              s = s.replace(/\./g, '').replace(',', '.');
+            } else {
+              s = s.replace(/,/g, '');
             }
-            if (/^[58][1-9][0-9]\.[0-9]{2}$/.test(s)) {
-              s = s.substring(1);
-            }
-            const num = parseFloat(s);
-            return (!isNaN(num) && num >= 1 && num <= 10000) ? num : null;
-          };
+          } else if (s.includes(',')) {
+            const parts = s.split(',');
+            if (parts[parts.length - 1].length === 2) s = s.replace(',', '.');
+            else s = s.replace(/,/g, '');
+          }
+          // Si el signo "$" al inicio fue leído como un "5" u "8" pegado al monto (ej. $15.00 -> 515.00, $25.00 -> 525.00)
+          if (/^[58][1-9][0-9]\.[0-9]{2}$/.test(s)) {
+            s = s.substring(1);
+          }
+          const num = parseFloat(s);
+          return (!isNaN(num) && num >= 1 && num <= 10000) ? num : null;
+        };
 
-          const currencyPrefixRegex = /(?:b\s*[\/\\|lI1]\s*\.?|8\s*\/\s*\.?|usd|us\$|pab|[\$S])\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]{1,4}[.,][0-9]{2}|[0-9]{1,3}\s+[0-9]{2})/gi;
-          for (const m of combinedText.matchAll(currencyPrefixRegex)) {
-            const normalized = m[1].trim().replace(/\s+/, '.');
-            const val = parseCleanAmount(normalized);
+        // 3A. Buscar por símbolo de moneda ($, S, B/., USD)
+        const currencyPrefixRegex = /(?:b\s*[\/\\|lI1]\s*\.?|8\s*\/\s*\.?|usd|us\$|pab|[\$S])\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2}|[0-9]{1,4}[.,][0-9]{2}|[0-9]{1,3}\s+[0-9]{2})/gi;
+        for (const m of combinedText.matchAll(currencyPrefixRegex)) {
+          const normalized = m[1].trim().replace(/\s+/, '.');
+          const val = parseCleanAmount(normalized);
+          if (val && val >= 1) {
+            detectedAmount = val;
+            break;
+          }
+        }
+
+        // 3B. Buscar después de palabras clave bancarias ("Transferiste", "Enviaste", "Pagaste", "Listo", "Monto", "Total", "Yappy")
+        if (!detectedAmount) {
+          const bankKeywordAmountRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|valor|total|pagado|transferido|debitado|enviado|abono|cantidad|yappy)[\s\S]{0,80}?([0-9]{1,4}[.,][0-9]{2})/gi;
+          for (const m of combinedText.matchAll(bankKeywordAmountRegex)) {
+            const val = parseCleanAmount(m[1]);
             if (val && val >= 1) {
               detectedAmount = val;
               break;
             }
           }
+        }
 
-          if (!detectedAmount) {
-            const bankKeywordAmountRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|valor|total|pagado|transferido|debitado|enviado|abono|cantidad|yappy)[\s\S]{0,80}?([0-9]{1,4}[.,][0-9]{2})/gi;
-            for (const m of combinedText.matchAll(bankKeywordAmountRegex)) {
-              const val = parseCleanAmount(m[1]);
-              if (val && val >= 1) {
-                detectedAmount = val;
-                break;
-              }
+        // 3C. Cualquier número con punto y 2 decimales (ej. 15.00, 25.00, 50.00)
+        if (!detectedAmount) {
+          const anyDecimalRegex = /(?:^|[^0-9.])([0-9]{1,4}\.[0-9]{2})/g;
+          for (const m of combinedText.matchAll(anyDecimalRegex)) {
+            const val = parseCleanAmount(m[1]);
+            if (val && val >= 1) {
+              detectedAmount = val;
+              break;
             }
           }
+        }
 
-          if (!detectedAmount) {
-            const anyDecimalRegex = /(?:^|[^0-9.])([0-9]{1,4}\.[0-9]{2})/g;
-            for (const m of combinedText.matchAll(anyDecimalRegex)) {
-              const val = parseCleanAmount(m[1]);
-              if (val && val >= 1) {
-                detectedAmount = val;
-                break;
-              }
+        // 3D. Respaldo si el OCR leyó un espacio en vez del punto decimal o lo omitió antes de "00" (ej. "$15 00" o "Transferiste 1500")
+        if (!detectedAmount) {
+          const dotlessCentsRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|total|b\s*[\/\\|lI1]\s*\.?|usd|[\$S])[\s\S]{0,30}?\b([58]?[1-9][0-9]{0,2})\s*00\b/gi;
+          const dotlessMatch = dotlessCentsRegex.exec(combinedText);
+          if (dotlessMatch && dotlessMatch[1]) {
+            let rawInt = dotlessMatch[1].trim();
+            if (rawInt.length === 3 && (rawInt.startsWith('5') || rawInt.startsWith('8'))) {
+              rawInt = rawInt.substring(1);
             }
-          }
-
-          if (!detectedAmount) {
-            const dotlessCentsRegex = /(?:transferiste|enviaste|pagaste|listo|monto|importe|total|b\s*[\/\\|lI1]\s*\.?|usd|[\$S])[\s\S]{0,30}?\b([58]?[1-9][0-9]{0,2})\s*00\b/gi;
-            const dotlessMatch = dotlessCentsRegex.exec(combinedText);
-            if (dotlessMatch && dotlessMatch[1]) {
-              let rawInt = dotlessMatch[1].trim();
-              if (rawInt.length === 3 && (rawInt.startsWith('5') || rawInt.startsWith('8'))) {
-                rawInt = rawInt.substring(1);
-              }
-              const val = parseFloat(rawInt);
-              if (val >= 1 && val <= 999) detectedAmount = val;
-            }
+            const val = parseFloat(rawInt);
+            if (val >= 1 && val <= 999) detectedAmount = val;
           }
         }
 
@@ -4602,7 +4466,6 @@
       const p = appState.payments.find(x => x.id === paymentId);
       if (!p || p.status === 'Aprobado') return;
       p.status = 'Aprobado';
-      delete p.justReportedLocally;
 
       const driver = appState.drivers.find(d => d.id === p.driverId);
       const car = getDriverAssignedCar(p.driverId);
@@ -4620,17 +4483,16 @@
         car.km = Number(p.reportedKm);
       }
 
-      saveStateAndBroadcast(true);
+      saveStateAndBroadcast();
       renderAdminView();
       showToast('Pago aprobado y descontado del saldo del conductor', 'success');
     }
 
     function rejectPayment(paymentId) {
-      markPaymentIdAsDeleted(paymentId);
-      appState.payments = (appState.payments || []).filter(x => x && x.id !== paymentId);
-      saveStateAndBroadcast(true);
+      appState.payments = appState.payments.filter(x => x.id !== paymentId);
+      saveStateAndBroadcast();
       renderAdminView();
-      showToast('Reporte de pago rechazado y eliminado permanentemente', 'warning');
+      showToast('Reporte de pago rechazado y retirado de la bandeja', 'warning');
     }
 
     function openEditPaymentModal(paymentId) {
@@ -4649,12 +4511,11 @@
           const drv = appState.drivers.find(d => d.id === p.driverId);
           if (drv) drv.balance = Number(((Number(drv.balance) || 0) + Number(p.amount || 0)).toFixed(2));
         }
-        markPaymentIdAsDeleted(p.id);
-        appState.payments = (appState.payments || []).filter(x => x && x.id !== p.id);
-        saveStateAndBroadcast(true);
+        appState.payments = appState.payments.filter(x => x.id !== p.id);
+        saveStateAndBroadcast();
         closeModal('modal-edit-payment');
         renderAdminView();
-        showToast('Pago eliminado permanentemente', 'info');
+        showToast('Pago eliminado', 'info');
       };
 
       openModal('modal-edit-payment');
@@ -5770,9 +5631,8 @@
         const ocrResult = await processReceiptWithAI(ocrHighRes);
         if (currentSession.driverId !== uploaderId) return;
 
-        const deletedSet = getDeletedPaymentsSet();
         const matchedImgPayment = (appState.payments || []).find(p =>
-          p && p.id && !deletedSet.has(p.id) && (
+          p && (
             (p.fingerprint && p.fingerprint === tempCompressedReceipt.fingerprint) ||
             (p.receiptImage && p.receiptImage !== DEFAULT_PLACEHOLDER_RECEIPT && p.receiptImage === lightStorageImg)
           )
@@ -5791,30 +5651,27 @@
           updateReferenceDuplicateBadge(ocrResult.detectedRef);
         }
 
-        const currentRefValue = (ocrResult.detectedRef || document.getElementById('driver-input-ref').value || '').trim();
-        const matchedRefPayment = currentRefValue ? findDuplicatePaymentByRef(currentRefValue) : null;
-        const isRefDup = !!matchedRefPayment;
+        const currentRefValue = ocrResult.detectedRef || document.getElementById('driver-input-ref').value;
+        const isRefDup = currentRefValue ? isReferenceDuplicated(currentRefValue) : false;
         const statusText = document.getElementById('ia-scan-status-text');
 
         if (isImgDup || isRefDup) {
-          const dupRecord = matchedRefPayment || matchedImgPayment;
-          const usedRefLabel = currentRefValue || (dupRecord && dupRecord.concept) || '';
-          const usedDateLabel = (dupRecord && dupRecord.date) ? ` el día ${dupRecord.date}` : '';
-          if (statusText) statusText.textContent = `⚠️ ¡Atención! Referencia ${usedRefLabel} ya utilizada.`;
+          const usedRefLabel = currentRefValue ? ` (${currentRefValue})` : '';
+          if (statusText) statusText.textContent = `⚠️ ¡Atención! Captura o referencia${usedRefLabel} ya fue utilizada.`;
           if (scanBanner) {
             scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
             scanBanner.innerHTML = `
               <div class="flex items-start space-x-2.5">
                 <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">🚨</div>
                 <div class="text-xs">
-                  <p class="font-black text-rose-800 uppercase">¡Comprobante o Referencia Duplicada!</p>
-                  <p class="font-semibold text-rose-700 mt-0.5">El número de referencia <strong>${usedRefLabel || 'de esta imagen'}</strong> ya fue registrado${usedDateLabel}. No se permite usar la misma referencia dos veces.</p>
+                  <p class="font-black text-rose-800 uppercase">¡Captura o Referencia Ya Utilizada!</p>
+                  <p class="font-semibold text-rose-700 mt-0.5">El comprobante o número de referencia <strong>${currentRefValue || 'de esta imagen'}</strong> ya fue registrado anteriormente. No se permite enviar la misma captura dos veces.</p>
                 </div>
               </div>
             `;
             scanBanner.classList.remove('hidden');
           }
-          showToast(`🚫 Referencia duplicada (${usedRefLabel}): ya fue registrada anteriormente`, 'error');
+          showToast(`🚫 Captura repetida: La referencia ${currentRefValue || ''} ya fue utilizada`, 'error');
           if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
             speakTextWithSelectedVoice('Atención. Esta captura o número de referencia ya fue utilizada anteriormente.');
           }
@@ -5880,17 +5737,9 @@
         return;
       }
 
-      if (!isCash && normalizeRefCode(ref).length < 4) {
-        showToast('Ingresa un número de confirmación o referencia válido (mínimo 4 caracteres)', 'warning');
-        document.getElementById('driver-input-ref').focus();
-        return;
-      }
-
-      const deletedSet = getDeletedPaymentsSet();
-      const matchedRefPayment = !isCash ? findDuplicatePaymentByRef(ref) : null;
-      const dupRef = !!matchedRefPayment;
+      const dupRef = !isCash && isReferenceDuplicated(ref);
       const dupImg = !isCash && tempCompressedReceipt && (appState.payments || []).some(p =>
-        p && p.id && !deletedSet.has(p.id) && (
+        p && (
           (p.fingerprint && p.fingerprint === tempCompressedReceipt.fingerprint) ||
           (p.receiptImage && p.receiptImage !== DEFAULT_PLACEHOLDER_RECEIPT && p.receiptImage === tempCompressedReceipt.base64)
         )
@@ -5898,7 +5747,6 @@
 
       if (dupRef || dupImg) {
         updateReferenceDuplicateBadge(ref);
-        const dupDateInfo = (matchedRefPayment && matchedRefPayment.date) ? ` (registrado el ${matchedRefPayment.date})` : '';
         const scanBanner = document.getElementById('ocr-scan-result-banner');
         if (scanBanner) {
           scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
@@ -5906,16 +5754,16 @@
             <div class="flex items-start space-x-2.5">
               <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">🚨</div>
               <div class="text-xs">
-                <p class="font-black text-rose-800 uppercase">¡Envío Bloqueado: Referencia Ya Utilizada!</p>
-                <p class="font-semibold text-rose-700 mt-0.5">El número de referencia <strong>${ref || ''}</strong>${dupDateInfo} o esta captura ya existe en el sistema. Sube un comprobante nuevo.</p>
+                <p class="font-black text-rose-800 uppercase">¡Envío Bloqueado: Comprobante Ya Utilizado!</p>
+                <p class="font-semibold text-rose-700 mt-0.5">Esta captura de pantalla o el número de referencia <strong>${ref || ''}</strong> ya fue registrado anteriormente. Sube un comprobante válido.</p>
               </div>
             </div>
           `;
           scanBanner.classList.remove('hidden');
         }
-        showToast(`🚫 Bloqueado: La referencia ${ref || ''} ya fue utilizada anteriormente`, 'error');
+        showToast('🚫 No permitido: Esta captura o número de referencia ya fue utilizada anteriormente', 'error');
         if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
-          speakTextWithSelectedVoice('No se puede enviar el reporte. Este número de referencia ya fue utilizado anteriormente.');
+          speakTextWithSelectedVoice('No se puede enviar el reporte. Esta captura o número de referencia ya fue utilizada anteriormente.');
         }
         return;
       }
@@ -8892,6 +8740,1232 @@ Devuelve ÚNICAMENTE un objeto JSON válido con estas 2 llaves (sin bloques mark
         speakTextWithSelectedVoice(errMsg);
       }
     }
+  </script>
+
+  <!-- ========================================================================= -->
+  <!-- MÓDULO AISLADO: ACTA DE DAÑO + IA VERIFICADORA DE CÉDULA + ABONOS AL DAÑO -->
+  <!-- ========================================================================= -->
+  <div id="modal-admin-damage-agreement" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-rose-200 max-h-[92vh] overflow-y-auto no-scrollbar space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center font-black shadow-sm">
+            📋
+          </div>
+          <div>
+            <h3 class="font-black text-slate-900 text-base" id="dmg-modal-admin-title">Acta y Contrato de Responsabilidad por Daño</h3>
+            <p class="text-[11px] text-slate-500">Configura el contrato, sube fotos del daño y controla los abonos al monto cotizado.</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-admin-damage-agreement')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <form id="form-admin-damage-agreement" class="space-y-4">
+        <input type="hidden" id="dmg-admin-driver-id" value="">
+
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 bg-rose-50/60 p-3.5 rounded-2xl border border-rose-200">
+          <div class="sm:col-span-7">
+            <label class="block text-[11px] font-black text-rose-950 mb-1">Título / Cláusula del Acta de Daño</label>
+            <input type="text" id="dmg-admin-title-input" required placeholder="Ej. CLÁUSULA SEXTA: ACEPTACIÓN DE DAÑO AL VEHÍCULO" class="w-full text-xs font-bold p-2.5 rounded-xl border border-rose-300 bg-white">
+          </div>
+          <div class="sm:col-span-5">
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[11px] font-black text-rose-950">Monto de Reparación ($)</label>
+              <label class="inline-flex items-center cursor-pointer text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
+                <input type="checkbox" id="dmg-admin-cost-pending" onchange="toggleDamageCostPendingUI(this.checked)" class="w-3.5 h-3.5 text-amber-600 rounded mr-1">
+                <span>⏳ Por cotizar</span>
+              </label>
+            </div>
+            <input type="number" step="0.01" id="dmg-admin-cost-input" placeholder="Ej. 180.00" class="w-full text-xs font-black p-2.5 rounded-xl border border-rose-300 bg-white">
+            <p id="dmg-admin-cost-pending-hint" class="hidden text-[10px] font-bold text-amber-800 mt-1">
+              El chofer firmará hoy aceptando el daño y podrás agregar el monto cotizado después sin perder su firma.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-black text-slate-800">Texto del Contrato / Reconocimiento del Daño Ocasionado</label>
+            <button type="button" onclick="fillDefaultDamageContractText()" class="text-[11px] font-bold text-indigo-600 hover:underline">
+              ✨ Autocompletar Cláusula Sexta
+            </button>
+          </div>
+          <textarea id="dmg-admin-contract-text" rows="4" required placeholder="Redacta aquí el texto donde el conductor reconoce el daño ocasionado al vehículo..." class="w-full text-xs leading-relaxed p-3 rounded-2xl border border-slate-300 bg-white font-medium"></textarea>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-black text-slate-800 uppercase">📸 Fotos del Daño y/o Factura de Cotización</span>
+            <label class="cursor-pointer px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-xs">
+              + Subir Foto del Daño / Cotización
+              <input type="file" id="dmg-admin-photo-input" accept="image/*" class="hidden">
+            </label>
+          </div>
+          <div id="dmg-admin-photos-gallery" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300 min-h-[82px]"></div>
+        </div>
+
+        <!-- PANEL DE CONTROL DE ABONOS AL DAÑO (ADMIN) -->
+        <div id="dmg-admin-payments-section" class="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-black text-indigo-950 uppercase">💳 Control de Abonos al Daño del Vehículo</h4>
+              <p class="text-[11px] text-indigo-700" id="dmg-admin-balance-summary">Cotizado: $0.00 · Abonado: $0.00 · Resta: $0.00</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
+            <div class="sm:col-span-4">
+              <input type="number" step="0.01" id="dmg-admin-new-pay-amount" placeholder="Monto abono ($)" class="w-full text-xs font-black p-2 rounded-xl border border-indigo-300 bg-white">
+            </div>
+            <div class="sm:col-span-5">
+              <input type="text" id="dmg-admin-new-pay-note" placeholder="Método / Ref (ej. Yappy o Efectivo)" class="w-full text-xs p-2 rounded-xl border border-indigo-300 bg-white">
+            </div>
+            <div class="sm:col-span-3">
+              <button type="button" onclick="addAdminDirectDamagePayment()" class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-xs">
+                + Registrar Abono
+              </button>
+            </div>
+          </div>
+
+          <div id="dmg-admin-payments-list" class="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar text-xs"></div>
+        </div>
+
+        <!-- Vista de la Firma y Cédula si el conductor ya lo firmó -->
+        <div id="dmg-admin-signed-preview" class="hidden p-4 rounded-2xl bg-emerald-50/80 border-2 border-emerald-300 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-black text-emerald-950 uppercase flex items-center">
+              ✅ Documento Firmado y Cédula Verificada por IA
+            </span>
+            <span id="dmg-admin-signed-date" class="text-[11px] font-bold text-emerald-800 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200"></span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="p-3 bg-white rounded-xl border border-emerald-200 text-center">
+              <span class="text-[10px] font-black text-slate-500 uppercase block mb-1.5">🪪 Foto de Cédula del Conductor</span>
+              <img id="dmg-admin-idphoto-img" src="" alt="Cédula" onclick="openDirectPhotoViewer(this.src, 'Cédula del Conductor - Acta de Daño')" class="max-h-28 mx-auto rounded-lg border border-slate-200 object-contain cursor-pointer">
+            </div>
+            <div class="p-3 bg-white rounded-xl border border-emerald-200 text-center">
+              <span class="text-[10px] font-black text-slate-500 uppercase block mb-1.5">✍️ Firma de Aceptación del Conductor</span>
+              <img id="dmg-admin-sig-img" src="" alt="Firma" onclick="openDirectPhotoViewer(this.src, 'Firma del Conductor - Acta de Daño')" class="max-h-28 mx-auto rounded-lg border border-slate-200 object-contain bg-white cursor-pointer">
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <label class="inline-flex items-center cursor-pointer text-[11px] font-bold text-rose-700 hover:underline">
+              <input type="checkbox" id="dmg-admin-request-resign" class="w-3.5 h-3.5 text-rose-600 rounded mr-1.5">
+              <span>Solicitar que el conductor vuelva a firmar desde cero (Opcional)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap justify-between items-center gap-2 pt-3 border-t border-slate-100">
+          <button type="button" id="btn-delete-damage-agreement" onclick="deleteDriverDamageAgreement()" class="hidden px-3.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-xs">
+            🗑️ Borrar Acta de Daño
+          </button>
+          <div class="flex items-center space-x-2 ml-auto">
+            <button type="button" onclick="closeModal('modal-admin-damage-agreement')" class="px-4 py-2 text-xs font-bold text-slate-600">Cancelar</button>
+            <button type="submit" class="px-5 py-2.5 rounded-xl custom-primary-bg text-white font-black text-xs shadow-md">
+              Guardar Acta / Cotización
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Estado temporal aislado para el módulo de Acta de Daño, Verificación de Cédula con IA y Abonos
+    let tempAdminDamagePhotos = [];
+    let tempDriverDamageIdPhoto = '';
+    let tempDriverDamageIdVerified = false;
+    let tempDriverDamageIdMessage = '';
+    let tempDriverDamagePaymentPhoto = '';
+    let isDrawingDamageSig = false;
+    let damageSigHasStrokes = false;
+
+    // Función auxiliar de distancia de edición (Levenshtein) para tolerar errores de ortografía en nombres/apellidos
+    function calculateWordSimilarity(a, b) {
+      const s1 = String(a || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      const s2 = String(b || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      if (!s1 || !s2) return 0;
+      if (s1 === s2 || s1.includes(s2) || s2.includes(s1)) return 1;
+      const costs = [];
+      for (let i = 0; i <= s1.length; i++) {
+        let lastValue = i;
+        for (let j = 0; j <= s2.length; j++) {
+          if (i === 0) costs[j] = j;
+          else if (j > 0) {
+            let newValue = costs[j - 1];
+            if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+              newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+            }
+            costs[j - 1] = lastValue;
+            lastValue = newValue;
+          }
+        }
+        if (i > 0) costs[s2.length] = lastValue;
+      }
+      const maxLen = Math.max(s1.length, s2.length);
+      return maxLen > 0 ? (maxLen - costs[s2.length]) / maxLen : 0;
+    }
+
+    // Compara flexiblemente si el texto extraído de la cédula contiene al menos el nombre y el apellido del conductor
+    function checkFlexibleNameAndLastNameMatch(registeredFullName, extractedDocumentText) {
+      const cleanReg = String(registeredFullName || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 3 && !['del', 'los', 'las', 'por', 'con', 'san'].includes(w));
+
+      const cleanDocWords = String(extractedDocumentText || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 3);
+
+      if (cleanReg.length === 0) return { matched: true, matchedTokens: [] };
+
+      const matchedTokens = [];
+      for (const regWord of cleanReg) {
+        const found = cleanDocWords.some(docWord => calculateWordSimilarity(regWord, docWord) >= 0.72);
+        if (found) matchedTokens.push(regWord);
+      }
+
+      const requiredMatches = cleanReg.length >= 2 ? 2 : 1;
+      return {
+        matched: matchedTokens.length >= requiredMatches,
+        matchedTokens,
+        requiredMatches
+      };
+    }
+
+    // Verificador Inteligente de Cédula (Gemini Vision + Respaldo OCR Local)
+    async function verifyDriverIdCardWithAI(base64Img, driverName) {
+      const apiKey = ((adminCredentials && adminCredentials.geminiApiKey) ? adminCredentials.geminiApiKey : (localStorage.getItem('autorent_gemini_key') || '')).trim().replace(/[\s\n\r]/g, '');
+
+      // 1. Intentar con Gemini Vision si hay API Key configurada
+      if (apiKey) {
+        try {
+          const base64Data = base64Img.split(',')[1];
+          const mimeMatch = base64Img.match(/:(.*?);/);
+          const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+
+          const prompt = `Analiza esta imagen.
+1. Verifica si la foto muestra un documento de identidad real (cédula de identidad, documento nacional o licencia de conducir).
+2. Lee el nombre completo que aparece en el documento y compáralo de forma flexible con el conductor registrado: "${driverName}".
+REGLA IMPORTANTE: Debe coincidir al menos el nombre y un apellido sin importar el orden (puede estar primero el apellido y luego el nombre) y tolerando pequeños errores ortográficos o letras mal escritas.
+Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
+{"esDocumento": true/false, "nombreLeido": "nombre leído en la foto", "coincidePersona": true/false, "motivo": "explicación breve"}`;
+
+          const modelsToTry = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+          for (const modelName of modelsToTry) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 9500);
+            try {
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [
+                      { text: prompt },
+                      { inlineData: { mimeType, data: base64Data } }
+                    ]
+                  }],
+                  generationConfig: { temperature: 0.1, maxOutputTokens: 250 }
+                }),
+                signal: controller.signal
+              });
+              clearTimeout(timer);
+
+              if (res.ok) {
+                const data = await res.json();
+                const rawTxt = ((data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join(' ')).replace(/```json/gi, '').replace(/```/g, '').trim();
+                const jsonMatch = rawTxt.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  if (!parsed.esDocumento) {
+                    return {
+                      valid: false,
+                      message: `❌ La imagen no parece ser una cédula o licencia válida (${parsed.motivo || 'Sube una foto clara de tu cédula'}).`
+                    };
+                  }
+                  const localCheck = checkFlexibleNameAndLastNameMatch(driverName, parsed.nombreLeido || '');
+                  if (parsed.coincidePersona || localCheck.matched) {
+                    return {
+                      valid: true,
+                      message: `✅ Cédula verificada por IA: Coincide con ${parsed.nombreLeido || driverName}.`
+                    };
+                  } else {
+                    return {
+                      valid: false,
+                      message: `❌ El nombre en la cédula (${parsed.nombreLeido || 'No coincide'}) no corresponde al conductor registrado (${driverName}).`
+                    };
+                  }
+                }
+              }
+            } catch (e) {
+              clearTimeout(timer);
+            }
+          }
+        } catch (err) {
+          console.warn('Pasando a verificación OCR local de cédula:', err);
+        }
+      }
+
+      // 2. Respaldo con OCR local (Tesseract) si no hay clave Gemini o si el servidor tardó
+      try {
+        const worker = (typeof getFastOcrWorker === 'function') ? await getFastOcrWorker() : null;
+        const ocrRes = worker ? await worker.recognize(base64Img) : await Tesseract.recognize(base64Img, 'spa');
+        const rawText = (ocrRes && ocrRes.data && ocrRes.data.text) ? ocrRes.data.text : '';
+        const nameCheck = checkFlexibleNameAndLastNameMatch(driverName, rawText);
+
+        if (nameCheck.matched) {
+          return {
+            valid: true,
+            message: `✅ Cédula verificada: Nombre y apellido coinciden (${nameCheck.matchedTokens.join(' ').toUpperCase()}).`
+          };
+        } else {
+          return {
+            valid: false,
+            message: `❌ No se logró verificar que la cédula pertenezca a "${driverName}". Asegúrate de tomar una foto clara donde se lean tu nombre y apellido.`
+          };
+        }
+      } catch (ocrErr) {
+        return {
+          valid: false,
+          message: '❌ No se pudo leer la imagen. Toma una foto más clara de tu cédula.'
+        };
+      }
+    }
+
+    // Cálculo de montos cotizados, abonados y saldo restante del daño
+    function getDamageFinancialSummary(dmg) {
+      if (!dmg) return { isPendingCost: true, totalCost: 0, paidAmount: 0, pendingOfferAmount: 0, remaining: 0, isFullyPaid: false, percent: 0 };
+      const isPendingCost = !!(dmg.costPending || !dmg.estimatedCost || Number(dmg.estimatedCost) <= 0);
+      const totalCost = isPendingCost ? 0 : (Number(dmg.estimatedCost) || 0);
+      const payments = Array.isArray(dmg.payments) ? dmg.payments : [];
+
+      const paidAmount = payments
+        .filter(p => p.status === 'Aprobado')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const pendingOfferAmount = payments
+        .filter(p => p.status !== 'Aprobado')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const remaining = isPendingCost ? 0 : Math.max(0, Number((totalCost - paidAmount).toFixed(2)));
+      const isFullyPaid = !isPendingCost && totalCost > 0 && remaining <= 0.01;
+      const percent = (!isPendingCost && totalCost > 0) ? Math.min(100, Math.round((paidAmount / totalCost) * 100)) : 0;
+
+      return { isPendingCost, totalCost, paidAmount, pendingOfferAmount, remaining, isFullyPaid, percent, payments };
+    }
+
+    function toggleDamageCostPendingUI(isPending) {
+      const costInput = document.getElementById('dmg-admin-cost-input');
+      const hint = document.getElementById('dmg-admin-cost-pending-hint');
+
+      if (isPending) {
+        if (costInput) {
+          costInput.value = '';
+          costInput.disabled = true;
+          costInput.placeholder = '⏳ Pendiente de cotización en taller';
+          costInput.classList.add('bg-amber-50', 'text-amber-800');
+        }
+        if (hint) hint.classList.remove('hidden');
+      } else {
+        if (costInput) {
+          costInput.disabled = false;
+          costInput.placeholder = 'Ej. 180.00';
+          costInput.classList.remove('bg-amber-50', 'text-amber-800');
+        }
+        if (hint) hint.classList.add('hidden');
+      }
+    }
+
+    function fillDefaultDamageContractText() {
+      const drvId = document.getElementById('dmg-admin-driver-id').value;
+      const drv = (appState.drivers || []).find(d => d.id === drvId);
+      const car = drv ? getDriverAssignedCar(drv.id) : null;
+      const isPendingQuote = document.getElementById('dmg-admin-cost-pending') && document.getElementById('dmg-admin-cost-pending').checked;
+      const costVal = document.getElementById('dmg-admin-cost-input').value;
+
+      let costClause = '';
+      if (isPendingQuote || !costVal || Number(costVal) <= 0) {
+        costClause = ` cuyo monto final de reparación se encuentra PENDIENTE DE COTIZACIÓN EN TALLER, comprometiéndose el conductor desde este acto a cubrir íntegramente el importe que resulte del presupuesto o factura oficial de reparación`;
+      } else {
+        costClause = ` por un monto cotizado de reparación de $${Number(costVal).toFixed(2)} USD`;
+      }
+
+      const todayStr = new Date().toLocaleDateString('es-PA', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      const titleInput = document.getElementById('dmg-admin-title-input');
+      if (titleInput && !titleInput.value.trim()) {
+        titleInput.value = 'CLÁUSULA SEXTA: RECONOCIMIENTO Y ACEPTACIÓN DE DAÑO AL VEHÍCULO';
+      }
+
+      const textarea = document.getElementById('dmg-admin-contract-text');
+      if (textarea) {
+        textarea.value = `CLÁUSULA SEXTA (ACEPTACIÓN DE DAÑO VEHICULAR): Conste por el presente documento que el conductor ${drv ? drv.name : 'asignado'}, en fecha ${todayStr}, reconoce y acepta expresamente haber ocasionado el daño detallado en las fotografías adjuntas al vehículo ${car ? `${car.model} con placa ${car.plate}` : 'asignado'}${costClause}.\n\nEl conductor asume la total responsabilidad por dicho daño ocurrido bajo su custodia y se compromete a cancelarlo mediante abonos o pago total a favor de ${brandingConfig.companyName || 'AutoRent Pro'}. En señal de plena conformidad y aceptación, adjunta fotografía verificada de su cédula de identidad y estampa su firma digital al pie del presente contrato.`;
+      }
+    }
+
+    function renderAdminDamagePaymentsList(drv) {
+      const listEl = document.getElementById('dmg-admin-payments-list');
+      const summaryEl = document.getElementById('dmg-admin-balance-summary');
+      if (!listEl || !summaryEl) return;
+
+      const dmg = drv && drv.damageAgreement ? drv.damageAgreement : null;
+      const fin = getDamageFinancialSummary(dmg);
+
+      if (fin.isPendingCost) {
+        summaryEl.textContent = `⏳ Monto pendiente por cotizar · Abonado: $${fin.paidAmount.toFixed(2)}`;
+      } else {
+        summaryEl.textContent = `Cotizado: $${fin.totalCost.toFixed(2)} · Abonado: $${fin.paidAmount.toFixed(2)} · Resta por pagar: $${fin.remaining.toFixed(2)}`;
+      }
+
+      if (!dmg || !Array.isArray(dmg.payments) || dmg.payments.length === 0) {
+        listEl.innerHTML = `<p class="text-[11px] text-slate-400 py-2 text-center">No hay abonos registrados a este daño todavía.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = dmg.payments.map(p => `
+        <div class="p-2.5 rounded-xl bg-white border ${p.status === 'Aprobado' ? 'border-emerald-200' : 'border-amber-300 bg-amber-50/40'} flex items-center justify-between gap-2">
+          <div>
+            <span class="font-black text-emerald-700">$${Number(p.amount).toFixed(2)}</span>
+            <span class="text-slate-600 font-semibold">· ${p.method || 'Abono'} (${p.note || 'S/R'})</span>
+            <span class="block text-[10px] text-slate-400">${p.date || ''} · <strong>${p.status || 'Aprobado'}</strong></span>
+          </div>
+          <div class="flex items-center space-x-1">
+            ${p.receiptPhoto ? `<button type="button" onclick="openDirectPhotoViewer('${p.receiptPhoto}', 'Comprobante de Abono a Daño')" class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200">📷 Foto</button>` : ''}
+            ${p.status !== 'Aprobado' ? `<button type="button" onclick="approveDriverDamagePayment('${drv.id}', '${p.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-black text-[10px]">✓ Aprobar</button>` : ''}
+            <button type="button" onclick="deleteDriverDamagePayment('${drv.id}', '${p.id}')" class="px-2 py-1 rounded-lg bg-rose-50 text-rose-600 font-bold text-[10px] border border-rose-200">✕</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function addAdminDirectDamagePayment() {
+      const drvId = document.getElementById('dmg-admin-driver-id').value;
+      const drv = (appState.drivers || []).find(d => d.id === drvId);
+      if (!drv) return;
+
+      const amtInput = document.getElementById('dmg-admin-new-pay-amount');
+      const noteInput = document.getElementById('dmg-admin-new-pay-note');
+      const amt = parseFloat(amtInput ? amtInput.value : 0) || 0;
+      if (amt <= 0) {
+        showToast('Ingresa un monto de abono válido mayor a $0', 'warning');
+        return;
+      }
+
+      if (!drv.damageAgreement) {
+        showToast('Primero guarda el acta de daño antes de registrar abonos', 'warning');
+        return;
+      }
+
+      // Si el admin escribió el monto cotizado arriba pero aún no había guardado el formulario, sincronizarlo
+      const rawCostInput = parseFloat(document.getElementById('dmg-admin-cost-input').value) || 0;
+      if (rawCostInput > 0 && !document.getElementById('dmg-admin-cost-pending').checked) {
+        drv.damageAgreement.costPending = false;
+        drv.damageAgreement.estimatedCost = rawCostInput;
+      }
+
+      if (!Array.isArray(drv.damageAgreement.payments)) drv.damageAgreement.payments = [];
+      drv.damageAgreement.payments.unshift({
+        id: 'dmgpay-' + Date.now(),
+        amount: amt,
+        method: 'Registrado por Admin',
+        note: (noteInput && noteInput.value.trim()) ? noteInput.value.trim() : 'Abono directo',
+        date: new Date().toLocaleDateString('es-PA'),
+        status: 'Aprobado'
+      });
+
+      if (amtInput) amtInput.value = '';
+      if (noteInput) noteInput.value = '';
+
+      saveStateAndBroadcast(true);
+      renderAdminDamagePaymentsList(drv);
+      renderAdminView();
+      showToast(`✓ Abono de $${amt.toFixed(2)} descontado del daño`, 'success');
+    }
+
+    function approveDriverDamagePayment(driverId, paymentId) {
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv || !drv.damageAgreement || !Array.isArray(drv.damageAgreement.payments)) return;
+      const pay = drv.damageAgreement.payments.find(p => p.id === paymentId);
+      if (!pay) return;
+      pay.status = 'Aprobado';
+      saveStateAndBroadcast(true);
+      renderAdminDamagePaymentsList(drv);
+      renderAdminView();
+      showToast(`✓ Abono de $${Number(pay.amount).toFixed(2)} aprobado y descontado del daño`, 'success');
+    }
+
+    function deleteDriverDamagePayment(driverId, paymentId) {
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv || !drv.damageAgreement || !Array.isArray(drv.damageAgreement.payments)) return;
+      drv.damageAgreement.payments = drv.damageAgreement.payments.filter(p => p.id !== paymentId);
+      saveStateAndBroadcast(true);
+      renderAdminDamagePaymentsList(drv);
+      renderAdminView();
+      showToast('Abono eliminado del historial del daño', 'info');
+    }
+
+    function openAdminDamageModal(driverId) {
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv) return;
+
+      document.getElementById('dmg-admin-driver-id').value = drv.id;
+      document.getElementById('dmg-modal-admin-title').textContent = `Acta de Daño · ${drv.name}`;
+
+      const dmg = drv.damageAgreement || null;
+      const isPending = dmg ? !!dmg.costPending : true;
+
+      document.getElementById('dmg-admin-title-input').value = (dmg && dmg.title) ? dmg.title : 'CLÁUSULA SEXTA: RECONOCIMIENTO Y ACEPTACIÓN DE DAÑO AL VEHÍCULO';
+      document.getElementById('dmg-admin-cost-pending').checked = isPending;
+      document.getElementById('dmg-admin-cost-input').value = (dmg && dmg.estimatedCost && !isPending) ? dmg.estimatedCost : '';
+      toggleDamageCostPendingUI(isPending);
+
+      const resignChk = document.getElementById('dmg-admin-request-resign');
+      if (resignChk) resignChk.checked = false;
+
+      document.getElementById('dmg-admin-contract-text').value = (dmg && dmg.contractText) ? dmg.contractText : '';
+
+      if (!dmg || !dmg.contractText) {
+        fillDefaultDamageContractText();
+      }
+
+      tempAdminDamagePhotos = (dmg && Array.isArray(dmg.evidencePhotos)) ? [...dmg.evidencePhotos] : [];
+      renderAdminDamagePhotosGallery();
+      renderAdminDamagePaymentsList(drv);
+
+      const signedBox = document.getElementById('dmg-admin-signed-preview');
+      const delBtn = document.getElementById('btn-delete-damage-agreement');
+
+      if (dmg) {
+        delBtn.classList.remove('hidden');
+        if (dmg.status === 'Firmado' && dmg.signature) {
+          signedBox.classList.remove('hidden');
+          document.getElementById('dmg-admin-signed-date').textContent = `Firmado: ${dmg.signedAt || 'Reciente'}`;
+          document.getElementById('dmg-admin-idphoto-img').src = dmg.idCardPhoto || DEFAULT_PLACEHOLDER_RECEIPT;
+          document.getElementById('dmg-admin-sig-img').src = dmg.signature;
+        } else {
+          signedBox.classList.add('hidden');
+        }
+      } else {
+        delBtn.classList.add('hidden');
+        signedBox.classList.add('hidden');
+      }
+
+      openModal('modal-admin-damage-agreement');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function renderAdminDamagePhotosGallery() {
+      const gal = document.getElementById('dmg-admin-photos-gallery');
+      if (!gal) return;
+      if (tempAdminDamagePhotos.length === 0) {
+        gal.innerHTML = `<p class="col-span-full text-xs text-slate-400 text-center py-4">Sin fotos de evidencia aún. Pulsa "+ Subir Foto del Daño / Cotización" para adjuntar pruebas.</p>`;
+        return;
+      }
+      gal.innerHTML = tempAdminDamagePhotos.map((img, idx) => `
+        <div class="relative group">
+          <img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Evidencia de Daño #${idx + 1}')" class="w-full h-24 object-cover rounded-xl border border-slate-300 cursor-pointer">
+          <button type="button" onclick="removeAdminDamagePhoto(${idx})" class="absolute top-1 right-1 bg-rose-600 text-white rounded-full w-6 h-6 text-xs font-black flex items-center justify-center shadow">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function removeAdminDamagePhoto(idx) {
+      tempAdminDamagePhotos.splice(idx, 1);
+      renderAdminDamagePhotosGallery();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const dmgPhotoInput = document.getElementById('dmg-admin-photo-input');
+      if (dmgPhotoInput) {
+        dmgPhotoInput.addEventListener('change', async (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          try {
+            const compressed = await compressImageFile(file, 800, 800, 0.7);
+            tempAdminDamagePhotos.push(compressed);
+            renderAdminDamagePhotosGallery();
+            showToast('✓ Foto de evidencia o cotización agregada', 'success');
+          } catch (err) {
+            showToast('Error al procesar la foto', 'error');
+          }
+          e.target.value = '';
+        });
+      }
+
+      const dmgForm = document.getElementById('form-admin-damage-agreement');
+      if (dmgForm) {
+        dmgForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const drvId = document.getElementById('dmg-admin-driver-id').value;
+          const drv = (appState.drivers || []).find(d => d.id === drvId);
+          if (!drv) return;
+
+          const existing = drv.damageAgreement || {};
+          const isPendingChk = document.getElementById('dmg-admin-cost-pending').checked;
+          const rawCost = parseFloat(document.getElementById('dmg-admin-cost-input').value) || 0;
+          const finalCostPending = isPendingChk || rawCost <= 0;
+          const finalCost = finalCostPending ? 0 : rawCost;
+
+          const forceResign = document.getElementById('dmg-admin-request-resign') && document.getElementById('dmg-admin-request-resign').checked;
+          const keepExistingSignature = (existing.status === 'Firmado' && existing.signature && !forceResign);
+
+          drv.damageAgreement = {
+            id: existing.id || ('dmg-' + Date.now()),
+            title: document.getElementById('dmg-admin-title-input').value.trim(),
+            costPending: finalCostPending,
+            estimatedCost: finalCost,
+            quotedUpdatedAt: (!finalCostPending && finalCost > 0) ? new Date().toLocaleDateString('es-PA') : (existing.quotedUpdatedAt || ''),
+            contractText: document.getElementById('dmg-admin-contract-text').value.trim(),
+            evidencePhotos: [...tempAdminDamagePhotos],
+            payments: Array.isArray(existing.payments) ? existing.payments : [],
+            createdAt: existing.createdAt || new Date().toLocaleDateString('es-PA'),
+            status: keepExistingSignature ? 'Firmado' : 'Pendiente',
+            idCardPhoto: keepExistingSignature ? (existing.idCardPhoto || '') : '',
+            signature: keepExistingSignature ? (existing.signature || '') : '',
+            signedAt: keepExistingSignature ? (existing.signedAt || '') : ''
+          };
+
+          saveStateAndBroadcast(true);
+          closeModal('modal-admin-damage-agreement');
+          renderAdminView();
+
+          if (!finalCostPending && finalCost > 0) {
+            showToast(`📋 Acta de daño guardada con cotización de $${finalCost.toFixed(2)}`, 'success');
+          } else {
+            showToast(`📋 Acta de daño enviada a ${drv.name}`, 'success');
+          }
+        });
+      }
+    });
+
+    // Función directa para borrar el acta de daño desde el modal o desde la tarjeta del conductor
+    function deleteDriverDamageAgreement(optionalDriverId) {
+      const drvId = optionalDriverId || document.getElementById('dmg-admin-driver-id').value;
+      const drv = (appState.drivers || []).find(d => d.id === drvId);
+      if (!drv) return;
+      delete drv.damageAgreement;
+      localStorage.removeItem('autorent_dmg_min_' + drv.id);
+      saveStateAndBroadcast(true);
+      closeModal('modal-admin-damage-agreement');
+      renderAdminView();
+      showToast(`🗑️ Acta de daño de ${drv.name} borrada correctamente`, 'info');
+    }
+
+    function toggleMinimizeBox(boxId, btnId) {
+      const box = document.getElementById(boxId);
+      const btn = document.getElementById(btnId);
+      if (!box) return;
+      const isHidden = box.classList.toggle('hidden');
+      if (btn) {
+        btn.textContent = isHidden ? '🔽 Expandir' : '🔼 Minimizar';
+      }
+    }
+
+    // Construir bloque minimizado de Acta de Daño y Abonos para el Administrador
+    function buildAdminDamageSummaryHTML(drv, contextKey = 'card') {
+      const dmg = drv.damageAgreement;
+      if (!dmg) {
+        return `
+          <div class="pt-2">
+            <button type="button" onclick="openAdminDamageModal('${drv.id}')" class="w-full py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center justify-center space-x-1.5">
+              <span>📋 Configurar Acta de Daño / Cláusula Sexta</span>
+            </button>
+          </div>
+        `;
+      }
+
+      const isSigned = dmg.status === 'Firmado' && !!dmg.signature;
+      const fin = getDamageFinancialSummary(dmg);
+      const collapseId = `dmg-admin-collapse-${contextKey}-${drv.id}`;
+      const btnId = `dmg-admin-btn-${contextKey}-${drv.id}`;
+      const photos = dmg.evidencePhotos || [];
+      const pendingApprovals = (fin.payments || []).filter(p => p.status !== 'Aprobado');
+
+      return `
+        <div class="p-3 rounded-2xl border-2 ${fin.isFullyPaid ? 'border-emerald-400 bg-emerald-50/70' : isSigned ? 'border-indigo-300 bg-indigo-50/40' : 'border-rose-300 bg-rose-50/60'} space-y-2 mt-2">
+          <div class="flex items-center justify-between gap-1.5">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-1">
+                <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${isSigned ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white badge-pulse'}">
+                  ${isSigned ? '✅ Firmado' : '⏳ Firma Pendiente'}
+                </span>
+                ${fin.isPendingCost ? `
+                  <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">⏳ Por Cotizar</span>
+                ` : fin.isFullyPaid ? `
+                  <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white">🎉 Daño Pagado ($${fin.totalCost.toFixed(2)})</span>
+                ` : `
+                  <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-white text-rose-700 border border-rose-200">Resta: $${fin.remaining.toFixed(2)} de $${fin.totalCost.toFixed(2)}</span>
+                `}
+                ${pendingApprovals.length > 0 ? `<span class="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-white badge-pulse">${pendingApprovals.length} Abono(s) por aprobar</span>` : ''}
+              </div>
+              <h5 class="text-xs font-black text-slate-900 truncate mt-1">${dmg.title || 'Contrato de Responsabilidad por Daño'}</h5>
+            </div>
+            <div class="flex items-center space-x-1 flex-shrink-0">
+              <button type="button" id="${btnId}" onclick="toggleMinimizeBox('${collapseId}', '${btnId}')" class="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-[10px] font-black">
+                🔽 Expandir
+              </button>
+              <button type="button" onclick="openAdminDamageModal('${drv.id}')" class="px-2 py-1 rounded-lg bg-slate-900 text-white text-[10px] font-black">
+                ${fin.isPendingCost ? '💲 Cotizar' : 'Abonos / Editar'}
+              </button>
+              <button type="button" onclick="deleteDriverDamageAgreement('${drv.id}')" title="Borrar Acta de Daño" class="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 border border-rose-300 text-[10px] font-black">
+                🗑️
+              </button>
+            </div>
+          </div>
+
+          <div id="${collapseId}" class="hidden pt-2 border-t border-slate-200/80 space-y-2.5 text-xs">
+            ${!fin.isPendingCost ? `
+              <div class="p-2.5 rounded-xl bg-white border border-slate-200 space-y-1.5">
+                <div class="flex justify-between text-[11px] font-bold">
+                  <span>Cotizado: <strong>$${fin.totalCost.toFixed(2)}</strong></span>
+                  <span class="text-emerald-700">Abonado: <strong>$${fin.paidAmount.toFixed(2)}</strong></span>
+                  <span class="text-rose-600">Falta: <strong>$${fin.remaining.toFixed(2)}</strong></span>
+                </div>
+                <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div class="bg-emerald-600 h-full rounded-full transition-all" style="width: ${fin.percent}%"></div>
+                </div>
+              </div>
+            ` : ''}
+
+            <div class="p-2.5 rounded-xl bg-white border border-slate-200 text-[11px] text-slate-700 whitespace-pre-line leading-relaxed">${dmg.contractText || ''}</div>
+
+            ${photos.length > 0 ? `
+              <div>
+                <span class="text-[10px] font-bold text-slate-500 uppercase block mb-1">Evidencias / Cotización (${photos.length}):</span>
+                <div class="flex space-x-2 overflow-x-auto py-1">
+                  ${photos.map((img) => `<img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Daño Vehículo - ${drv.name}')" class="w-14 h-14 rounded-lg object-cover border border-slate-300 cursor-pointer flex-shrink-0">`).join('')}
+                </div>
+              </div>
+            ` : ''}
+
+            ${isSigned ? `
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <div class="p-2 bg-white rounded-xl border border-emerald-200 text-center">
+                  <span class="text-[9px] font-black uppercase text-slate-400 block mb-1">🪪 Cédula Verificada</span>
+                  <img src="${dmg.idCardPhoto || DEFAULT_PLACEHOLDER_RECEIPT}" onclick="openDirectPhotoViewer(this.src, 'Cédula de ${drv.name}')" class="h-20 mx-auto object-contain rounded cursor-pointer">
+                </div>
+                <div class="p-2 bg-white rounded-xl border border-emerald-200 text-center">
+                  <span class="text-[9px] font-black uppercase text-slate-400 block mb-1">✍️ Firma (${dmg.signedAt || ''})</span>
+                  <img src="${dmg.signature}" onclick="openDirectPhotoViewer(this.src, 'Firma de ${drv.name}')" class="h-20 mx-auto object-contain rounded bg-white cursor-pointer">
+                </div>
+              </div>
+            ` : `<p class="text-[11px] font-bold text-rose-700">El conductor aún no ha enviado su firma y foto de cédula verificada.</p>`}
+          </div>
+        </div>
+      `;
+    }
+
+    // Inicializar pad de firma de daño en el portal del conductor
+    function initDriverDamageSignaturePad() {
+      const canvas = document.getElementById('driver-damage-sig-canvas');
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(260, Math.round(rect.width || 320));
+      canvas.height = 140;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      damageSigHasStrokes = false;
+
+      const getPos = (ev) => {
+        const r = canvas.getBoundingClientRect();
+        const clientX = ev.touches && ev.touches[0] ? ev.touches[0].clientX : ev.clientX;
+        const clientY = ev.touches && ev.touches[0] ? ev.touches[0].clientY : ev.clientY;
+        return {
+          x: (clientX - r.left) * (canvas.width / r.width),
+          y: (clientY - r.top) * (canvas.height / r.height)
+        };
+      };
+
+      const start = (ev) => {
+        isDrawingDamageSig = true;
+        damageSigHasStrokes = true;
+        const p = getPos(ev);
+        const c = canvas.getContext('2d');
+        c.beginPath();
+        c.moveTo(p.x, p.y);
+      };
+
+      const move = (ev) => {
+        if (!isDrawingDamageSig) return;
+        if (ev.cancelable) ev.preventDefault();
+        const p = getPos(ev);
+        const c = canvas.getContext('2d');
+        c.lineTo(p.x, p.y);
+        c.stroke();
+      };
+
+      const end = () => { isDrawingDamageSig = false; };
+
+      canvas.onmousedown = start;
+      canvas.onmousemove = move;
+      window.addEventListener('mouseup', end);
+      canvas.ontouchstart = start;
+      canvas.ontouchmove = move;
+      canvas.ontouchend = end;
+    }
+
+    function clearDriverDamageSignaturePad() {
+      const canvas = document.getElementById('driver-damage-sig-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      damageSigHasStrokes = false;
+    }
+
+    // CORRECCIÓN DE SUBIDA DE FOTO DE CÉDULA + VERIFICACIÓN DE IDENTIDAD CON IA
+    async function handleDriverDamageIdPhotoUpload(inputEl) {
+      const file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+      const driver = (appState.drivers || []).find(d => d.id === currentSession.driverId);
+      if (!driver) return;
+
+      const statusBanner = document.getElementById('driver-damage-id-ai-status');
+      const prev = document.getElementById('driver-damage-idphoto-preview');
+      const placeholder = document.getElementById('driver-damage-idphoto-placeholder');
+
+      try {
+        const compressed = await compressImageFile(file, 900, 900, 0.78);
+        if (prev) {
+          prev.src = compressed;
+          prev.classList.remove('hidden');
+        }
+        if (placeholder) placeholder.classList.add('hidden');
+
+        if (statusBanner) {
+          statusBanner.className = 'w-full p-2.5 rounded-xl bg-indigo-100 text-indigo-900 border border-indigo-300 text-[11px] font-bold text-center animate-pulse';
+          statusBanner.textContent = '🔍 IA verificando que sea tu cédula y coincida tu nombre y apellido...';
+          statusBanner.classList.remove('hidden');
+        }
+
+        const aiCheck = await verifyDriverIdCardWithAI(compressed, driver.name);
+        tempDriverDamageIdPhoto = compressed;
+        tempDriverDamageIdVerified = aiCheck.valid;
+        tempDriverDamageIdMessage = aiCheck.message;
+
+        if (statusBanner) {
+          if (aiCheck.valid) {
+            statusBanner.className = 'w-full p-2.5 rounded-xl bg-emerald-100 text-emerald-900 border-2 border-emerald-400 text-[11px] font-black text-center anim-scan-ok';
+            statusBanner.textContent = aiCheck.message;
+            showToast('🪪 Cédula verificada correctamente', 'success');
+          } else {
+            statusBanner.className = 'w-full p-2.5 rounded-xl bg-rose-100 text-rose-900 border-2 border-rose-400 text-[11px] font-black text-center anim-scan-dup';
+            statusBanner.textContent = aiCheck.message;
+            showToast(aiCheck.message, 'error');
+          }
+        }
+      } catch (err) {
+        showToast('Error al procesar la foto de la cédula', 'error');
+      }
+      inputEl.value = '';
+    }
+
+    function submitDriverDamageAcceptance() {
+      const driver = (appState.drivers || []).find(d => d.id === currentSession.driverId);
+      if (!driver || !driver.damageAgreement) return;
+
+      if (!tempDriverDamageIdPhoto) {
+        showToast('⚠️ Primero debes tomar o subir la foto de tu cédula', 'error');
+        return;
+      }
+      if (!tempDriverDamageIdVerified) {
+        showToast(tempDriverDamageIdMessage || '⚠️ La foto subida no pasó la verificación de cédula con tu nombre y apellido', 'error');
+        return;
+      }
+      if (!damageSigHasStrokes) {
+        showToast('⚠️ Por favor dibuja tu firma en el recuadro para aceptar el acta', 'error');
+        return;
+      }
+
+      const canvas = document.getElementById('driver-damage-sig-canvas');
+      const sigBase64 = canvas.toDataURL('image/png');
+      const nowStr = new Date().toLocaleString('es-PA');
+
+      driver.damageAgreement.status = 'Firmado';
+      driver.damageAgreement.idCardPhoto = tempDriverDamageIdPhoto;
+      driver.damageAgreement.signature = sigBase64;
+      driver.damageAgreement.signedAt = nowStr;
+
+      localStorage.setItem('autorent_dmg_min_' + driver.id, '1');
+      saveStateAndBroadcast(true);
+
+      const car = getDriverAssignedCar(driver.id);
+      const isPendingCost = driver.damageAgreement.costPending || !driver.damageAgreement.estimatedCost;
+      sendTelegramNotification(
+        `📋 <b>ACTA DE DAÑO FIRMADA POR CONDUCTOR (CÉDULA VERIFICADA POR IA)</b>\n\n` +
+        `👤 <b>Conductor:</b> ${driver.name}\n` +
+        `🚗 <b>Vehículo:</b> ${car ? `${car.model} (${car.plate})` : 'Asignado'}\n` +
+        `📌 <b>Documento:</b> ${driver.damageAgreement.title}\n` +
+        `💰 <b>Monto:</b> ${isPendingCost ? '⏳ Pendiente de cotización en taller' : '$' + Number(driver.damageAgreement.estimatedCost).toFixed(2) + ' USD'}\n` +
+        `🕒 <b>Fecha/Hora:</b> ${nowStr}`,
+        tempDriverDamageIdPhoto
+      );
+
+      renderDriverView();
+      showToast('✅ Contrato y aceptación de daño firmado y guardado', 'success');
+    }
+
+    // SUBIDA DE COMPROBANTE Y ENVÍO DE ABONO AL DAÑO POR PARTE DEL CONDUCTOR
+    async function handleDriverDamagePaymentPhotoUpload(inputEl) {
+      const file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+      try {
+        tempDriverDamagePaymentPhoto = await compressImageFile(file, 750, 1000, 0.68);
+        const prev = document.getElementById('driver-dmg-pay-photo-preview');
+        if (prev) {
+          prev.src = tempDriverDamagePaymentPhoto;
+          prev.classList.remove('hidden');
+        }
+        showToast('✓ Captura de abono adjuntada', 'success');
+      } catch (e) {}
+      inputEl.value = '';
+    }
+
+    function submitDriverDamageInstallment() {
+      const driver = (appState.drivers || []).find(d => d.id === currentSession.driverId);
+      if (!driver || !driver.damageAgreement) return;
+
+      const amtInput = document.getElementById('driver-dmg-pay-amount');
+      const methodSel = document.getElementById('driver-dmg-pay-method');
+      const refInput = document.getElementById('driver-dmg-pay-ref');
+
+      const amt = parseFloat(amtInput ? amtInput.value : 0) || 0;
+      if (amt <= 0) {
+        showToast('⚠️ Ingresa el monto que vas a abonar al daño', 'warning');
+        return;
+      }
+
+      const method = methodSel ? methodSel.value : 'Yappy';
+      const isCash = method.includes('Efectivo');
+      const ref = (refInput && refInput.value.trim()) ? refInput.value.trim() : (isCash ? 'Efectivo' : 'Abono Daño');
+
+      if (!isCash && !tempDriverDamagePaymentPhoto) {
+        showToast('⚠️ Sube la foto o captura del comprobante de tu abono', 'warning');
+        return;
+      }
+
+      if (!Array.isArray(driver.damageAgreement.payments)) driver.damageAgreement.payments = [];
+      const newPay = {
+        id: 'dmgpay-' + Date.now(),
+        amount: amt,
+        method: method,
+        note: ref,
+        date: new Date().toLocaleDateString('es-PA'),
+        receiptPhoto: tempDriverDamagePaymentPhoto || '',
+        status: 'Aprobado'
+      };
+
+      driver.damageAgreement.payments.unshift(newPay);
+      tempDriverDamagePaymentPhoto = '';
+      saveStateAndBroadcast(true);
+
+      const fin = getDamageFinancialSummary(driver.damageAgreement);
+      const car = getDriverAssignedCar(driver.id);
+      sendTelegramNotification(
+        `🛠️ <b>ABONO AL DAÑO DEL VEHÍCULO RECIBIDO</b>\n\n` +
+        `👤 <b>Conductor:</b> ${driver.name}\n` +
+        `🚗 <b>Vehículo:</b> ${car ? `${car.model} (${car.plate})` : 'Asignado'}\n` +
+        `💵 <b>Abono Realizado:</b> $${amt.toFixed(2)} USD (${method})\n` +
+        `📉 <b>Saldo Restante del Daño:</b> $${fin.remaining.toFixed(2)} de $${fin.totalCost.toFixed(2)} USD`,
+        newPay.receiptPhoto || null
+      );
+
+      renderDriverView();
+      showToast(`✅ Abono de $${amt.toFixed(2)} aplicado. Resta por pagar del daño: $${fin.remaining.toFixed(2)}`, 'success');
+    }
+
+    function toggleDriverDamageCardMinimize() {
+      const driver = (appState.drivers || []).find(d => d.id === currentSession.driverId);
+      if (!driver) return;
+      const body = document.getElementById('driver-damage-agreement-body');
+      const btn = document.getElementById('btn-toggle-driver-damage-min');
+      if (!body) return;
+      const isNowHidden = body.classList.toggle('hidden');
+      localStorage.setItem('autorent_dmg_min_' + driver.id, isNowHidden ? '1' : '0');
+      if (btn) {
+        btn.innerHTML = isNowHidden ? '🔽 Expandir Contrato y Abonos' : '🔼 Minimizar';
+      }
+      if (!isNowHidden && driver.damageAgreement && driver.damageAgreement.status !== 'Firmado') {
+        setTimeout(() => initDriverDamageSignaturePad(), 80);
+      }
+    }
+
+    function renderDriverPortalDamageSection() {
+      const driver = (appState.drivers || []).find(d => d.id === currentSession.driverId);
+      const inspContainer = document.getElementById('driver-inspection-card-container');
+      if (!inspContainer) return;
+
+      let container = document.getElementById('driver-damage-agreement-card');
+      if (!driver || !driver.damageAgreement) {
+        if (container) container.remove();
+        return;
+      }
+
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'driver-damage-agreement-card';
+        inspContainer.parentNode.insertBefore(container, inspContainer);
+      }
+
+      const dmg = driver.damageAgreement;
+      const isSigned = dmg.status === 'Firmado' && !!dmg.signature;
+      const fin = getDamageFinancialSummary(dmg);
+      const photos = dmg.evidencePhotos || [];
+      const savedMin = localStorage.getItem('autorent_dmg_min_' + driver.id);
+      const shouldMinimize = isSigned ? (savedMin !== '0') : (savedMin === '1');
+
+      container.className = `rounded-3xl border-2 p-5 shadow-sm space-y-4 transition-all ${fin.isFullyPaid ? 'bg-emerald-50/70 border-emerald-400' : isSigned ? 'bg-white border-indigo-300' : 'bg-rose-50/90 border-rose-400'}`;
+
+      container.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-9 h-9 rounded-2xl ${fin.isFullyPaid ? 'bg-emerald-600' : isSigned ? 'bg-indigo-600' : 'bg-rose-600 badge-pulse'} text-white flex items-center justify-center font-black">
+              📋
+            </div>
+            <div>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[10px] font-black uppercase tracking-wider ${isSigned ? 'text-emerald-700' : 'text-rose-700'}">
+                  ${isSigned ? '✅ CONTRATO DE DAÑO FIRMADO' : '⚠️ PENDIENTE DE TU FIRMA Y FOTO DE CÉDULA'}
+                </span>
+                ${fin.isPendingCost ? `
+                  <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">⏳ Monto en Cotización</span>
+                ` : fin.isFullyPaid ? `
+                  <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white">🎉 DAÑO PAGADO ($${fin.totalCost.toFixed(2)})</span>
+                ` : `
+                  <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">Resta por Pagar: $${fin.remaining.toFixed(2)} de $${fin.totalCost.toFixed(2)}</span>
+                `}
+              </div>
+              <h3 class="font-black text-slate-900 text-sm mt-0.5">${dmg.title || 'CLÁUSULA SEXTA: ACEPTACIÓN DE DAÑO AL VEHÍCULO'}</h3>
+            </div>
+          </div>
+          <button type="button" id="btn-toggle-driver-damage-min" onclick="toggleDriverDamageCardMinimize()" class="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-black shadow-2xs">
+            ${shouldMinimize ? '🔽 Expandir Contrato y Abonos' : '🔼 Minimizar'}
+          </button>
+        </div>
+
+        <div id="driver-damage-agreement-body" class="${shouldMinimize ? 'hidden' : ''} space-y-4 pt-3 border-t border-slate-200/80">
+          ${fin.isPendingCost ? `
+            <div class="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+              <div>
+                <span class="font-black text-amber-950 uppercase block">⏳ Monto de Reparación: Pendiente de Cotización en Taller</span>
+                <span class="text-[11px] text-amber-800">Cuando el taller entregue el presupuesto oficial, aparecerá aquí para que puedas ir realizando tus abonos.</span>
+              </div>
+              <span class="px-2.5 py-1 rounded-xl bg-amber-500 text-slate-950 font-black text-[11px] self-start sm:self-center whitespace-nowrap">Por Cotizar</span>
+            </div>
+          ` : `
+            <!-- TARJETA DE PROGRESO Y ABONOS AL DAÑO PARA EL CONDUCTOR -->
+            <div class="p-4 rounded-2xl bg-indigo-50/70 border-2 border-indigo-200 space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span class="text-[10px] font-black uppercase text-indigo-800 block">🛠️ Estado de Pago de Reparación del Daño</span>
+                  <h4 class="text-sm font-black text-slate-900">Cotización Total: $${fin.totalCost.toFixed(2)} USD</h4>
+                </div>
+                <div class="text-right">
+                  <span class="text-[10px] font-bold text-slate-500 block uppercase">Saldo Restante del Daño</span>
+                  <span class="text-lg font-black ${fin.isFullyPaid ? 'text-emerald-600' : 'text-rose-600'}">$${fin.remaining.toFixed(2)} USD</span>
+                </div>
+              </div>
+
+              <div class="w-full bg-slate-200 h-3 rounded-full overflow-hidden">
+                <div class="bg-emerald-600 h-full rounded-full transition-all duration-500" style="width: ${fin.percent}%"></div>
+              </div>
+              <div class="flex justify-between text-xs font-bold text-slate-700">
+                <span class="text-emerald-700">✓ Abonado: $${fin.paidAmount.toFixed(2)} (${fin.percent}%)</span>
+                <span>Falta por abonar: $${fin.remaining.toFixed(2)}</span>
+              </div>
+
+              ${!fin.isFullyPaid ? `
+                <div class="p-3.5 bg-white rounded-2xl border border-indigo-200 space-y-3 mt-2">
+                  <h5 class="text-xs font-black text-indigo-950 uppercase">💸 Realizar un Abono al Daño del Vehículo</h5>
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label class="block text-[10px] font-bold text-slate-600 mb-1">Monto a Abonar ($)</label>
+                      <input type="number" step="0.01" id="driver-dmg-pay-amount" placeholder="Ej. 25.00" class="w-full text-xs font-black p-2.5 rounded-xl border border-slate-300">
+                    </div>
+                    <div>
+                      <label class="block text-[10px] font-bold text-slate-600 mb-1">Método</label>
+                      <select id="driver-dmg-pay-method" class="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 bg-white">
+                        <option value="Yappy">Yappy</option>
+                        <option value="ACH / Transferencia">ACH / Transferencia</option>
+                        <option value="Efectivo">💵 Efectivo</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-[10px] font-bold text-slate-600 mb-1">Referencia / Nota</label>
+                      <input type="text" id="driver-dmg-pay-ref" placeholder="Ej. Abono 1 taller" class="w-full text-xs p-2.5 rounded-xl border border-slate-300">
+                    </div>
+                  </div>
+
+                  <div class="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1">
+                    <div class="flex items-center space-x-2 w-full sm:w-auto">
+                      <label class="cursor-pointer px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold inline-flex items-center space-x-1.5">
+                        <span>📷 Subir Captura de Abono</span>
+                        <input type="file" accept="image/*" onchange="handleDriverDamagePaymentPhotoUpload(this)" class="hidden">
+                      </label>
+                      <img id="driver-dmg-pay-photo-preview" src="" alt="Preview Abono" class="hidden h-10 w-10 rounded-lg object-cover border border-emerald-400">
+                    </div>
+                    <button type="button" onclick="submitDriverDamageInstallment()" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md">
+                      ✅ Enviar Abono al Daño
+                    </button>
+                  </div>
+                </div>
+              ` : `
+                <div class="p-3 bg-emerald-100 border border-emerald-300 rounded-xl text-center text-xs font-black text-emerald-900">
+                  🎉 ¡Felicidades! Has cubierto el 100% del monto cotizado de este daño.
+                </div>
+              `}
+
+              ${fin.payments.length > 0 ? `
+                <div class="space-y-1.5 pt-2 border-t border-indigo-200/60">
+                  <span class="text-[10px] font-black uppercase text-slate-500 block">Historial de Mis Abonos al Daño:</span>
+                  ${fin.payments.map(p => `
+                    <div class="p-2 rounded-xl bg-white border border-slate-200 flex items-center justify-between text-xs">
+                      <div>
+                        <span class="font-black text-emerald-700">-$${Number(p.amount).toFixed(2)}</span>
+                        <span class="text-slate-600"> · ${p.method} (${p.note || ''})</span>
+                        <span class="text-[10px] text-slate-400 ml-1">${p.date}</span>
+                      </div>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">${p.status || 'Aplicado'}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `}
+
+          ${photos.length > 0 ? `
+            <div>
+              <span class="text-[10px] font-black text-slate-600 uppercase block mb-2">📸 Evidencias Fotográficas del Daño y/o Cotización (${photos.length}):</span>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                ${photos.map((img, i) => `
+                  <img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Evidencia de Daño #${i + 1}')" class="w-full h-24 object-cover rounded-xl border border-slate-300 cursor-pointer hover:opacity-90 shadow-2xs">
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="p-4 rounded-2xl bg-white border border-slate-200 space-y-1.5">
+            <span class="text-[10px] font-black uppercase text-slate-400 block">Texto Legal del Contrato / Reconocimiento de Daño:</span>
+            <p class="text-xs text-slate-800 font-medium leading-relaxed whitespace-pre-line">${dmg.contractText || ''}</p>
+          </div>
+
+          ${isSigned ? `
+            <div class="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-3">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-black text-emerald-950">✍️ Conformidad del Conductor y Cédula Verificada</span>
+                <span class="text-[11px] font-bold text-emerald-800">${dmg.signedAt || ''}</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="p-3 bg-white rounded-xl border border-emerald-200 text-center">
+                  <span class="text-[10px] font-black text-slate-500 uppercase block mb-1.5">🪪 Foto de Cédula</span>
+                  <img src="${dmg.idCardPhoto || DEFAULT_PLACEHOLDER_RECEIPT}" onclick="openDirectPhotoViewer(this.src, 'Mi Cédula - Acta de Daño')" class="max-h-28 mx-auto object-contain rounded cursor-pointer">
+                </div>
+                <div class="p-3 bg-white rounded-xl border border-emerald-200 text-center">
+                  <span class="text-[10px] font-black text-slate-500 uppercase block mb-1.5">✍️ Firma de Aceptación</span>
+                  <img src="${dmg.signature}" onclick="openDirectPhotoViewer(this.src, 'Mi Firma - Acta de Daño')" class="max-h-28 mx-auto object-contain rounded bg-white cursor-pointer">
+                </div>
+              </div>
+            </div>
+          ` : `
+            <div class="p-4 rounded-2xl bg-white border-2 border-rose-300 space-y-4">
+              <div>
+                <h4 class="text-xs font-black text-slate-900 uppercase">Completa tu Aceptación: Foto de tu Cédula al lado de tu Firma</h4>
+                <p class="text-[11px] text-slate-500 mt-0.5">La IA verificará que la foto sea una cédula real y que coincida con tu nombre y apellido (<strong>${driver.name}</strong>).</p>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch">
+                <!-- Lado Izquierdo: Foto de la Cédula con Label Directo Garantizado -->
+                <div class="p-3.5 rounded-2xl bg-slate-50 border-2 border-dashed border-indigo-300 flex flex-col items-center justify-center text-center space-y-2.5">
+                  <span class="text-[11px] font-black text-indigo-950 uppercase">1. 🪪 Foto de tu Cédula</span>
+                  <img id="driver-damage-idphoto-preview" src="" alt="Vista Cédula" class="hidden max-h-28 rounded-xl border border-slate-300 object-contain">
+                  <div id="driver-damage-idphoto-placeholder" class="text-[11px] text-slate-500 py-2">
+                    Sube o toma una foto clara donde se lean tu nombre y apellido
+                  </div>
+                  <div id="driver-damage-id-ai-status" class="hidden w-full"></div>
+                  <label class="cursor-pointer px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md inline-flex items-center space-x-1.5">
+                    <span>📷 Tomar / Subir Foto de Cédula</span>
+                    <input type="file" id="driver-damage-idphoto-input" accept="image/*" onchange="handleDriverDamageIdPhotoUpload(this)" class="hidden">
+                  </label>
+                </div>
+
+                <!-- Lado Derecho: Firma Digital al lado de la Cédula -->
+                <div class="p-3.5 rounded-2xl bg-slate-50 border-2 border-dashed border-rose-300 flex flex-col justify-between space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-black text-rose-950 uppercase">2. ✍️ Tu Firma Aquí</span>
+                    <button type="button" onclick="clearDriverDamageSignaturePad()" class="text-[10px] font-bold text-rose-600 hover:underline">Limpiar</button>
+                  </div>
+                  <div class="bg-white rounded-xl border border-slate-300 overflow-hidden">
+                    <canvas id="driver-damage-sig-canvas" class="w-full h-32 touch-none cursor-crosshair block"></canvas>
+                  </div>
+                  <span class="text-[10px] text-slate-400 text-center block">Firma con tu dedo aceptando la cláusula sexta</span>
+                </div>
+              </div>
+
+              <button type="button" onclick="submitDriverDamageAcceptance()" class="w-full py-3.5 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center space-x-2">
+                <span>✅ Firmar y Aceptar Contrato de Daño del Vehículo</span>
+              </button>
+            </div>
+          `}
+        </div>
+      `;
+
+      if (!isSigned && !shouldMinimize) {
+        tempDriverDamageIdPhoto = '';
+        tempDriverDamageIdVerified = false;
+        tempDriverDamageIdMessage = '';
+        setTimeout(() => initDriverDamageSignaturePad(), 100);
+      }
+    }
+
+    // Interceptores seguros (Decoradores) para inyectar en Admin (Tarjetas y Perfil) y en el Portal del Conductor
+    const origRenderDriversSectionForDmg = renderDriversSection;
+    renderDriversSection = function() {
+      origRenderDriversSectionForDmg();
+      const container = document.getElementById('drivers-cards-container');
+      if (!container) return;
+      (appState.drivers || []).forEach(drv => {
+        const noteInput = document.getElementById(`quick-note-${drv.id}`);
+        if (noteInput) {
+          const cardTopBlock = noteInput.closest('.space-y-2\\.5');
+          if (cardTopBlock && !cardTopBlock.querySelector('.dmg-injected-wrap')) {
+            const wrap = document.createElement('div');
+            wrap.className = 'dmg-injected-wrap';
+            wrap.innerHTML = buildAdminDamageSummaryHTML(drv, 'card');
+            cardTopBlock.appendChild(wrap);
+          }
+        }
+      });
+    };
+
+    const origOpenViewDriverModalForDmg = openViewDriverModal;
+    openViewDriverModal = function(drvId) {
+      origOpenViewDriverModalForDmg(drvId);
+      const drv = (appState.drivers || []).find(x => x.id === drvId);
+      const content = document.getElementById('viewdriver-content');
+      if (drv && content) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = buildAdminDamageSummaryHTML(drv, 'modal');
+        content.appendChild(wrap);
+      }
+    };
+
+    const origRenderDriverViewForDmg = renderDriverView;
+    renderDriverView = function() {
+      origRenderDriverViewForDmg();
+      renderDriverPortalDamageSection();
+    };
   </script>
 </body>
 </html>
