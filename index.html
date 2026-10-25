@@ -9967,5 +9967,928 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
       renderDriverPortalDamageSection();
     };
   </script>
+
+  <!-- ==================================================================================== -->
+  <!-- MÓDULO ADICIONAL AISLADO:                                                            -->
+  <!-- 1. DOCUMENTO OFICIAL PNG/IMAGEN DEL ACTA DE DAÑO FIRMADA (CON FOTOS, CÉDULA Y FIRMA) -->
+  <!-- 2. RENTABILIDAD REAL POR VEHÍCULO (ROI INDIVIDUAL EN TARJETA Y FICHA DE CADA AUTO)   -->
+  <!-- 3. HISTORIAL Y BUSCADOR DE CUSTODIA "¿QUIÉN TENÍA EL AUTO EN ESA FECHA?"             -->
+  <!-- ==================================================================================== -->
+  <div id="modal-car-custody-history" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto no-scrollbar space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black">
+            🕒
+          </div>
+          <div>
+            <h3 class="font-black text-slate-900 text-base" id="custody-modal-title">Historial de Custodia del Vehículo</h3>
+            <p class="text-[11px] text-slate-500">Consulta o registra qué conductor tuvo este auto en cada rango de fechas.</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-car-custody-history')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <!-- Formulario para agregar un periodo histórico manual si se requiere -->
+      <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+        <span class="text-[10px] font-black uppercase text-slate-600 block">➕ Registrar Periodo de Custodia (Manual o Anterior)</span>
+        <input type="hidden" id="custody-modal-car-id" value="">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-0.5">Conductor</label>
+            <select id="custody-manual-driver" class="w-full text-xs font-bold p-2 rounded-xl border border-slate-300 bg-white"></select>
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-0.5">Desde Fecha</label>
+            <input type="date" id="custody-manual-start" class="w-full text-xs p-2 rounded-xl border border-slate-300 bg-white">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-0.5">Hasta Fecha (Vacío = Actual)</label>
+            <input type="date" id="custody-manual-end" class="w-full text-xs p-2 rounded-xl border border-slate-300 bg-white">
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button type="button" onclick="addManualCustodyRecord()" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-2xs">
+            + Guardar Registro de Custodia
+          </button>
+        </div>
+      </div>
+
+      <div id="custody-modal-list" class="space-y-2 max-h-72 overflow-y-auto no-scrollbar text-xs"></div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-100">
+        <button type="button" onclick="closeModal('modal-car-custody-history')" class="px-5 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. GENERADOR DE IMAGEN / DOCUMENTO OFICIAL DE ACTA DE DAÑO FIRMADA (PNG)
+    // =========================================================================
+    function wrapCanvasTextLines(ctx, text, maxWidth) {
+      const paragraphs = String(text || '').split('\n');
+      const lines = [];
+      paragraphs.forEach((para, pIdx) => {
+        const words = para.split(/\s+/).filter(Boolean);
+        if (words.length === 0) {
+          lines.push('');
+          return;
+        }
+        let currentLine = words[0];
+        for (let i = 1; i < words.length; i++) {
+          const word = words[i];
+          const width = ctx.measureText(currentLine + ' ' + word).width;
+          if (width < maxWidth) {
+            currentLine += ' ' + word;
+          } else {
+            lines.push(currentLine);
+            currentLine = word;
+          }
+        }
+        lines.push(currentLine);
+        if (pIdx < paragraphs.length - 1) lines.push('');
+      });
+      return lines;
+    }
+
+    function loadSafeImageForCanvas(src) {
+      return new Promise((resolve) => {
+        if (!src) return resolve(null);
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    async function generateOfficialDamageAgreementDocument(driverId) {
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv || !drv.damageAgreement) {
+        showToast('Este conductor no tiene un acta de daño activa', 'warning');
+        return;
+      }
+
+      const dmg = drv.damageAgreement;
+      const car = getDriverAssignedCar(drv.id);
+      const fin = getDamageFinancialSummary(dmg);
+      const photos = Array.isArray(dmg.evidencePhotos) ? dmg.evidencePhotos.slice(0, 4) : [];
+      const payments = Array.isArray(dmg.payments) ? dmg.payments.slice(0, 6) : [];
+      const isSigned = dmg.status === 'Firmado' && !!dmg.signature;
+
+      showToast('📄 Generando documento oficial de Acta de Daño...', 'info');
+
+      // Pre-cargar imágenes necesarias
+      const logoImg = await loadSafeImageForCanvas(brandingConfig.logoBase64);
+      const loadedEvidenceImgs = [];
+      for (let i = 0; i < photos.length; i++) {
+        const evImg = await loadSafeImageForCanvas(photos[i]);
+        if (evImg) loadedEvidenceImgs.push(evImg);
+      }
+      const idCardImg = await loadSafeImageForCanvas(dmg.idCardPhoto);
+      const sigImg = await loadSafeImageForCanvas(dmg.signature);
+
+      // Calcular alto dinámico según el texto del contrato, fotos y abonos
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.font = '500 18px Inter, sans-serif';
+      const contractLines = wrapCanvasTextLines(tempCtx, dmg.contractText || '', 890);
+
+      const contractBoxHeight = Math.max(150, contractLines.length * 26 + 65);
+      const photosBoxHeight = loadedEvidenceImgs.length > 0 ? 255 : 0;
+      const paymentsBoxHeight = payments.length > 0 ? (payments.length * 36 + 75) : 0;
+      const signatureBoxHeight = 320;
+
+      const totalWidth = 1020;
+      const totalHeight = 520 + contractBoxHeight + photosBoxHeight + paymentsBoxHeight + signatureBoxHeight + 90;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = totalWidth;
+      canvas.height = totalHeight;
+      const ctx = canvas.getContext('2d');
+
+      // Fondo general
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+      // Marco exterior institucional
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(18, 18, totalWidth - 36, totalHeight - 36);
+
+      // Encabezado corporativo
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(20, 20, totalWidth - 40, 155);
+
+      let headerTextX = 55;
+      if (logoImg && logoImg.width > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(50, 42, 108, 108);
+        ctx.drawImage(logoImg, 56, 48, 96, 96);
+        headerTextX = 180;
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 34px Inter, sans-serif';
+      ctx.fillText((brandingConfig.companyName || 'AutoRent Pro').toUpperCase(), headerTextX, 82);
+
+      ctx.fillStyle = '#fca5a5';
+      ctx.font = '800 18px Inter, sans-serif';
+      ctx.fillText('ACTA LEGAL DE RECONOCIMIENTO Y COMPROMISO DE PAGO POR DAÑO VEHICULAR', headerTextX, 114);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '600 14px Inter, sans-serif';
+      ctx.fillText(`Documento ID: ${(dmg.id || 'ACTA-01').toUpperCase()}  ·  Fecha de Emisión: ${dmg.createdAt || new Date().toLocaleDateString('es-PA')}  ·  Estado: ${isSigned ? 'FIRMADO Y VERIFICADO POR IA' : 'PENDIENTE DE FIRMA'}`, headerTextX, 144);
+
+      let curY = 200;
+
+      // Bloque 1: Datos del Conductor y del Vehículo
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      ctx.fillRect(42, curY, totalWidth - 84, 130);
+      ctx.strokeRect(42, curY, totalWidth - 84, 130);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '800 13px Inter, sans-serif';
+      ctx.fillText('DATOS DEL CONDUCTOR RESPONSABLE', 65, curY + 30);
+      ctx.fillText('DATOS DEL VEHÍCULO AFECTADO', 540, curY + 30);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '900 22px Inter, sans-serif';
+      ctx.fillText(drv.name || 'Conductor', 65, curY + 62);
+      ctx.fillText(car ? `${car.model} (${car.year || 2023})` : 'Vehículo Asignado', 540, curY + 62);
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '700 15px Inter, sans-serif';
+      ctx.fillText(`Teléfono: ${drv.phone || 'No registrado'}`, 65, curY + 90);
+      ctx.fillText(`Dirección: ${(drv.address || 'Registrada en contrato').substring(0, 42)}`, 65, curY + 112);
+
+      ctx.fillText(`Placa Oficial: ${car ? car.plate : 'N/A'}`, 540, curY + 90);
+      ctx.fillText(`Odómetro Registrado: ${car ? (Number(car.km) || 0).toLocaleString() + ' Km' : 'N/A'}`, 540, curY + 112);
+
+      curY += 150;
+
+      // Bloque 2: Resumen Financiero de la Cotización y Abonos
+      ctx.fillStyle = fin.isFullyPaid ? '#ecfdf5' : '#fff1f2';
+      ctx.strokeStyle = fin.isFullyPaid ? '#6ee7b7' : '#fda4af';
+      ctx.lineWidth = 2;
+      ctx.fillRect(42, curY, totalWidth - 84, 110);
+      ctx.strokeRect(42, curY, totalWidth - 84, 110);
+
+      ctx.fillStyle = '#881337';
+      ctx.font = '800 13px Inter, sans-serif';
+      ctx.fillText('ESTADO FINANCIERO DE LA REPARACIÓN / COTIZACIÓN DEL DAÑO', 65, curY + 28);
+
+      if (fin.isPendingCost) {
+        ctx.fillStyle = '#b45309';
+        ctx.font = '900 24px Inter, sans-serif';
+        ctx.fillText('MONTO DE REPARACIÓN: PENDIENTE DE COTIZACIÓN OFICIAL EN TALLER', 65, curY + 68);
+        ctx.fillStyle = '#78350f';
+        ctx.font = '600 14px Inter, sans-serif';
+        ctx.fillText('El conductor acepta la responsabilidad del daño y cubrirá el importe una vez cotizado.', 65, curY + 94);
+      } else {
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '900 26px Inter, sans-serif';
+        ctx.fillText(`Cotizado: $${fin.totalCost.toFixed(2)} USD`, 65, curY + 68);
+
+        ctx.fillStyle = '#047857';
+        ctx.fillText(`Abonado: $${fin.paidAmount.toFixed(2)} USD`, 405, curY + 68);
+
+        ctx.fillStyle = fin.isFullyPaid ? '#047857' : '#be123c';
+        ctx.fillText(`Saldo Pendiente: $${fin.remaining.toFixed(2)} USD`, 700, curY + 68);
+
+        ctx.fillStyle = '#475569';
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillText(`Progreso de pago del daño: ${fin.percent}% cubierto ${fin.isFullyPaid ? '(PAGADO EN SU TOTALIDAD)' : ''}`, 65, curY + 95);
+      }
+
+      curY += 130;
+
+      // Bloque 3: Declaración Legal / Cláusula Sexta
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      ctx.fillRect(42, curY, totalWidth - 84, contractBoxHeight);
+      ctx.strokeRect(42, curY, totalWidth - 84, contractBoxHeight);
+
+      ctx.fillStyle = '#be123c';
+      ctx.font = '900 16px Inter, sans-serif';
+      ctx.fillText((dmg.title || 'CLÁUSULA SEXTA: DECLARACIÓN Y ACEPTACIÓN DE DAÑO VEHICULAR').toUpperCase(), 65, curY + 34);
+
+      ctx.fillStyle = '#1e293b';
+      ctx.font = '500 17px Inter, sans-serif';
+      let lineY = curY + 68;
+      contractLines.forEach(line => {
+        ctx.fillText(line, 65, lineY);
+        lineY += 26;
+      });
+
+      curY += contractBoxHeight + 20;
+
+      // Bloque 4: Evidencias Fotográficas del Daño (si existen)
+      if (loadedEvidenceImgs.length > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.fillRect(42, curY, totalWidth - 84, photosBoxHeight);
+        ctx.strokeRect(42, curY, totalWidth - 84, photosBoxHeight);
+
+        ctx.fillStyle = '#475569';
+        ctx.font = '800 13px Inter, sans-serif';
+        ctx.fillText(`EVIDENCIA FOTOGRÁFICA DEL DAÑO Y/O COTIZACIÓN (${loadedEvidenceImgs.length} FOTO/S ADJUNTAS)`, 65, curY + 30);
+
+        const imgW = 205;
+        const imgH = 185;
+        loadedEvidenceImgs.forEach((evImg, idx) => {
+          const xPos = 65 + idx * (imgW + 22);
+          const yPos = curY + 48;
+          ctx.fillStyle = '#f1f5f9';
+          ctx.fillRect(xPos, yPos, imgW, imgH);
+          ctx.drawImage(evImg, xPos, yPos, imgW, imgH);
+          ctx.strokeStyle = '#94a3b8';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(xPos, yPos, imgW, imgH);
+        });
+
+        curY += photosBoxHeight + 20;
+      }
+
+      // Bloque 5: Historial de Abonos Realizados al Daño (si existen)
+      if (payments.length > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.fillRect(42, curY, totalWidth - 84, paymentsBoxHeight);
+        ctx.strokeRect(42, curY, totalWidth - 84, paymentsBoxHeight);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '800 14px Inter, sans-serif';
+        ctx.fillText('HISTORIAL DE ABONOS REGISTRADOS A ESTE DAÑO:', 65, curY + 32);
+
+        let payY = curY + 64;
+        payments.forEach((p, idx) => {
+          ctx.fillStyle = '#334155';
+          ctx.font = '700 15px Inter, sans-serif';
+          ctx.fillText(`${idx + 1}. Fecha: ${p.date || '-'}   ·   Método: ${p.method || 'Abono'} (${p.note || 'S/R'})`, 65, payY);
+
+          ctx.fillStyle = '#047857';
+          ctx.font = '900 16px Inter, sans-serif';
+          ctx.fillText(`-$${Number(p.amount || 0).toFixed(2)} USD [${(p.status || 'APROBADO').toUpperCase()}]`, 690, payY);
+          payY += 34;
+        });
+
+        curY += paymentsBoxHeight + 20;
+      }
+
+      // Bloque 6: Cédula de Identidad Verificada por IA + Firma Digital del Conductor al lado
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = isSigned ? '#10b981' : '#f43f5e';
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(42, curY, totalWidth - 84, signatureBoxHeight);
+      ctx.strokeRect(42, curY, totalWidth - 84, signatureBoxHeight);
+
+      ctx.fillStyle = isSigned ? '#065f46' : '#9f1239';
+      ctx.font = '900 15px Inter, sans-serif';
+      ctx.fillText(
+        isSigned
+          ? `✅ ACEPTACIÓN DEL CONDUCTOR, CÉDULA VERIFICADA POR IA Y FIRMA DIGITAL (Firmado el: ${dmg.signedAt || 'Registrado'})`
+          : '⏳ ESPACIO PARA CÉDULA DE IDENTIDAD Y FIRMA DE ACEPTACIÓN DEL CONDUCTOR (PENDIENTE DE FIRMA)',
+        65,
+        curY + 34
+      );
+
+      // Recuadro Izquierdo: Foto de la Cédula
+      const boxW = 425;
+      const boxH = 225;
+      const leftX = 65;
+      const rightX = 530;
+      const boxY = curY + 55;
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(leftX, boxY, boxW, boxH);
+      ctx.strokeRect(leftX, boxY, boxW, boxH);
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '800 12px Inter, sans-serif';
+      ctx.fillText('1. DOCUMENTO DE IDENTIDAD (CÉDULA / LICENCIA VERIFICADA)', leftX + 16, boxY + 24);
+
+      if (idCardImg && idCardImg.width > 0) {
+        const scale = Math.min((boxW - 36) / idCardImg.width, (boxH - 46) / idCardImg.height);
+        const drawW = idCardImg.width * scale;
+        const drawH = idCardImg.height * scale;
+        const dx = leftX + (boxW - drawW) / 2;
+        const dy = boxY + 34 + ((boxH - 40) - drawH) / 2;
+        ctx.drawImage(idCardImg, dx, dy, drawW, drawH);
+      } else {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillText('Sin fotografía de cédula adjunta', leftX + 95, boxY + 125);
+      }
+
+      // Recuadro Derecho: Firma Digital del Conductor
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.fillRect(rightX, boxY, boxW, boxH);
+      ctx.strokeRect(rightX, boxY, boxW, boxH);
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '800 12px Inter, sans-serif';
+      ctx.fillText('2. FIRMA DIGITAL DE ACEPTACIÓN DEL CONDUCTOR', rightX + 16, boxY + 24);
+
+      if (sigImg && sigImg.width > 0) {
+        const scale = Math.min((boxW - 40) / sigImg.width, (boxH - 70) / sigImg.height);
+        const drawW = sigImg.width * scale;
+        const drawH = sigImg.height * scale;
+        const dx = rightX + (boxW - drawW) / 2;
+        const dy = boxY + 34 + ((boxH - 70) - drawH) / 2;
+        ctx.drawImage(sigImg, dx, dy, drawW, drawH);
+      } else {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillText('Pendiente de firma del conductor', rightX + 100, boxY + 115);
+      }
+
+      // Línea de firma al pie del recuadro derecho
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(rightX + 45, boxY + boxH - 34);
+      ctx.lineTo(rightX + boxW - 45, boxY + boxH - 34);
+      ctx.stroke();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '800 13px Inter, sans-serif';
+      ctx.fillText(`Conductor: ${drv.name}`, rightX + 50, boxY + boxH - 12);
+
+      // Pie de página legal
+      ctx.fillStyle = '#64748b';
+      ctx.font = '600 13px Inter, sans-serif';
+      ctx.fillText(`Documento digital respaldado por ${brandingConfig.companyName || 'AutoRent Pro'} · Válido como evidencia de aceptación de responsabilidad civil y acuerdo de pago.`, 45, totalHeight - 34);
+
+      const dataUrl = canvas.toDataURL('image/png');
+      document.getElementById('receipt-modal-title').textContent = `Acta Oficial de Daño - ${drv.name}`;
+      document.getElementById('receipt-modal-img').src = dataUrl;
+      document.getElementById('receipt-modal-ia-info').innerHTML = `
+        <strong>📄 Documento Legal Consolidado Generado:</strong> Incluye declaración firmada, estado de cotización y abonos, fotos del daño, cédula verificada y firma digital.<br>
+        Pulsa el botón verde <strong>«Descargar Imagen PNG»</strong> abajo para guardarlo o compartirlo por WhatsApp / imprimirlo.
+      `;
+
+      const delBtn = document.getElementById('btn-delete-single-receipt-photo');
+      if (delBtn) delBtn.classList.add('hidden');
+
+      const dlBtn = document.getElementById('btn-download-receipt-img');
+      if (dlBtn) {
+        dlBtn.href = dataUrl;
+        dlBtn.download = `Acta_Oficial_Dano_${drv.name.replace(/\s+/g, '_')}.png`;
+        dlBtn.classList.remove('hidden');
+      }
+
+      openModal('modal-view-receipt');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // Inyectar el botón "📄 Descargar Acta Oficial (PNG)" únicamente en el resumen del Administrador
+    const origBuildAdminDamageSummaryHTML = buildAdminDamageSummaryHTML;
+    buildAdminDamageSummaryHTML = function(drv, contextKey = 'card') {
+      const baseHtml = origBuildAdminDamageSummaryHTML(drv, contextKey);
+      if (!drv || !drv.damageAgreement) return baseHtml;
+
+      const docBtnHtml = `
+        <div class="pt-1.5">
+          <button type="button" onclick="generateOfficialDamageAgreementDocument('${drv.id}')" class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] flex items-center justify-center space-x-1.5 shadow-xs">
+            <span>📄 Descargar Documento Oficial del Acta de Daño (PNG)</span>
+          </button>
+        </div>
+      `;
+      return baseHtml + docBtnHtml;
+    };
+
+    // =========================================================================
+    // 2. RENTABILIDAD REAL POR VEHÍCULO (ROI INDIVIDUAL)
+    // =========================================================================
+    function calculateCarRealProfitability(car) {
+      if (!car) return { collected: 0, expenses: 0, netProfit: 0, marginPct: 0, paymentsCount: 0, expensesCount: 0 };
+
+      // Vínculo exacto de pagos por carId o por los conductores que tuvieron/tienen ese auto
+      const custodyHistory = Array.isArray(appState.custodyLogs) ? appState.custodyLogs.filter(l => l.carId === car.id) : [];
+
+      const approvedPayments = (appState.payments || []).filter(p => {
+        if (p.status !== 'Aprobado') return false;
+        if (p.carId && p.carId === car.id) return true;
+        // Si el pago se hizo durante un periodo registrado en el historial de custodia de este auto
+        if (custodyHistory.length > 0 && p.date) {
+          const matchedCustody = custodyHistory.some(log => {
+            if (log.driverId !== p.driverId) return false;
+            const startOk = !log.startDate || p.date >= log.startDate;
+            const endOk = !log.endDate || p.date <= log.endDate;
+            return startOk && endOk;
+          });
+          if (matchedCustody) return true;
+        }
+        return car.driverId && p.driverId === car.driverId;
+      });
+
+      const collected = approvedPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const carExpenses = (appState.expenses || []).filter(e => e.carId === car.id);
+      const expenses = carExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      const netProfit = Number((collected - expenses).toFixed(2));
+      const marginPct = collected > 0 ? Math.max(0, Math.min(100, Math.round((netProfit / collected) * 100))) : 0;
+
+      return {
+        collected: Number(collected.toFixed(2)),
+        expenses: Number(expenses.toFixed(2)),
+        netProfit,
+        marginPct,
+        paymentsCount: approvedPayments.length,
+        expensesCount: carExpenses.length
+      };
+    }
+
+    // =========================================================================
+    // 3. HISTORIAL Y BUSCADOR DE CUSTODIA "¿QUIÉN TENÍA EL AUTO EN ESA FECHA?"
+    // =========================================================================
+    function ensureInitialCustodyLogs() {
+      if (!Array.isArray(appState.custodyLogs)) {
+        appState.custodyLogs = [];
+      }
+      const todayIso = new Date().toISOString().split('T')[0];
+
+      // Garantizar que todo auto que actualmente tenga un conductor asignado tenga su registro de custodia abierto
+      (appState.cars || []).forEach(car => {
+        if (!car.driverId) return;
+        const activeLog = appState.custodyLogs.find(l => l.carId === car.id && !l.endDate);
+        const drv = (appState.drivers || []).find(d => d.id === car.driverId);
+        if (!activeLog && drv) {
+          // Buscar el pago más antiguo de este conductor para estimar desde cuándo tiene el auto
+          const drvPayments = (appState.payments || [])
+            .filter(p => p.driverId === drv.id && p.date)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const earliestDate = drvPayments.length > 0 ? drvPayments[0].date : todayIso;
+
+          appState.custodyLogs.unshift({
+            id: 'cust-' + car.id + '-' + drv.id,
+            carId: car.id,
+            carPlate: car.plate,
+            carModel: car.model,
+            driverId: drv.id,
+            driverName: drv.name,
+            driverPhone: drv.phone || '',
+            startDate: earliestDate,
+            endDate: '', // vacío significa que sigue activo hoy
+            notes: 'Custodia activa registrada'
+          });
+        } else if (activeLog && activeLog.driverId !== car.driverId) {
+          // Si cambió de conductor, cerramos el registro anterior hoy y abrimos el nuevo
+          activeLog.endDate = todayIso;
+          if (drv) {
+            appState.custodyLogs.unshift({
+              id: 'cust-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+              carId: car.id,
+              carPlate: car.plate,
+              carModel: car.model,
+              driverId: drv.id,
+              driverName: drv.name,
+              driverPhone: drv.phone || '',
+              startDate: todayIso,
+              endDate: '',
+              notes: 'Cambio de custodia registrado automáticamente'
+            });
+          }
+        }
+      });
+
+      // Si un auto quedó sin conductor pero tenía un registro abierto, cerrarlo
+      (appState.cars || []).forEach(car => {
+        if (!car.driverId) {
+          const openLog = appState.custodyLogs.find(l => l.carId === car.id && !l.endDate);
+          if (openLog) openLog.endDate = todayIso;
+        }
+      });
+    }
+
+    function findCustodianByCarAndDate(carId, targetDateStr) {
+      ensureInitialCustodyLogs();
+      if (!carId || !targetDateStr) return [];
+      const car = (appState.cars || []).find(c => c.id === carId);
+      const matches = [];
+
+      // 1. Buscar en los registros de custodia por rango de fechas
+      (appState.custodyLogs || []).forEach(log => {
+        if (log.carId !== carId) return;
+        const startOk = !log.startDate || targetDateStr >= log.startDate;
+        const endOk = !log.endDate || targetDateStr <= log.endDate;
+        if (startOk && endOk) {
+          matches.push({
+            driverId: log.driverId,
+            driverName: log.driverName,
+            driverPhone: log.driverPhone || '',
+            startDate: log.startDate || 'Inicio',
+            endDate: log.endDate || 'Actualidad',
+            source: 'Historial de Custodia Oficial'
+          });
+        }
+      });
+
+      // 2. Respaldo adicional: revisar si algún conductor reportó pago ese día exacto para ese auto
+      if (matches.length === 0) {
+        (appState.payments || []).forEach(p => {
+          if (p.date === targetDateStr) {
+            const pCar = getDriverAssignedCar(p.driverId);
+            if ((p.carId && p.carId === carId) || (pCar && pCar.id === carId)) {
+              const drv = (appState.drivers || []).find(d => d.id === p.driverId);
+              if (drv && !matches.some(m => m.driverId === drv.id)) {
+                matches.push({
+                  driverId: drv.id,
+                  driverName: drv.name,
+                  driverPhone: drv.phone || '',
+                  startDate: p.date,
+                  endDate: p.date,
+                  source: `Pago registrado en esa fecha (${p.id})`
+                });
+              }
+            }
+          }
+        });
+      }
+
+      // 3. Si es la fecha de hoy y tiene chofer asignado
+      if (matches.length === 0 && car && car.driverId) {
+        const drv = (appState.drivers || []).find(d => d.id === car.driverId);
+        if (drv) {
+          matches.push({
+            driverId: drv.id,
+            driverName: drv.name,
+            driverPhone: drv.phone || '',
+            startDate: 'Asignación actual',
+            endDate: 'Actualidad',
+            source: 'Conductor actualmente asignado'
+          });
+        }
+      }
+
+      return matches;
+    }
+
+    function runFleetCustodySearch() {
+      const carSel = document.getElementById('fleet-custody-search-car');
+      const dateInput = document.getElementById('fleet-custody-search-date');
+      const resBox = document.getElementById('fleet-custody-search-result');
+      if (!carSel || !dateInput || !resBox) return;
+
+      const carId = carSel.value;
+      const dateVal = dateInput.value;
+      if (!dateVal) {
+        showToast('Selecciona la fecha de la boleta o incidente que deseas consultar', 'warning');
+        return;
+      }
+
+      const targetCars = carId === 'ALL'
+        ? (appState.cars || [])
+        : (appState.cars || []).filter(c => c.id === carId);
+
+      const results = [];
+      targetCars.forEach(car => {
+        const custodians = findCustodianByCarAndDate(car.id, dateVal);
+        custodians.forEach(c => {
+          results.push({ car, custodian: c });
+        });
+      });
+
+      resBox.classList.remove('hidden');
+      if (results.length === 0) {
+        resBox.className = 'p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-bold';
+        resBox.innerHTML = `⚠️ No se encontró ningún conductor asignado en la fecha <strong>${dateVal}</strong>. Puedes abrir el botón <strong>«🕒 Historial Custodia»</strong> del auto para registrar periodos anteriores.`;
+        return;
+      }
+
+      resBox.className = 'p-3.5 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-950 space-y-2 text-xs';
+      resBox.innerHTML = `
+        <div class="flex items-center justify-between border-b border-emerald-200 pb-1.5">
+          <span class="font-black uppercase text-emerald-900">✅ Resultado de Custodia para la fecha ${dateVal}:</span>
+          <button type="button" onclick="document.getElementById('fleet-custody-search-result').classList.add('hidden')" class="text-[11px] font-bold text-slate-500 hover:text-slate-800">Cerrar ✕</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          ${results.map(r => `
+            <div class="p-2.5 rounded-xl bg-white border border-emerald-200 flex items-center justify-between gap-2 shadow-2xs">
+              <div>
+                <span class="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">${r.car.plate} · ${r.car.model}</span>
+                <p class="font-black text-slate-900 text-sm mt-1">👤 ${r.custodian.driverName}</p>
+                <p class="text-[11px] text-slate-500">📞 ${r.custodian.driverPhone || 'Sin tel.'} · Periodo: <strong>${r.custodian.startDate} → ${r.custodian.endDate}</strong></p>
+              </div>
+              <button type="button" onclick="openViewDriverModal('${r.custodian.driverId}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] border border-indigo-200 whitespace-nowrap">
+                Ver Chofer
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function openCarCustodyHistoryModal(carId) {
+      ensureInitialCustodyLogs();
+      const car = (appState.cars || []).find(c => c.id === carId);
+      if (!car) return;
+
+      document.getElementById('custody-modal-car-id').value = car.id;
+      document.getElementById('custody-modal-title').textContent = `Custodia · ${car.model} (${car.plate})`;
+
+      const drvSel = document.getElementById('custody-manual-driver');
+      if (drvSel) {
+        drvSel.innerHTML = (appState.drivers || []).map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+        if (car.driverId) drvSel.value = car.driverId;
+      }
+
+      const startInput = document.getElementById('custody-manual-start');
+      if (startInput && !startInput.value) {
+        startInput.value = new Date().toISOString().split('T')[0];
+      }
+      const endInput = document.getElementById('custody-manual-end');
+      if (endInput) endInput.value = '';
+
+      renderCarCustodyHistoryModalList(car.id);
+      openModal('modal-car-custody-history');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function renderCarCustodyHistoryModalList(carId) {
+      const listEl = document.getElementById('custody-modal-list');
+      if (!listEl) return;
+
+      const logs = (appState.custodyLogs || [])
+        .filter(l => l.carId === carId)
+        .sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+
+      if (logs.length === 0) {
+        listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">No hay registros de custodia para este vehículo todavía.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = logs.map(l => `
+        <div class="p-3 rounded-2xl border ${!l.endDate ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200 bg-white'} flex items-center justify-between gap-2">
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${!l.endDate ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}">
+                ${!l.endDate ? '🟢 EN CUSTODIA ACTUAL' : '📁 HISTÓRICO'}
+              </span>
+              <span class="font-black text-slate-900 text-xs">${l.driverName}</span>
+            </div>
+            <p class="text-[11px] text-slate-600 mt-1 font-semibold">
+              📅 Desde: <strong>${l.startDate || 'Inicio'}</strong>  →  Hasta: <strong>${l.endDate || 'Actualidad (En curso)'}</strong>
+            </p>
+            <p class="text-[10px] text-slate-400">${l.notes || ''}</p>
+          </div>
+          <button type="button" onclick="deleteCustodyLogEntry('${l.id}', '${carId}')" class="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[11px] font-bold">
+            Borrar
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function addManualCustodyRecord() {
+      const carId = document.getElementById('custody-modal-car-id').value;
+      const car = (appState.cars || []).find(c => c.id === carId);
+      const drvId = document.getElementById('custody-manual-driver').value;
+      const drv = (appState.drivers || []).find(d => d.id === drvId);
+      const startDate = document.getElementById('custody-manual-start').value;
+      const endDate = document.getElementById('custody-manual-end').value;
+
+      if (!car || !drv || !startDate) {
+        showToast('Selecciona el conductor y la fecha de inicio', 'warning');
+        return;
+      }
+
+      if (!Array.isArray(appState.custodyLogs)) appState.custodyLogs = [];
+      appState.custodyLogs.unshift({
+        id: 'cust-' + Date.now(),
+        carId: car.id,
+        carPlate: car.plate,
+        carModel: car.model,
+        driverId: drv.id,
+        driverName: drv.name,
+        driverPhone: drv.phone || '',
+        startDate,
+        endDate: endDate || '',
+        notes: 'Registro manual de custodia'
+      });
+
+      saveStateAndBroadcast(true);
+      renderCarCustodyHistoryModalList(car.id);
+      renderAdminView();
+      showToast(`✓ Periodo de custodia de ${drv.name} registrado en ${car.plate}`, 'success');
+    }
+
+    function deleteCustodyLogEntry(logId, carId) {
+      appState.custodyLogs = (appState.custodyLogs || []).filter(l => l.id !== logId);
+      saveStateAndBroadcast(true);
+      renderCarCustodyHistoryModalList(carId);
+      renderAdminView();
+      showToast('Registro de custodia eliminado', 'info');
+    }
+
+    // =========================================================================
+    // DECORADORES NO DESTRUCTIVOS PARA LA SECCIÓN DE FLOTA Y FICHA DEL VEHÍCULO
+    // =========================================================================
+    const origSaveStateForCustody = saveStateAndBroadcast;
+    saveStateAndBroadcast = function(forceCloudWrite = false) {
+      ensureInitialCustodyLogs();
+      origSaveStateForCustody(forceCloudWrite);
+    };
+
+    const origRenderFleetSectionForROI = renderFleetSection;
+    renderFleetSection = function() {
+      ensureInitialCustodyLogs();
+      origRenderFleetSectionForROI();
+
+      const fleetPanel = document.getElementById('panel-tab-fleet');
+      const cardsContainer = document.getElementById('fleet-cards-container');
+      if (!fleetPanel || !cardsContainer) return;
+
+      // 1. Inyectar barra superior de Buscador "¿Quién tenía el auto en esa fecha?"
+      let searchBar = document.getElementById('fleet-custody-finder-bar');
+      if (!searchBar) {
+        searchBar = document.createElement('div');
+        searchBar.id = 'fleet-custody-finder-bar';
+        searchBar.className = 'bg-indigo-50/80 border-2 border-indigo-200 rounded-3xl p-4 shadow-xs space-y-3';
+        fleetPanel.insertBefore(searchBar, cardsContainer);
+      }
+
+      const prevCarVal = document.getElementById('fleet-custody-search-car') ? document.getElementById('fleet-custody-search-car').value : 'ALL';
+      const prevDateVal = document.getElementById('fleet-custody-search-date') ? document.getElementById('fleet-custody-search-date').value : new Date().toISOString().split('T')[0];
+
+      searchBar.innerHTML = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-xs">
+              🔍
+            </div>
+            <div>
+              <h4 class="text-xs sm:text-sm font-black text-indigo-950">Buscador de Custodia: ¿Quién tenía el auto en esa fecha?</h4>
+              <p class="text-[11px] text-indigo-700">Ideal para verificar boletas de tránsito (ATTT), Panapass o daños de fechas anteriores.</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="fleet-custody-search-car" class="text-xs font-bold p-2.5 rounded-xl border border-indigo-300 bg-white">
+              <option value="ALL">🚗 Todos los Autos</option>
+              ${(appState.cars || []).map(c => `<option value="${c.id}" ${c.id === prevCarVal ? 'selected' : ''}>${c.plate} · ${c.model}</option>`).join('')}
+            </select>
+            <input type="date" id="fleet-custody-search-date" value="${prevDateVal}" class="text-xs font-bold p-2.5 rounded-xl border border-indigo-300 bg-white">
+            <button type="button" onclick="runFleetCustodySearch()" class="px-4 py-2.5 rounded-xl custom-primary-bg text-white text-xs font-black shadow-xs whitespace-nowrap">
+              Consultar Fecha
+            </button>
+          </div>
+        </div>
+        <div id="fleet-custody-search-result" class="hidden"></div>
+      `;
+
+      // 2. Inyectar Rentabilidad Real (ROI) y Botón de Historial de Custodia en cada tarjeta de vehículo
+      const carCards = cardsContainer.children;
+      (appState.cars || []).forEach((car, index) => {
+        const cardEl = carCards[index];
+        if (!cardEl || cardEl.querySelector('.car-roi-injected')) return;
+
+        const roi = calculateCarRealProfitability(car);
+        const isPositive = roi.netProfit >= 0;
+
+        const roiBox = document.createElement('div');
+        roiBox.className = 'car-roi-injected pt-2 border-t border-slate-100 space-y-2';
+        roiBox.innerHTML = `
+          <div class="p-3 rounded-2xl ${isPositive ? 'bg-emerald-50/70 border border-emerald-200' : 'bg-rose-50/70 border border-rose-200'} space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-black uppercase ${isPositive ? 'text-emerald-900' : 'text-rose-900'}">📊 Rentabilidad Real del Auto (ROI)</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${isPositive ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}">
+                Neto: ${isPositive ? '+' : ''}$${roi.netProfit.toFixed(2)}
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[11px] pt-0.5">
+              <div><span class="text-slate-500">Producido:</span> <strong class="text-emerald-700">$${roi.collected.toFixed(2)}</strong></div>
+              <div><span class="text-slate-500">Gastos Taller:</span> <strong class="text-rose-600">-$${roi.expenses.toFixed(2)}</strong></div>
+            </div>
+            <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+              <div class="${isPositive ? 'bg-emerald-600' : 'bg-rose-600'} h-full rounded-full" style="width: ${roi.marginPct}%"></div>
+            </div>
+          </div>
+
+          <button type="button" onclick="openCarCustodyHistoryModal('${car.id}')" class="w-full py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-xs flex items-center justify-center space-x-1.5">
+            <span>🕒 Quién tuvo este auto / Historial de Custodia</span>
+          </button>
+        `;
+
+        const topInfoDiv = cardEl.querySelector('.space-y-2');
+        if (topInfoDiv) {
+          topInfoDiv.appendChild(roiBox);
+        } else {
+          cardEl.insertBefore(roiBox, cardEl.lastElementChild);
+        }
+      });
+    };
+
+    const origOpenViewCarModalForROI = openViewCarModal;
+    openViewCarModal = function(carId) {
+      ensureInitialCustodyLogs();
+      origOpenViewCarModalForROI(carId);
+      const car = (appState.cars || []).find(c => c.id === carId);
+      const content = document.getElementById('viewcar-content');
+      if (!car || !content) return;
+
+      const roi = calculateCarRealProfitability(car);
+      const logs = (appState.custodyLogs || [])
+        .filter(l => l.carId === car.id)
+        .sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''))
+        .slice(0, 5);
+
+      const extraWrap = document.createElement('div');
+      extraWrap.className = 'space-y-3 pt-2';
+      extraWrap.innerHTML = `
+        <div class="p-3.5 rounded-2xl border-2 ${roi.netProfit >= 0 ? 'border-emerald-200 bg-emerald-50/50' : 'border-rose-200 bg-rose-50/50'} space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-black uppercase text-slate-800">📊 Balance y Rentabilidad Real de este Auto</span>
+            <span class="text-sm font-black ${roi.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}">
+              Utilidad Neta: $${roi.netProfit.toFixed(2)}
+            </span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center bg-white p-2.5 rounded-xl border border-slate-200">
+            <div>
+              <span class="text-[10px] text-slate-400 font-bold uppercase block">Cobrado (${roi.paymentsCount})</span>
+              <strong class="text-emerald-600 text-xs">$${roi.collected.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-400 font-bold uppercase block">Taller (${roi.expensesCount})</span>
+              <strong class="text-rose-600 text-xs">-$${roi.expenses.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-400 font-bold uppercase block">Margen Real</span>
+              <strong class="text-indigo-600 text-xs">${roi.marginPct}%</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-black uppercase text-slate-800">🕒 Historial de Conductores de este Auto</span>
+            <button type="button" onclick="closeModal('modal-view-car'); openCarCustodyHistoryModal('${car.id}')" class="text-[11px] font-black text-indigo-600 hover:underline">
+              Gestionar Fechas
+            </button>
+          </div>
+          ${logs.length > 0 ? `
+            <div class="space-y-1.5">
+              ${logs.map(l => `
+                <div class="p-2 rounded-xl bg-white border border-slate-200 flex items-center justify-between text-[11px]">
+                  <span class="font-black text-slate-900">👤 ${l.driverName}</span>
+                  <span class="font-mono text-slate-600">${l.startDate || 'Inicio'} → <strong>${l.endDate || 'Actual'}</strong></span>
+                </div>
+              `).join('')}
+            </div>
+          ` : `<p class="text-[11px] text-slate-400">Sin historial registrado.</p>`}
+        </div>
+      `;
+      content.appendChild(extraWrap);
+    };
+  </script>
 </body>
 </html>
