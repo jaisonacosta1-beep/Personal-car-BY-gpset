@@ -2857,6 +2857,234 @@
         if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
       } catch(e){}
     }
+    const savedBrandingBackup = localStorage.getItem('autorent_branding_backup');
+    if (savedBrandingBackup) {
+      try {
+        brandingConfig = Object.assign(brandingConfig, JSON.parse(savedBrandingBackup));
+        appState.branding = brandingConfig;
+      } catch(e){}
+    }
+    const savedCredsBackup = localStorage.getItem('autorent_creds_backup');
+    if (savedCredsBackup) {
+      try {
+        adminCredentials = Object.assign(adminCredentials, JSON.parse(savedCredsBackup));
+        appState.adminCreds = adminCredentials;
+      } catch(e){}
+    }
+
+    let currentSession = { role: null, driverId: null, partnerId: null };
+    let tempCompressedReceipt = null;
+    let logoTapCount = 0;
+    let logoTapTimer = null;
+
+    // MAPAS LEAFLET
+    let adminDriverMap = null, adminDriverMarker = null;
+    let driverPortalMap = null, driverPortalMarker = null;
+    let viewInspMap = null, viewInspMarker = null;
+
+    // APLICAR DISEÑO Y TEMA OSCURO
+    function applyBrandingUI() {
+      document.documentElement.style.setProperty('--primary-color', brandingConfig.primaryColor);
+      document.documentElement.style.setProperty('--app-font', brandingConfig.fontFamily);
+      
+      const isDark = brandingConfig.theme === 'dark';
+      document.documentElement.classList.toggle('dark', isDark);
+      const themeIcon = document.getElementById('theme-toggle-icon');
+      if (themeIcon) themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+
+      const nameDisplays = [
+        document.getElementById('company-name-display'),
+        document.getElementById('auth-company-name'),
+        document.getElementById('cfg-preview-title')
+      ];
+
+      nameDisplays.forEach(el => {
+        if (!el) return;
+        el.textContent = brandingConfig.companyName;
+        if (brandingConfig.nameColorMode === 'gradient') {
+          el.className = 'font-black tracking-tight company-title-gradient';
+          el.style.backgroundImage = `linear-gradient(135deg, ${brandingConfig.nameGradColor1}, ${brandingConfig.nameGradColor2})`;
+          el.style.color = 'transparent';
+        } else {
+          el.className = 'font-black tracking-tight';
+          el.style.backgroundImage = 'none';
+          el.style.webkitTextFillColor = 'initial';
+          el.style.color = brandingConfig.nameSolidColor || '#0f172a';
+        }
+      });
+
+      document.title = brandingConfig.companyName + " - Gestión de Flota";
+
+      const hasLogo = !!brandingConfig.logoBase64;
+      const navImg = document.getElementById('company-logo-img');
+      const navIcon = document.getElementById('company-default-icon');
+      const authImg = document.getElementById('auth-logo-img');
+      const authIcon = document.getElementById('auth-logo-icon');
+      const cfgPreview = document.getElementById('cfg-logo-preview');
+      const cfgPlaceholder = document.getElementById('cfg-logo-placeholder');
+
+      if (hasLogo) {
+        if (navImg) { navImg.src = brandingConfig.logoBase64; navImg.classList.remove('hidden'); }
+        if (navIcon) navIcon.classList.add('hidden');
+        if (authImg) { authImg.src = brandingConfig.logoBase64; authImg.classList.remove('hidden'); }
+        if (authIcon) authIcon.classList.add('hidden');
+        if (cfgPreview) { cfgPreview.src = brandingConfig.logoBase64; cfgPreview.classList.remove('hidden'); }
+        if (cfgPlaceholder) cfgPlaceholder.classList.add('hidden');
+      } else {
+        if (navImg) navImg.classList.add('hidden');
+        if (navIcon) navIcon.classList.remove('hidden');
+        if (authImg) authImg.classList.add('hidden');
+        if (authIcon) authIcon.classList.remove('hidden');
+        if (cfgPreview) cfgPreview.classList.add('hidden');
+        if (cfgPlaceholder) cfgPlaceholder.classList.remove('hidden');
+      }
+
+      if (document.getElementById('cfg-admin-user')) {
+        document.getElementById('cfg-admin-user').value = adminCredentials.user;
+        document.getElementById('cfg-admin-pass').value = adminCredentials.pass;
+        if (document.getElementById('cfg-admin-whatsapp')) {
+          document.getElementById('cfg-admin-whatsapp').value = adminCredentials.whatsapp || '';
+        }
+        if (document.getElementById('cfg-pay-yappy-phone')) {
+          document.getElementById('cfg-pay-yappy-phone').value = adminCredentials.yappyPhone || '';
+          document.getElementById('cfg-pay-yappy-name').value = adminCredentials.yappyName || '';
+          document.getElementById('cfg-pay-bank-account').value = adminCredentials.bankAccount || '';
+          document.getElementById('cfg-pay-bank-name').value = adminCredentials.bankHolder || '';
+        }
+        if (document.getElementById('cfg-tg-token')) {
+          document.getElementById('cfg-tg-enabled').checked = !!adminCredentials.tgEnabled;
+          document.getElementById('cfg-tg-token').value = adminCredentials.tgToken || '';
+          document.getElementById('cfg-tg-chatid').value = adminCredentials.tgChatId || '';
+          document.getElementById('cfg-tg-notify-login').checked = !!adminCredentials.tgNotifyLogin;
+        }
+      }
+    }
+
+    // FUNCIÓN PARA ENVIAR NOTIFICACIONES Y FOTOS AL BOT DE TELEGRAM
+    function base64ToBlobSafe(base64Data) {
+      const parts = base64Data.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const byteString = atob(parts[1]);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      return new Blob([ab], { type: mime });
+    }
+
+    async function sendTelegramNotification(textMessage, base64Photo = null, forceTest = false) {
+      const creds = Object.assign({}, appState.adminCreds || {}, adminCredentials || {});
+      const domToken = document.getElementById('cfg-tg-token') ? document.getElementById('cfg-tg-token').value.trim() : '';
+      const domChatId = document.getElementById('cfg-tg-chatid') ? document.getElementById('cfg-tg-chatid').value.trim() : '';
+
+      const token = (creds.tgToken || domToken || '').trim().replace(/^bot/i, '');
+      const chatId = (creds.tgChatId || domChatId || '').trim();
+      const enabled = forceTest || creds.tgEnabled !== false;
+
+      if (!enabled || !token || !chatId) return false;
+
+      let sentOk = false;
+
+      if (base64Photo && base64Photo.startsWith('data:image')) {
+        try {
+          const blob = base64ToBlobSafe(base64Photo);
+          const formData = new FormData();
+          formData.append('chat_id', chatId);
+          formData.append('photo', blob, 'comprobante.jpg');
+          formData.append('caption', textMessage.substring(0, 1020));
+          formData.append('parse_mode', 'HTML');
+
+          const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            body: formData
+          });
+          if (photoRes && photoRes.ok) return true;
+        } catch (photoErr) {
+          console.warn('Reintentando envío de texto a Telegram:', photoErr);
+        }
+      }
+
+      try {
+        const params = new URLSearchParams();
+        params.append('chat_id', chatId);
+        params.append('text', textMessage);
+        params.append('parse_mode', 'HTML');
+
+        const msgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          body: params
+        });
+        if (msgRes && msgRes.ok) sentOk = true;
+      } catch (err) {
+        try {
+          const getUrl = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&parse_mode=HTML&text=${encodeURIComponent(textMessage)}`;
+          await fetch(getUrl, { mode: 'no-cors' });
+          sentOk = true;
+        } catch (fallbackErr) {
+          console.warn('Aviso Telegram:', fallbackErr);
+        }
+      }
+
+      return sentOk;
+    }
+
+    function saveTelegramBotConfig() {
+      const tokenVal = document.getElementById('cfg-tg-token').value.trim().replace(/^bot/i, '');
+      const chatIdVal = document.getElementById('cfg-tg-chatid').value.trim();
+      if (tokenVal && chatIdVal) {
+        document.getElementById('cfg-tg-enabled').checked = true;
+      }
+      adminCredentials.tgEnabled = !!document.getElementById('cfg-tg-enabled').checked;
+      adminCredentials.tgToken = tokenVal;
+      adminCredentials.tgChatId = chatIdVal;
+      adminCredentials.tgNotifyLogin = !!document.getElementById('cfg-tg-notify-login').checked;
+      appState.adminCreds = Object.assign({}, adminCredentials);
+      saveStateAndBroadcast();
+      showToast('✓ Configuración de Telegram guardada', 'success');
+    }
+
+    async function testTelegramBotConnection() {
+      saveTelegramBotConfig();
+      if (!adminCredentials.tgToken || !adminCredentials.tgChatId) {
+        showToast('Ingresa tu Bot Token y Chat ID primero', 'warning');
+        return;
+      }
+      const ok = await sendTelegramNotification(
+        `✅ <b>Bot Conectado con Éxito</b>\n🏢 <b>Empresa:</b> ${brandingConfig.companyName}\n📲 Recibirás aquí los reportes de pago con foto y alertas de la flota.`,
+        null,
+        true
+      );
+      if (ok) {
+        showToast('✓ Mensaje de prueba enviado a tu Telegram', 'success');
+      } else {
+        showToast('No se pudo enviar. Verifica el Token, Chat ID y haber iniciado el Bot con /start', 'error');
+      }
+    }
+
+    function copyDriverPaymentInfo(type) {
+      const textToCopy = type === 'yappy'
+        ? (adminCredentials.yappyPhone || '').trim()
+        : (adminCredentials.bankAccount || '').trim();
+      if (!textToCopy) return;
+      const tempInput = document.createElement('input');
+      tempInput.value = textToCopy;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+      showToast(type === 'yappy' ? '✓ Dato de Yappy copiado' : '✓ Número de cuenta copiado', 'success');
+    }
+
+    // TOGGLE MODO OSCURO
+    document.getElementById('btn-theme-toggle').addEventListener('click', () => {
+      brandingConfig.theme = (brandingConfig.theme === 'dark') ? 'light' : 'dark';
+      applyBrandingUI();
+      saveStateAndBroadcast();
+      lucide.createIcons();
+    });
+
     // INICIALIZACIÓN Y BUZÓN ATÓMICO DE PAGOS EN FIREBASE (SDK + HTTPS REST)
     function getCleanFirebaseDbUrl() {
       let url = (firebaseConfig && firebaseConfig.databaseURL ? firebaseConfig.databaseURL : defaultFirebaseConfig.databaseURL || '').trim();
