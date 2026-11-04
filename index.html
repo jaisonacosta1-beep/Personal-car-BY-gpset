@@ -408,9 +408,15 @@
                   <p class="text-[11px] text-slate-400">Validación con lectura OCR y comprobantes.</p>
                 </div>
               </div>
-              <span id="pending-payments-badge" class="px-2.5 py-1 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
-                0 Pendientes
-              </span>
+              <div class="flex items-center space-x-1.5">
+                <button type="button" onclick="forcePullPaymentsInboxNow(true)" class="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-black flex items-center space-x-1 transition shadow-2xs" title="Buscar pagos nuevos en la nube ahora">
+                  <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                  <span>Sincronizar</span>
+                </button>
+                <span id="pending-payments-badge" class="px-2.5 py-1 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  0 Pendientes
+                </span>
+              </div>
             </div>
 
             <div id="dashboard-payments-container" class="space-y-3"></div>
@@ -818,8 +824,18 @@
                 </div>
               </div>
 
-              <div class="flex justify-end pt-1">
-                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs flex items-center space-x-1.5">
+              <div id="firebase-diagnostic-box" class="hidden p-3.5 rounded-2xl border text-xs space-y-2"></div>
+
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-amber-200/60">
+                <div class="flex flex-wrap items-center gap-2">
+                  <button type="button" onclick="diagnoseFirebaseConnection()" class="px-3.5 py-2 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-black shadow-2xs">
+                    🩺 Probar y Diagnosticar Firebase
+                  </button>
+                  <button type="button" onclick="forcePullPaymentsInboxNow(true)" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-2xs">
+                    ⬇️ Traer Pagos de la Nube
+                  </button>
+                </div>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs flex items-center space-x-1.5 ml-auto">
                   <i data-lucide="save" class="w-4 h-4"></i>
                   <span>Guardar y Reconectar Firebase</span>
                 </button>
@@ -2841,239 +2857,211 @@
         if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
       } catch(e){}
     }
-    const savedBrandingBackup = localStorage.getItem('autorent_branding_backup');
-    if (savedBrandingBackup) {
-      try {
-        brandingConfig = Object.assign(brandingConfig, JSON.parse(savedBrandingBackup));
-        appState.branding = brandingConfig;
-      } catch(e){}
-    }
-    const savedCredsBackup = localStorage.getItem('autorent_creds_backup');
-    if (savedCredsBackup) {
-      try {
-        adminCredentials = Object.assign(adminCredentials, JSON.parse(savedCredsBackup));
-        appState.adminCreds = adminCredentials;
-      } catch(e){}
+    // INICIALIZACIÓN Y BUZÓN ATÓMICO DE PAGOS EN FIREBASE (SDK + HTTPS REST)
+    function getCleanFirebaseDbUrl() {
+      let url = (firebaseConfig && firebaseConfig.databaseURL ? firebaseConfig.databaseURL : defaultFirebaseConfig.databaseURL || '').trim();
+      if (!url) return '';
+      url = url.replace(/\/+$/, '');
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+      return url;
     }
 
-    let currentSession = { role: null, driverId: null };
-    let tempCompressedReceipt = null;
-    let logoTapCount = 0;
-    let logoTapTimer = null;
+    function updateFirebaseStatusBadges(isOnline, labelText) {
+      const topBadge = document.getElementById('cloud-status-badge');
+      const cfgBadge = document.getElementById('cfg-firebase-badge');
+      if (isOnline) {
+        if (topBadge) {
+          topBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
+          topBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-pulse mr-1"></span> ${labelText || 'Firebase Conectado'}`;
+        }
+        if (cfgBadge) {
+          cfgBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300';
+          cfgBadge.textContent = '🟢 Conectado';
+        }
+      } else {
+        if (topBadge) {
+          topBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200';
+          topBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-500 badge-pulse mr-1"></span> ${labelText || 'Sin Conexión Nube'}`;
+        }
+        if (cfgBadge) {
+          cfgBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300';
+          cfgBadge.textContent = '🔴 Revisar Conexión';
+        }
+      }
+    }
 
-    // MAPAS LEAFLET
-    let adminDriverMap = null, adminDriverMarker = null;
-    let driverPortalMap = null, driverPortalMarker = null;
-    let viewInspMap = null, viewInspMarker = null;
+    // Envía un pago individual directo al buzón de la nube (no falla aunque el resto del estado sea pesado)
+    async function pushSinglePaymentToCloudInbox(paymentObj) {
+      if (!paymentObj || !paymentObj.id) return false;
+      const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
+      let delivered = false;
 
-    // APLICAR DISEÑO Y TEMA OSCURO
-    function applyBrandingUI() {
-      document.documentElement.style.setProperty('--primary-color', brandingConfig.primaryColor);
-      document.documentElement.style.setProperty('--app-font', brandingConfig.fontFamily);
-      
-      const isDark = brandingConfig.theme === 'dark';
-      document.documentElement.classList.toggle('dark', isDark);
-      const themeIcon = document.getElementById('theme-toggle-icon');
-      if (themeIcon) themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+      // Vía 1: HTTPS REST Directo (Funciona inmediato en celulares y redes móviles)
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (baseUrl) {
+        try {
+          const res = await fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cleanPayment)
+          });
+          if (res.ok) {
+            delivered = true;
+            updateFirebaseStatusBadges(true, 'Firebase Activo');
+          }
+        } catch (e) {
+          console.warn('Aviso REST Inbox:', e);
+        }
+      }
 
-      const nameDisplays = [
-        document.getElementById('company-name-display'),
-        document.getElementById('auth-company-name'),
-        document.getElementById('cfg-preview-title')
-      ];
+      // Vía 2: SDK Realtime Database
+      if (isFirebaseReady && db) {
+        try {
+          await db.ref('rentFlotaEnterpriseV2_inbox/' + cleanPayment.id).set(cleanPayment);
+          delivered = true;
+        } catch (e) {
+          console.warn('Aviso SDK Inbox:', e);
+        }
+      }
 
-      nameDisplays.forEach(el => {
-        if (!el) return;
-        el.textContent = brandingConfig.companyName;
-        if (brandingConfig.nameColorMode === 'gradient') {
-          el.className = 'font-black tracking-tight company-title-gradient';
-          el.style.backgroundImage = `linear-gradient(135deg, ${brandingConfig.nameGradColor1}, ${brandingConfig.nameGradColor2})`;
-          el.style.color = 'transparent';
-        } else {
-          el.className = 'font-black tracking-tight';
-          el.style.backgroundImage = 'none';
-          el.style.webkitTextFillColor = 'initial';
-          el.style.color = brandingConfig.nameSolidColor || '#0f172a';
+      return delivered;
+    }
+
+    // Limpia o actualiza un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
+    async function removePaymentFromCloudInbox(paymentId) {
+      if (!paymentId) return;
+      if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
+      if (!appState.processedInboxIds.includes(paymentId)) {
+        appState.processedInboxIds.push(paymentId);
+        if (appState.processedInboxIds.length > 300) appState.processedInboxIds.shift();
+      }
+
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (baseUrl) {
+        fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(paymentId)}.json`, {
+          method: 'DELETE'
+        }).catch(() => {});
+      }
+      if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2_inbox/' + paymentId).remove().catch(() => {});
+      }
+    }
+
+    // Integra pagos entrantes del buzón de la nube sin perder ningún dato local
+    function mergeIncomingInboxPayments(inboxMapOrList) {
+      const incoming = normalizeCloudList(inboxMapOrList);
+      if (incoming.length === 0) return 0;
+
+      if (!Array.isArray(appState.payments)) appState.payments = [];
+      const processedIds = Array.isArray(appState.processedInboxIds) ? appState.processedInboxIds : [];
+      const existingIds = new Set(appState.payments.map(p => p && p.id).filter(Boolean));
+      let addedCount = 0;
+
+      incoming.forEach(pay => {
+        if (!pay || !pay.id) return;
+        if (processedIds.includes(pay.id)) return;
+        if (!existingIds.has(pay.id)) {
+          appState.payments.unshift(pay);
+          existingIds.add(pay.id);
+          addedCount++;
         }
       });
 
-      document.title = brandingConfig.companyName + " - Gestión de Flota";
-
-      const hasLogo = !!brandingConfig.logoBase64;
-      const navImg = document.getElementById('company-logo-img');
-      const navIcon = document.getElementById('company-default-icon');
-      const authImg = document.getElementById('auth-logo-img');
-      const authIcon = document.getElementById('auth-logo-icon');
-      const cfgPreview = document.getElementById('cfg-logo-preview');
-      const cfgPlaceholder = document.getElementById('cfg-logo-placeholder');
-
-      if (hasLogo) {
-        if (navImg) { navImg.src = brandingConfig.logoBase64; navImg.classList.remove('hidden'); }
-        if (navIcon) navIcon.classList.add('hidden');
-        if (authImg) { authImg.src = brandingConfig.logoBase64; authImg.classList.remove('hidden'); }
-        if (authIcon) authIcon.classList.add('hidden');
-        if (cfgPreview) { cfgPreview.src = brandingConfig.logoBase64; cfgPreview.classList.remove('hidden'); }
-        if (cfgPlaceholder) cfgPlaceholder.classList.add('hidden');
-      } else {
-        if (navImg) navImg.classList.add('hidden');
-        if (navIcon) navIcon.classList.remove('hidden');
-        if (authImg) authImg.classList.add('hidden');
-        if (authIcon) authIcon.classList.remove('hidden');
-        if (cfgPreview) cfgPreview.classList.add('hidden');
-        if (cfgPlaceholder) cfgPlaceholder.classList.remove('hidden');
-      }
-
-      if (document.getElementById('cfg-admin-user')) {
-        document.getElementById('cfg-admin-user').value = adminCredentials.user;
-        document.getElementById('cfg-admin-pass').value = adminCredentials.pass;
-        if (document.getElementById('cfg-admin-whatsapp')) {
-          document.getElementById('cfg-admin-whatsapp').value = adminCredentials.whatsapp || '';
-        }
-        if (document.getElementById('cfg-pay-yappy-phone')) {
-          document.getElementById('cfg-pay-yappy-phone').value = adminCredentials.yappyPhone || '';
-          document.getElementById('cfg-pay-yappy-name').value = adminCredentials.yappyName || '';
-          document.getElementById('cfg-pay-bank-account').value = adminCredentials.bankAccount || '';
-          document.getElementById('cfg-pay-bank-name').value = adminCredentials.bankHolder || '';
-        }
-        if (document.getElementById('cfg-tg-token')) {
-          document.getElementById('cfg-tg-enabled').checked = !!adminCredentials.tgEnabled;
-          document.getElementById('cfg-tg-token').value = adminCredentials.tgToken || '';
-          document.getElementById('cfg-tg-chatid').value = adminCredentials.tgChatId || '';
-          document.getElementById('cfg-tg-notify-login').checked = !!adminCredentials.tgNotifyLogin;
-        }
-      }
-    }
-
-    // FUNCIÓN PARA ENVIAR NOTIFICACIONES Y FOTOS AL BOT DE TELEGRAM
-    function base64ToBlobSafe(base64Data) {
-      const parts = base64Data.split(',');
-      const mimeMatch = parts[0].match(/:(.*?);/);
-      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const byteString = atob(parts[1]);
-      const ab = new ArrayBuffer(byteString.length);
-      const ia = new Uint8Array(ab);
-      for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-      }
-      return new Blob([ab], { type: mime });
-    }
-
-    async function sendTelegramNotification(textMessage, base64Photo = null, forceTest = false) {
-      const creds = Object.assign({}, appState.adminCreds || {}, adminCredentials || {});
-      const domToken = document.getElementById('cfg-tg-token') ? document.getElementById('cfg-tg-token').value.trim() : '';
-      const domChatId = document.getElementById('cfg-tg-chatid') ? document.getElementById('cfg-tg-chatid').value.trim() : '';
-
-      const token = (creds.tgToken || domToken || '').trim().replace(/^bot/i, '');
-      const chatId = (creds.tgChatId || domChatId || '').trim();
-      const enabled = forceTest || creds.tgEnabled !== false;
-
-      if (!enabled || !token || !chatId) return false;
-
-      let sentOk = false;
-
-      // 1. Si hay foto del comprobante, enviarla como FormData simple (sin preflight CORS)
-      if (base64Photo && base64Photo.startsWith('data:image')) {
+      if (addedCount > 0) {
+        appState.payments = sortPaymentsNewestFirst(appState.payments);
         try {
-          const blob = base64ToBlobSafe(base64Photo);
-          const formData = new FormData();
-          formData.append('chat_id', chatId);
-          formData.append('photo', blob, 'comprobante.jpg');
-          formData.append('caption', textMessage.substring(0, 1020));
-          formData.append('parse_mode', 'HTML');
-
-          const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST',
-            body: formData
-          });
-          if (photoRes && photoRes.ok) return true;
-        } catch (photoErr) {
-          console.warn('Reintentando envío de texto a Telegram:', photoErr);
+          localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+        } catch (e) {}
+        if (currentSession.role === 'admin') {
+          renderAdminView();
+          playAdminAlertTone('payments');
+        } else if (currentSession.role === 'driver') {
+          renderDriverView();
+        } else if (currentSession.role === 'partner') {
+          renderPartnerView();
         }
       }
+      return addedCount;
+    }
 
-      // 2. Enviar mensaje de texto usando petición simple sin encabezados JSON que bloqueen CORS
+    // Descarga activa de pagos nuevos desde el buzón y desde la nube
+    async function forcePullPaymentsInboxNow(showUserToast = false) {
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (!baseUrl) return;
       try {
-        const params = new URLSearchParams();
-        params.append('chat_id', chatId);
-        params.append('text', textMessage);
-        params.append('parse_mode', 'HTML');
+        const [inboxRes, mainPaymentsRes] = await Promise.all([
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox.json?t=${Date.now()}`, { cache: 'no-store' }),
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json?t=${Date.now()}`, { cache: 'no-store' })
+        ]);
 
-        const msgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          body: params
-        });
-        if (msgRes && msgRes.ok) sentOk = true;
+        let newAdded = 0;
+        if (inboxRes && inboxRes.ok) {
+          const inboxData = await inboxRes.json();
+          if (inboxData) newAdded += mergeIncomingInboxPayments(inboxData);
+          updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        }
+        if (mainPaymentsRes && mainPaymentsRes.ok) {
+          const cloudPaymentsData = await mainPaymentsRes.json();
+          if (cloudPaymentsData) newAdded += mergeIncomingInboxPayments(cloudPaymentsData);
+        }
+
+        if (showUserToast) {
+          if (newAdded > 0) {
+            showToast(`✅ ¡Llegaron ${newAdded} pago(s) nuevo(s) a la bandeja!`, 'success');
+          } else {
+            showToast('✓ Bandeja sincronizada al día con Firebase', 'info');
+          }
+        }
       } catch (err) {
-        // 3. Respaldo directo no-CORS para WebViews móviles estrictos
-        try {
-          const getUrl = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&parse_mode=HTML&text=${encodeURIComponent(textMessage)}`;
-          await fetch(getUrl, { mode: 'no-cors' });
-          sentOk = true;
-        } catch (fallbackErr) {
-          console.warn('Aviso Telegram:', fallbackErr);
+        if (showUserToast) {
+          showToast('⚠️ Error al consultar la nube: ' + err.message, 'error');
         }
       }
-
-      return sentOk;
     }
 
-    function saveTelegramBotConfig() {
-      const tokenVal = document.getElementById('cfg-tg-token').value.trim().replace(/^bot/i, '');
-      const chatIdVal = document.getElementById('cfg-tg-chatid').value.trim();
-      if (tokenVal && chatIdVal) {
-        document.getElementById('cfg-tg-enabled').checked = true;
+    async function diagnoseFirebaseConnection() {
+      const diagBox = document.getElementById('firebase-diagnostic-box');
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (diagBox) {
+        diagBox.classList.remove('hidden');
+        diagBox.className = 'p-3.5 rounded-2xl border border-indigo-200 bg-indigo-50 text-indigo-950 text-xs font-bold';
+        diagBox.textContent = '⏳ Probando lectura y escritura en Firebase Realtime Database...';
       }
-      adminCredentials.tgEnabled = !!document.getElementById('cfg-tg-enabled').checked;
-      adminCredentials.tgToken = tokenVal;
-      adminCredentials.tgChatId = chatIdVal;
-      adminCredentials.tgNotifyLogin = !!document.getElementById('cfg-tg-notify-login').checked;
-      appState.adminCreds = Object.assign({}, adminCredentials);
-      saveStateAndBroadcast();
-      showToast('✓ Configuración de Telegram guardada', 'success');
-    }
-
-    async function testTelegramBotConnection() {
-      saveTelegramBotConfig();
-      if (!adminCredentials.tgToken || !adminCredentials.tgChatId) {
-        showToast('Ingresa tu Bot Token y Chat ID primero', 'warning');
-        return;
+      try {
+        const testRes = await fetch(`${baseUrl}/rentFlotaEnterpriseV2_ping.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pingAt: Date.now() })
+        });
+        if (!testRes.ok) {
+          const errText = await testRes.text();
+          throw new Error(`HTTP ${testRes.status}: ${errText}`);
+        }
+        await forcePullPaymentsInboxNow(false);
+        saveStateAndBroadcast(true);
+        updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        if (diagBox) {
+          diagBox.className = 'p-3.5 rounded-2xl border-2 border-emerald-400 bg-emerald-50 text-emerald-950 text-xs space-y-1';
+          diagBox.innerHTML = `<strong>✅ ¡Conexión a Firebase funcionando al 100%!</strong><p>La lectura y escritura en tiempo real están activas y el buzón de pagos está sincronizado.</p>`;
+        }
+        showToast('✅ Conexión con Firebase verificada', 'success');
+      } catch (err) {
+        updateFirebaseStatusBadges(false, 'Error Firebase');
+        const isPermission = /permission_denied|401|403/i.test(err.message);
+        if (diagBox) {
+          diagBox.className = 'p-3.5 rounded-2xl border-2 border-rose-400 bg-rose-50 text-rose-950 text-xs space-y-2';
+          diagBox.innerHTML = isPermission
+            ? `<strong>🔒 Permiso Denegado en Reglas de Firebase (PERMISSION_DENIED)</strong>
+               <p>Las reglas de seguridad de tu consola de Firebase tienen bloqueada la lectura/escritura. Entra a <b>Firebase Console → Realtime Database → Reglas (Rules)</b> y pega:</p>
+               <pre class="p-2 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] overflow-x-auto">{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}</pre>`
+            : `<strong>❌ Error de conexión:</strong> <p class="font-mono">${err.message}</p>`;
+        }
+        showToast('❌ Falló la prueba de Firebase. Revisa el recuadro de diagnóstico.', 'error');
       }
-      const ok = await sendTelegramNotification(
-        `✅ <b>Bot Conectado con Éxito</b>\n🏢 <b>Empresa:</b> ${brandingConfig.companyName}\n📲 Recibirás aquí los reportes de pago con foto y alertas de la flota.`,
-        null,
-        true
-      );
-      if (ok) {
-        showToast('✓ Mensaje de prueba enviado a tu Telegram', 'success');
-      } else {
-        showToast('No se pudo enviar. Verifica el Token, Chat ID y haber iniciado el Bot con /start', 'error');
-      }
     }
 
-    function copyDriverPaymentInfo(type) {
-      const textToCopy = type === 'yappy'
-        ? (adminCredentials.yappyPhone || '').trim()
-        : (adminCredentials.bankAccount || '').trim();
-      if (!textToCopy) return;
-      const tempInput = document.createElement('input');
-      tempInput.value = textToCopy;
-      document.body.appendChild(tempInput);
-      tempInput.select();
-      document.execCommand('copy');
-      document.body.removeChild(tempInput);
-      showToast(type === 'yappy' ? '✓ Dato de Yappy copiado' : '✓ Número de cuenta copiado', 'success');
-    }
-
-    // TOGGLE MODO OSCURO
-    document.getElementById('btn-theme-toggle').addEventListener('click', () => {
-      brandingConfig.theme = (brandingConfig.theme === 'dark') ? 'light' : 'dark';
-      applyBrandingUI();
-      saveStateAndBroadcast();
-      lucide.createIcons();
-    });
-
-    // INICIALIZACIÓN DE FIREBASE
     function initFirebase() {
+      firebaseConfig.databaseURL = getCleanFirebaseDbUrl();
       try {
         if (firebase.apps.length) {
           firebase.app().delete().then(() => {
@@ -3137,16 +3125,36 @@
       if (isFirebaseReady && db && (hasInitialCloudSync || forceCloudWrite)) {
         db.ref('rentFlotaEnterpriseV2').set(sanitizedState).catch(err => console.error(err));
       }
+
+      // Respaldo HTTPS REST para garantizar que el guardado suba siempre a la nube
+      if (forceCloudWrite) {
+        const baseUrl = getCleanFirebaseDbUrl();
+        if (baseUrl) {
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sanitizedState)
+          }).then(r => {
+            if (r.ok) updateFirebaseStatusBadges(true, 'Firebase Conectado');
+          }).catch(() => {});
+        }
+      }
     }
 
     function setupFirebaseCloudSync() {
       if (!isFirebaseReady || !db) return;
 
       db.ref('.info/connected').on('value', (snap) => {
-        const badge = document.getElementById('cloud-status-badge');
-        if (snap.val() === true && badge) {
-          badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
-          badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-pulse mr-1"></span> Firebase Conectado';
+        if (snap.val() === true) {
+          updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        }
+      });
+
+      // Escuchar en tiempo real el buzón exclusivo de pagos entrantes
+      db.ref('rentFlotaEnterpriseV2_inbox').on('value', (inboxSnap) => {
+        const inboxVal = inboxSnap.val();
+        if (inboxVal) {
+          mergeIncomingInboxPayments(inboxVal);
         }
       });
 
@@ -3154,12 +3162,15 @@
         const cloudData = snapshot.val();
         hasInitialCloudSync = true;
         if (cloudData) {
+          const processedIds = Array.isArray(cloudData.processedInboxIds)
+            ? cloudData.processedInboxIds
+            : (Array.isArray(appState.processedInboxIds) ? appState.processedInboxIds : []);
           const cloudPayments = normalizeCloudList(cloudData.payments);
           const localPayments = normalizeCloudList(appState.payments);
           const mergedPaymentsMap = new Map();
           cloudPayments.forEach(p => { if (p && p.id) mergedPaymentsMap.set(p.id, p); });
           localPayments.forEach(p => {
-            if (p && p.id && !mergedPaymentsMap.has(p.id) && p.justReportedLocally) {
+            if (p && p.id && !mergedPaymentsMap.has(p.id) && !processedIds.includes(p.id)) {
               mergedPaymentsMap.set(p.id, p);
             }
           });
@@ -3168,6 +3179,8 @@
           appState = {
             adminCreds: cloudData.adminCreds || adminCredentials,
             accessLogs: normalizeCloudList(cloudData.accessLogs),
+            custodyLogs: normalizeCloudList(cloudData.custodyLogs || appState.custodyLogs),
+            processedInboxIds: processedIds,
             lastDailyFeeDate: cloudData.lastDailyFeeDate || "",
             skipSundays: !!cloudData.skipSundays,
             soundSettings: Object.assign({ payments: true, maintenance: false, overdue: false, driverNotes: true, driverVoice: true, voicePreset: 'femenina_clara', graceHours: 12 }, cloudData.soundSettings || appState.soundSettings || {}),
@@ -3215,6 +3228,9 @@
         if (currentSession.role === 'admin') renderAdminView();
         else if (currentSession.role === 'driver') renderDriverView();
       });
+
+      // Consulta inicial inmediata del buzón de pagos
+      forcePullPaymentsInboxNow(false);
     }
 
     // GENERADOR DE TOKEN SECRETO ÚNICO POR CONDUCTOR PARA ACCESO DIRECTO
@@ -4483,14 +4499,16 @@
         car.km = Number(p.reportedKm);
       }
 
-      saveStateAndBroadcast();
+      removePaymentFromCloudInbox(paymentId);
+      saveStateAndBroadcast(true);
       renderAdminView();
       showToast('Pago aprobado y descontado del saldo del conductor', 'success');
     }
 
     function rejectPayment(paymentId) {
       appState.payments = appState.payments.filter(x => x.id !== paymentId);
-      saveStateAndBroadcast();
+      removePaymentFromCloudInbox(paymentId);
+      saveStateAndBroadcast(true);
       renderAdminView();
       showToast('Reporte de pago rechazado y retirado de la bandeja', 'warning');
     }
@@ -4512,7 +4530,8 @@
           if (drv) drv.balance = Number(((Number(drv.balance) || 0) + Number(p.amount || 0)).toFixed(2));
         }
         appState.payments = appState.payments.filter(x => x.id !== p.id);
-        saveStateAndBroadcast();
+        removePaymentFromCloudInbox(p.id);
+        saveStateAndBroadcast(true);
         closeModal('modal-edit-payment');
         renderAdminView();
         showToast('Pago eliminado', 'info');
@@ -5776,6 +5795,7 @@
         justReportedLocally: true,
         driverId: driver.id,
         driverName: driver.name,
+        carId: car ? car.id : '',
         amount: amount,
         date: date,
         method: method,
@@ -5790,6 +5810,9 @@
       if (!Array.isArray(appState.payments)) appState.payments = [];
       appState.payments.unshift(newPayment);
       appState.payments = sortPaymentsNewestFirst(appState.payments);
+
+      // Enviar inmediatamente al buzón atómico de la nube (HTTPS REST + SDK) y guardar estado
+      pushSinglePaymentToCloudInbox(newPayment);
       saveStateAndBroadcast(true);
 
       // Enviar alerta inmediata + foto del comprobante al Bot de Telegram
@@ -7987,6 +8010,11 @@
     setInterval(updateDriverGraceTimer, 1000);
     setInterval(checkDailyFeeAutomation, 60000);
     setInterval(checkAndPlayAdminPeriodicSounds, 10000);
+    setInterval(() => {
+      if (currentSession.role === 'admin' || currentSession.role === 'partner') {
+        forcePullPaymentsInboxNow(false);
+      }
+    }, 6000);
 
     window.addEventListener('DOMContentLoaded', () => {
       applyBrandingUI();
