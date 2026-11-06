@@ -1460,9 +1460,9 @@
           </div>
 
           <div class="flex items-center gap-2.5">
-            <button type="submit" class="flex-1 py-3.5 px-4 rounded-2xl custom-primary-bg text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center space-x-2">
+            <button type="submit" id="btn-driver-submit-payment" class="flex-1 py-3.5 px-4 rounded-2xl custom-primary-bg text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center space-x-2">
               <i data-lucide="send" class="w-4 h-4"></i>
-              <span>Enviar Reporte de Pago</span>
+              <span id="btn-driver-submit-payment-text">Enviar Reporte de Pago</span>
             </button>
             <button type="button" onclick="document.getElementById('btn-logout').click()" class="py-3.5 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center space-x-1.5 whitespace-nowrap">
               <i data-lucide="log-out" class="w-4 h-4"></i>
@@ -1934,24 +1934,13 @@
           </span>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-[10px] font-bold text-blue-800">Póliza Seguro</label>
-              <input type="date" id="addcar-doc-insurance" class="w-full text-xs p-2 rounded-xl border border-blue-300 bg-white">
+              <label class="block text-xs font-bold text-slate-700 mb-1">Estado</label>
+              <select id="edit-payment-status" class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-bold">
+                <option value="Aprobado">Aprobado</option>
+                <option value="Pendiente">Pendiente</option>
+                <option value="Rechazado">Rechazado</option>
+              </select>
             </div>
-            <div>
-              <label class="block text-[10px] font-bold text-blue-800">Revisado / Placa</label>
-              <input type="date" id="addcar-doc-registration" class="w-full text-xs p-2 rounded-xl border border-blue-300 bg-white">
-            </div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">Estado</label>
-            <select id="addcar-status" class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white">
-              <option value="Disponible">Disponible</option>
-              <option value="Alquilado">Alquilado</option>
-              <option value="Taller">En Taller</option>
-            </select>
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">Conductor Asignado</label>
@@ -3124,16 +3113,38 @@
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
       let delivered = false;
 
-      // Vía 1: HTTPS REST Directo (Funciona inmediato en celulares y redes móviles)
       const baseUrl = getCleanFirebaseDbUrl();
+
+      // Vía 1: SDK Realtime Database (Escritura atómica por ID en buzón y en nodo de pagos)
+      if (isFirebaseReady && db) {
+        try {
+          await Promise.all([
+            db.ref('rentFlotaEnterpriseV2_inbox/' + cleanPayment.id).set(cleanPayment),
+            db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment)
+          ]);
+          delivered = true;
+          updateFirebaseStatusBadges(true, 'Firebase Activo');
+        } catch (e) {
+          console.warn('Aviso SDK Inbox:', e);
+        }
+      }
+
+      // Vía 2: HTTPS REST Directo (Garantiza entrega inmediata en datos móviles aunque el WebSocket tarde)
       if (baseUrl) {
         try {
-          const res = await fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(cleanPayment)
-          });
-          if (res.ok) {
+          const [resInbox, resPay] = await Promise.all([
+            fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanPayment)
+            }),
+            fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(cleanPayment.id)}.json`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanPayment)
+            })
+          ]);
+          if ((resInbox && resInbox.ok) || (resPay && resPay.ok)) {
             delivered = true;
             updateFirebaseStatusBadges(true, 'Firebase Activo');
           }
@@ -3142,26 +3153,33 @@
         }
       }
 
-      // Vía 2: SDK Realtime Database
-      if (isFirebaseReady && db) {
-        try {
-          await db.ref('rentFlotaEnterpriseV2_inbox/' + cleanPayment.id).set(cleanPayment);
-          delivered = true;
-        } catch (e) {
-          console.warn('Aviso SDK Inbox:', e);
-        }
-      }
-
       return delivered;
     }
 
-    // Limpia o actualiza un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
-    async function removePaymentFromCloudInbox(paymentId) {
+    // Actualiza un pago específico en el nodo diccionario de la nube
+    async function syncSinglePaymentStatusToCloud(paymentObj) {
+      if (!paymentObj || !paymentObj.id) return;
+      const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment).catch(() => {});
+      }
+      if (baseUrl) {
+        fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(cleanPayment.id)}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cleanPayment)
+        }).catch(() => {});
+      }
+    }
+
+    // Limpia o elimina un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
+    async function removePaymentFromCloudInbox(paymentId, alsoRemoveFromPermanentNode = false) {
       if (!paymentId) return;
       if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
       if (!appState.processedInboxIds.includes(paymentId)) {
         appState.processedInboxIds.push(paymentId);
-        if (appState.processedInboxIds.length > 300) appState.processedInboxIds.shift();
+        if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
       }
 
       const baseUrl = getCleanFirebaseDbUrl();
@@ -3169,40 +3187,66 @@
         fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(paymentId)}.json`, {
           method: 'DELETE'
         }).catch(() => {});
+        if (alsoRemoveFromPermanentNode) {
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(paymentId)}.json`, {
+            method: 'DELETE'
+          }).catch(() => {});
+        }
       }
       if (isFirebaseReady && db) {
         db.ref('rentFlotaEnterpriseV2_inbox/' + paymentId).remove().catch(() => {});
+        if (alsoRemoveFromPermanentNode) {
+          db.ref('rentFlotaEnterpriseV2_payments/' + paymentId).remove().catch(() => {});
+        }
       }
     }
 
-    // Integra pagos entrantes del buzón de la nube sin perder ningún dato local
-    function mergeIncomingInboxPayments(inboxMapOrList) {
+    // Integra pagos entrantes del buzón de la nube sin perder ningún dato local ni ser sobrescrito
+    function mergeIncomingInboxPayments(inboxMapOrList, persistToMainNode = true) {
       const incoming = normalizeCloudList(inboxMapOrList);
       if (incoming.length === 0) return 0;
 
       if (!Array.isArray(appState.payments)) appState.payments = [];
       const processedIds = Array.isArray(appState.processedInboxIds) ? appState.processedInboxIds : [];
-      const existingIds = new Set(appState.payments.map(p => p && p.id).filter(Boolean));
+      const existingMap = new Map();
+      appState.payments.forEach(p => {
+        if (p && p.id) existingMap.set(p.id, p);
+      });
+
       let addedCount = 0;
+      let updatedCount = 0;
 
       incoming.forEach(pay => {
         if (!pay || !pay.id) return;
-        if (processedIds.includes(pay.id)) return;
-        if (!existingIds.has(pay.id)) {
+        const existing = existingMap.get(pay.id);
+        if (!existing) {
+          // Si está en processedInboxIds pero tiene estado Aprobado, sí se conserva en el historial
+          if (processedIds.includes(pay.id) && (!pay.status || pay.status === 'Pendiente')) return;
           appState.payments.unshift(pay);
-          existingIds.add(pay.id);
+          existingMap.set(pay.id, pay);
           addedCount++;
+        } else if (existing.status === 'Pendiente' && pay.status === 'Aprobado') {
+          Object.assign(existing, pay);
+          updatedCount++;
         }
       });
 
-      if (addedCount > 0) {
+      if (addedCount > 0 || updatedCount > 0) {
         appState.payments = sortPaymentsNewestFirst(appState.payments);
         try {
           localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
         } catch (e) {}
+
+        // Si el Admin recibió pagos nuevos en su bandeja, respaldar la lista consolidada en el nodo principal
+        if (persistToMainNode && currentSession.role === 'admin' && isFirebaseReady && db) {
+          const cleanPayments = JSON.parse(JSON.stringify(appState.payments));
+          db.ref('rentFlotaEnterpriseV2/payments').set(cleanPayments).catch(() => {});
+        }
+
         if (currentSession.role === 'admin') {
-          renderAdminView();
-          playAdminAlertTone('payments');
+          renderDashboardPaymentsCard();
+          renderPaymentsHistoryTable(appState.payments);
+          if (addedCount > 0) playAdminAlertTone('payments');
         } else if (currentSession.role === 'driver') {
           renderDriverView();
         } else if (currentSession.role === 'partner') {
@@ -3212,25 +3256,30 @@
       return addedCount;
     }
 
-    // Descarga activa de pagos nuevos desde el buzón y desde la nube
+    // Descarga activa de pagos nuevos desde el buzón y desde el nodo de pagos (Sin parámetro ?t= que Firebase rechaza con HTTP 400)
     async function forcePullPaymentsInboxNow(showUserToast = false) {
       const baseUrl = getCleanFirebaseDbUrl();
       if (!baseUrl) return;
       try {
-        const [inboxRes, mainPaymentsRes] = await Promise.all([
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox.json?t=${Date.now()}`, { cache: 'no-store' }),
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json?t=${Date.now()}`, { cache: 'no-store' })
+        const [inboxRes, dictPaymentsRes, mainPaymentsRes] = await Promise.all([
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox.json`, { cache: 'no-store' }),
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments.json`, { cache: 'no-store' }),
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, { cache: 'no-store' })
         ]);
 
         let newAdded = 0;
         if (inboxRes && inboxRes.ok) {
           const inboxData = await inboxRes.json();
-          if (inboxData) newAdded += mergeIncomingInboxPayments(inboxData);
+          if (inboxData) newAdded += mergeIncomingInboxPayments(inboxData, true);
           updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        }
+        if (dictPaymentsRes && dictPaymentsRes.ok) {
+          const dictData = await dictPaymentsRes.json();
+          if (dictData) newAdded += mergeIncomingInboxPayments(dictData, true);
         }
         if (mainPaymentsRes && mainPaymentsRes.ok) {
           const cloudPaymentsData = await mainPaymentsRes.json();
-          if (cloudPaymentsData) newAdded += mergeIncomingInboxPayments(cloudPaymentsData);
+          if (cloudPaymentsData) newAdded += mergeIncomingInboxPayments(cloudPaymentsData, false);
         }
 
         if (showUserToast) {
@@ -3382,7 +3431,15 @@
       db.ref('rentFlotaEnterpriseV2_inbox').on('value', (inboxSnap) => {
         const inboxVal = inboxSnap.val();
         if (inboxVal) {
-          mergeIncomingInboxPayments(inboxVal);
+          mergeIncomingInboxPayments(inboxVal, true);
+        }
+      });
+
+      // Escuchar en tiempo real el diccionario permanente de pagos por ID
+      db.ref('rentFlotaEnterpriseV2_payments').on('value', (paySnap) => {
+        const payVal = paySnap.val();
+        if (payVal) {
+          mergeIncomingInboxPayments(payVal, false);
         }
       });
 
@@ -4349,6 +4406,14 @@
     let directLinkLoginHandled = false;
     function checkUrlParameters() {
       const params = new URLSearchParams(window.location.search);
+      const fbUrlParam = params.get('fb');
+      if (fbUrlParam && fbUrlParam.startsWith('https://')) {
+        if (firebaseConfig.databaseURL !== fbUrlParam) {
+          firebaseConfig.databaseURL = fbUrlParam;
+          localStorage.setItem('autorent_custom_firebase', JSON.stringify(firebaseConfig));
+          initFirebase();
+        }
+      }
       if (params.get('admin') === 'true') {
         showView('auth');
         toggleAdminLogin(true);
@@ -4450,7 +4515,10 @@
       if (!drv) return;
       const token = getOrAssignDriverToken(drv);
       const baseUrl = window.location.origin + window.location.pathname;
-      const uniqueUrl = `${baseUrl}?chofer=${drv.id}&key=${token}`;
+      const customFbParam = (firebaseConfig.databaseURL && firebaseConfig.databaseURL !== defaultFirebaseConfig.databaseURL)
+        ? `&fb=${encodeURIComponent(firebaseConfig.databaseURL)}`
+        : '';
+      const uniqueUrl = `${baseUrl}?chofer=${drv.id}&key=${token}${customFbParam}`;
       const tempInput = document.createElement('input');
       tempInput.value = uniqueUrl;
       document.body.appendChild(tempInput);
@@ -4727,7 +4795,8 @@
         car.km = Number(p.reportedKm);
       }
 
-      removePaymentFromCloudInbox(paymentId);
+      removePaymentFromCloudInbox(paymentId, false);
+      syncSinglePaymentStatusToCloud(p);
       saveStateAndBroadcast(true);
       renderAdminView();
       showToast('Pago aprobado y descontado del saldo del conductor', 'success');
@@ -4735,7 +4804,7 @@
 
     function rejectPayment(paymentId) {
       appState.payments = appState.payments.filter(x => x.id !== paymentId);
-      removePaymentFromCloudInbox(paymentId);
+      removePaymentFromCloudInbox(paymentId, true);
       saveStateAndBroadcast(true);
       renderAdminView();
       showToast('Reporte de pago rechazado y retirado de la bandeja', 'warning');
@@ -4758,7 +4827,7 @@
           if (drv) drv.balance = Number(((Number(drv.balance) || 0) + Number(p.amount || 0)).toFixed(2));
         }
         appState.payments = appState.payments.filter(x => x.id !== p.id);
-        removePaymentFromCloudInbox(p.id);
+        removePaymentFromCloudInbox(p.id, true);
         saveStateAndBroadcast(true);
         closeModal('modal-edit-payment');
         renderAdminView();
@@ -4792,7 +4861,9 @@
       p.status = newStatus;
       p.concept = document.getElementById('edit-payment-ref').value.trim();
 
-      saveStateAndBroadcast();
+      syncSinglePaymentStatusToCloud(p);
+      if (newStatus === 'Aprobado') removePaymentFromCloudInbox(p.id, false);
+      saveStateAndBroadcast(true);
       closeModal('modal-edit-payment');
       renderAdminView();
       showToast('Pago actualizado correctamente', 'success');
@@ -5945,13 +6016,14 @@
             `;
             scanBanner.classList.remove('hidden');
           }
-          if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
-            if (ocrResult.detectedAmount) {
-              const spokenAmount = numberToSpanishWords(ocrResult.detectedAmount);
-              speakTextWithSelectedVoice(`Comprobante verificado. El monto leído es de ${spokenAmount}. Por favor ingresa el kilometraje y dale clic al botón Enviar Reporte de Pago.`);
-            } else {
-              speakTextWithSelectedVoice('Comprobante verificado. Por favor confirma el monto y dale clic al botón Enviar Reporte de Pago.');
+          if (ocrResult.detectedAmount) {
+            showToast(`✅ Monto leído: $${ocrResult.detectedAmount.toFixed(2)} · Ingresa el Km y envía el reporte`, 'success');
+            if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
+              const spokenDetected = numberToSpanishWords(ocrResult.detectedAmount);
+              speakTextWithSelectedVoice(`Comprobante verificado por ${spokenDetected}. Por favor ingresa el kilometraje y presiona Enviar Reporte de Pago.`);
             }
+          } else {
+            showToast('✓ Captura verificada. Ingresa el monto, kilometraje y presiona Enviar Reporte de Pago.', 'info');
           }
         }
       } catch (err) {
@@ -5959,7 +6031,7 @@
       }
     });
 
-    document.getElementById('form-driver-submit-payment').addEventListener('submit', (e) => {
+    document.getElementById('form-driver-submit-payment').addEventListener('submit', async (e) => {
       e.preventDefault();
       const driver = appState.drivers.find(d => d.id === currentSession.driverId);
       if (!driver) return;
@@ -6015,6 +6087,14 @@
         return;
       }
 
+      const submitBtn = document.getElementById('btn-driver-submit-payment');
+      const submitBtnText = document.getElementById('btn-driver-submit-payment-text');
+      if (submitBtn) submitBtn.disabled = true;
+      if (submitBtnText) submitBtnText.textContent = '⏳ Sincronizando pago en la nube...';
+
+      const receiptPhotoToSave = isCash ? DEFAULT_PLACEHOLDER_RECEIPT : tempCompressedReceipt.base64;
+      const receiptFingerprint = isCash ? ('cash_' + Date.now()) : tempCompressedReceipt.fingerprint;
+
       if (car) car.km = kmCheck.km;
 
       const newPayment = {
@@ -6029,8 +6109,8 @@
         method: method,
         concept: ref,
         reportedKm: kmCheck.km,
-        receiptImage: isCash ? DEFAULT_PLACEHOLDER_RECEIPT : tempCompressedReceipt.base64,
-        fingerprint: isCash ? ('cash_' + Date.now()) : tempCompressedReceipt.fingerprint,
+        receiptImage: receiptPhotoToSave,
+        fingerprint: receiptFingerprint,
         aiDuplicateWarning: !!(dupRef || dupImg),
         status: 'Pendiente'
       };
@@ -6039,8 +6119,11 @@
       appState.payments.unshift(newPayment);
       appState.payments = sortPaymentsNewestFirst(appState.payments);
 
-      // Enviar inmediatamente al buzón atómico de la nube (HTTPS REST + SDK) y guardar estado
-      pushSinglePaymentToCloudInbox(newPayment);
+      // Esperar confirmación real de subida a Firebase antes de limpiar el formulario
+      const cloudDelivered = await pushSinglePaymentToCloudInbox(newPayment);
+      if (car && isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2/cars').set(JSON.parse(JSON.stringify(appState.cars))).catch(() => {});
+      }
       saveStateAndBroadcast(true);
 
       // Enviar alerta inmediata + foto del comprobante al Bot de Telegram
@@ -6053,7 +6136,10 @@
         `⚡ <b>Kilometraje:</b> ${kmCheck.km.toLocaleString()} Km\n` +
         `📅 <b>Fecha:</b> ${date}` +
         (newPayment.aiDuplicateWarning ? `\n\n🚨 <b>¡ALERTA!: Captura o referencia marcada como DUPLICADA</b>` : '');
-      sendTelegramNotification(tgCaption, isCash ? null : tempCompressedReceipt.base64);
+      sendTelegramNotification(tgCaption, isCash ? null : receiptPhotoToSave);
+
+      if (submitBtn) submitBtn.disabled = false;
+      if (submitBtnText) submitBtnText.textContent = 'Enviar Reporte de Pago';
 
       if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
         const spokenSentAmount = numberToSpanishWords(amount);
@@ -6062,7 +6148,12 @@
 
       resetDriverPaymentFormState();
       renderDriverView();
-      showToast('✓ Pago enviado a la Bandeja del Administrador para aprobación', 'success');
+
+      if (cloudDelivered) {
+        showToast('✅ ¡Pago sincronizado en la nube! Ya aparece en la Bandeja del Administrador', 'success');
+      } else {
+        showToast('⚠️ Guardado localmente. Verifica tu conexión a internet o las Reglas de Firebase.', 'warning');
+      }
     });
 
     function openCreatePartnerModal() {
@@ -11144,6 +11235,272 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
         </div>
       `;
       content.appendChild(extraWrap);
+    };
+  </script>
+
+  <!-- ==================================================================================== -->
+  <!-- MÓDULO ADICIONAL AISLADO: ACCESO Y EDICIÓN DIRECTA DEL ADMIN A LOS REPORTES          -->
+  <!-- DE CADA CONDUCTOR (PARA CAMBIAR SU ESTADO A APROBADO, PENDIENTE O RECHAZADO)         -->
+  <!-- ==================================================================================== -->
+  <div id="modal-admin-driver-reports" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-indigo-200 max-h-[92vh] overflow-y-auto no-scrollbar space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black">
+            📑
+          </div>
+          <div>
+            <h3 class="font-black text-slate-900 text-base" id="admin-drv-reports-title">Reportes del Conductor</h3>
+            <p class="text-[11px] text-slate-500">Cambia el estado de cualquier reporte directamente o entra a su vista de conductor.</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-admin-driver-reports')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-2 bg-indigo-50/70 p-3 rounded-2xl border border-indigo-200">
+        <span class="text-xs font-bold text-indigo-950" id="admin-drv-reports-balance-info">Saldo actual: $0.00</span>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="forcePullPaymentsInboxNow(true)" class="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 text-xs font-black">
+            🔄 Sincronizar Nube
+          </button>
+          <button type="button" id="btn-enter-driver-portal-as-admin" class="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-black">
+            👁️ Entrar al Portal de este Chofer
+          </button>
+        </div>
+      </div>
+
+      <div id="admin-drv-reports-list" class="space-y-2.5 max-h-96 overflow-y-auto no-scrollbar text-xs"></div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-100">
+        <button type="button" onclick="closeModal('modal-admin-driver-reports')" class="px-5 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra Flotante para Volver al Panel Admin cuando entras al Portal del Conductor -->
+  <div id="admin-impersonation-bar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-[120] bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-amber-400 flex items-center space-x-3">
+    <span class="text-xs font-black text-amber-300">🛡️ Modo Admin: Viendo y Editando Portal del Conductor</span>
+    <button type="button" onclick="returnToAdminFromDriverPortal()" class="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow">
+      ⬅ Volver al Panel Admin
+    </button>
+  </div>
+
+  <script>
+    let adminImpersonatingDriver = false;
+
+    // Permite cambiar el estado de cualquier reporte ("Pendiente", "Aprobado", "Rechazado") ajustando el saldo automáticamente
+    function changeDriverReportStatusByAdmin(paymentId, newStatus, currentDriverId) {
+      const p = (appState.payments || []).find(x => x.id === paymentId);
+      if (!p) return;
+
+      const oldStatus = p.status || 'Pendiente';
+      if (oldStatus === newStatus) return;
+
+      const drv = (appState.drivers || []).find(d => d.id === p.driverId);
+      const car = getDriverAssignedCar(p.driverId);
+      const amt = Number(p.amount) || 0;
+
+      if (drv) {
+        // Si antes estaba Aprobado y pasa a Pendiente o Rechazado, se revierte el descuento del saldo
+        if (oldStatus === 'Aprobado' && newStatus !== 'Aprobado') {
+          drv.balance = Number(((Number(drv.balance) || 0) + amt).toFixed(2));
+          if (drv.isRentToOwn) {
+            drv.rtoPaidAmount = Math.max(0, (Number(drv.rtoPaidAmount) || 0) - amt);
+            const daysEq = amt / (Number(drv.dailyRate) || 25);
+            drv.rtoPaidDays = Math.max(0, Number(((Number(drv.rtoPaidDays) || 0) - daysEq).toFixed(1)));
+          }
+        }
+        // Si no estaba Aprobado y ahora pasa a Aprobado, se descuenta del saldo
+        if (oldStatus !== 'Aprobado' && newStatus === 'Aprobado') {
+          drv.balance = Number(((Number(drv.balance) || 0) - amt).toFixed(2));
+          if (drv.isRentToOwn) {
+            drv.rtoPaidAmount = (Number(drv.rtoPaidAmount) || 0) + amt;
+            const daysEq = amt / (Number(drv.dailyRate) || 25);
+            drv.rtoPaidDays = Number(((Number(drv.rtoPaidDays) || 0) + daysEq).toFixed(1));
+          }
+        }
+      }
+
+      if (newStatus === 'Aprobado' && car && p.reportedKm && Number(p.reportedKm) > (Number(car.km) || 0)) {
+        car.km = Number(p.reportedKm);
+      }
+
+      p.status = newStatus;
+
+      if (newStatus === 'Aprobado' || newStatus === 'Rechazado') {
+        removePaymentFromCloudInbox(p.id, false);
+      } else if (newStatus === 'Pendiente') {
+        pushSinglePaymentToCloudInbox(p);
+      }
+
+      syncSinglePaymentStatusToCloud(p);
+      saveStateAndBroadcast(true);
+
+      if (currentDriverId && !document.getElementById('modal-admin-driver-reports').classList.contains('hidden')) {
+        openAdminDriverReportsModal(currentDriverId);
+      }
+      if (currentSession.role === 'admin') {
+        renderAdminView();
+      } else if (currentSession.role === 'driver') {
+        renderDriverView();
+      }
+
+      showToast(`✓ Estado del pago cambiado a: ${newStatus}`, 'success');
+    }
+
+    // Abre el modal donde el Admin ve todos los reportes de ese chofer (Pendientes, Aprobados, Rechazados)
+    async function openAdminDriverReportsModal(driverId) {
+      await forcePullPaymentsInboxNow(false);
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv) return;
+
+      document.getElementById('admin-drv-reports-title').textContent = `Reportes de Pago · ${drv.name}`;
+      const balInfo = formatDriverBalanceInfo(drv);
+      document.getElementById('admin-drv-reports-balance-info').textContent = `${balInfo.label} ${balInfo.text}`;
+
+      const enterBtn = document.getElementById('btn-enter-driver-portal-as-admin');
+      if (enterBtn) {
+        enterBtn.onclick = () => {
+          closeModal('modal-admin-driver-reports');
+          enterDriverPortalAsAdmin(drv.id);
+        };
+      }
+
+      const listEl = document.getElementById('admin-drv-reports-list');
+      const myPayments = sortPaymentsNewestFirst(appState.payments).filter(p => p.driverId === drv.id);
+
+      if (myPayments.length === 0) {
+        listEl.innerHTML = `<p class="text-slate-400 py-6 text-center">Este conductor no tiene reportes registrados.</p>`;
+      } else {
+        listEl.innerHTML = myPayments.map(p => {
+          const st = p.status || 'Pendiente';
+          const badgeColors = st === 'Aprobado'
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+            : st === 'Rechazado'
+              ? 'bg-rose-50 text-rose-700 border-rose-300'
+              : 'bg-amber-50 text-amber-800 border-amber-300';
+
+          return `
+            <div class="p-3.5 rounded-2xl border-2 ${st === 'Pendiente' ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200 bg-white'} flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div class="flex items-center space-x-3">
+                <img src="${p.receiptImage || DEFAULT_PLACEHOLDER_RECEIPT}" onclick="openReceiptModal('${p.id}')" class="w-12 h-12 rounded-xl object-cover border border-slate-300 cursor-pointer flex-shrink-0">
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <span class="font-black text-slate-900 text-sm">$${Number(p.amount || 0).toFixed(2)}</span>
+                    <span class="text-[11px] font-bold text-slate-600">${p.method || 'Pago'} · Ref: <strong class="font-mono">${p.concept || 'S/R'}</strong></span>
+                  </div>
+                  <span class="block text-[10px] text-slate-400 mt-0.5">Fecha: ${p.date || '-'} · ID: ${p.id} · Km: ${p.reportedKm ? Number(p.reportedKm).toLocaleString() : 'N/A'}</span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <select onchange="changeDriverReportStatusByAdmin('${p.id}', this.value, '${drv.id}')" class="text-xs font-black px-2.5 py-1.5 rounded-xl border ${badgeColors} cursor-pointer">
+                  <option value="Pendiente" ${st === 'Pendiente' ? 'selected' : ''}>⏳ Pendiente</option>
+                  <option value="Aprobado" ${st === 'Aprobado' ? 'selected' : ''}>✅ Aprobado</option>
+                  <option value="Rechazado" ${st === 'Rechazado' ? 'selected' : ''}>❌ Rechazado</option>
+                </select>
+                <button type="button" onclick="openReceiptModal('${p.id}')" class="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">
+                  Foto
+                </button>
+                <button type="button" onclick="openEditPaymentModal('${p.id}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
+                  Editar Todo
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      openModal('modal-admin-driver-reports');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // Permite al Administrador entrar directamente al Portal del Conductor y editar sus reportes desde ahí mismo
+    function enterDriverPortalAsAdmin(driverId) {
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv) return;
+      adminImpersonatingDriver = true;
+      currentSession.role = 'driver';
+      currentSession.driverId = drv.id;
+      activeRenderedDriverId = drv.id;
+      showView('driver');
+      const bar = document.getElementById('admin-impersonation-bar');
+      if (bar) bar.classList.remove('hidden');
+      showToast(`👁️ Estás en el portal de ${drv.name}. Puedes editar sus pagos abajo en "Mis Pagos Recientes".`, 'info');
+    }
+
+    function returnToAdminFromDriverPortal() {
+      adminImpersonatingDriver = false;
+      const bar = document.getElementById('admin-impersonation-bar');
+      if (bar) bar.classList.add('hidden');
+      currentSession.role = 'admin';
+      currentSession.driverId = null;
+      showView('admin');
+    }
+
+    // Inyectar botón de acceso directo a los reportes del conductor en las tarjetas de Choferes y en el Semáforo
+    const origRenderDriversSectionForAdminReports = renderDriversSection;
+    renderDriversSection = function() {
+      origRenderDriversSectionForAdminReports();
+      const container = document.getElementById('drivers-cards-container');
+      if (!container) return;
+      const cards = container.children;
+      (appState.drivers || []).forEach((drv, idx) => {
+        const cardEl = cards[idx];
+        if (!cardEl || cardEl.querySelector('.admin-drv-reports-btn-wrap')) return;
+        const pendingCount = (appState.payments || []).filter(p => p.driverId === drv.id && (!p.status || p.status === 'Pendiente')).length;
+        const btnWrap = document.createElement('div');
+        btnWrap.className = 'admin-drv-reports-btn-wrap pt-2';
+        btnWrap.innerHTML = `
+          <button type="button" onclick="openAdminDriverReportsModal('${drv.id}')" class="w-full py-2.5 px-3 rounded-xl ${pendingCount > 0 ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 badge-pulse' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200'} font-black text-xs flex items-center justify-center space-x-1.5 shadow-2xs">
+            <span>📑 Ver / Editar Reportes del Chofer (${pendingCount} Pendiente${pendingCount === 1 ? '' : 's'})</span>
+          </button>
+        `;
+        const bottomActions = cardEl.lastElementChild;
+        if (bottomActions) {
+          bottomActions.insertBefore(btnWrap, bottomActions.firstChild);
+        }
+      });
+    };
+
+    // Cuando el Admin entra al Portal del Conductor, hacer que la sección "Mis Pagos Recientes" tenga selector de Estado y botón Editar
+    const origRenderDriverViewForAdminEdit = renderDriverView;
+    renderDriverView = function() {
+      origRenderDriverViewForAdminEdit();
+      if (!adminImpersonatingDriver) return;
+
+      const driver = (appState.drivers || []).find(d => d.id === currentSession.driverId);
+      const historyList = document.getElementById('driver-history-list');
+      if (!driver || !historyList) return;
+
+      const myPayments = sortPaymentsNewestFirst(appState.payments).filter(p => p.driverId === driver.id);
+      if (myPayments.length === 0) return;
+
+      historyList.innerHTML = myPayments.map(p => {
+        const st = p.status || 'Pendiente';
+        return `
+          <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span class="font-black text-slate-900 text-sm">$${Number(p.amount).toFixed(2)}</span>
+              <span class="text-slate-600 ml-1 font-semibold">· ${p.method} (${p.concept || 'S/R'})</span>
+              <span class="block text-[10px] text-slate-400">${p.date} · ID: ${p.id} · Km: ${p.reportedKm ? Number(p.reportedKm).toLocaleString() : 'N/A'}</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <select onchange="changeDriverReportStatusByAdmin('${p.id}', this.value, '${driver.id}')" class="text-xs font-black px-2.5 py-1.5 rounded-xl border border-indigo-300 bg-indigo-50 text-indigo-900 cursor-pointer">
+                <option value="Pendiente" ${st === 'Pendiente' ? 'selected' : ''}>⏳ Pendiente</option>
+                <option value="Aprobado" ${st === 'Aprobado' ? 'selected' : ''}>✅ Aprobado</option>
+                <option value="Rechazado" ${st === 'Rechazado' ? 'selected' : ''}>❌ Rechazado</option>
+              </select>
+              <button type="button" onclick="openReceiptModal('${p.id}')" class="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">
+                Foto
+              </button>
+              <button type="button" onclick="openEditPaymentModal('${p.id}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
+                Editar
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
     };
   </script>
 </body>
