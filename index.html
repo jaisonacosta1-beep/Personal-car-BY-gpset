@@ -3113,126 +3113,119 @@
     async function pushSinglePaymentToCloudInbox(paymentObj) {
       if (!paymentObj || !paymentObj.id) return false;
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
-      let delivered = false;
+      cleanPayment.updatedAt = Date.now();
 
       if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
       appState.inbox[cleanPayment.id] = cleanPayment;
 
       const baseUrl = getCleanFirebaseDbUrl();
+      const attemptPromises = [];
 
-      // Helper con límite de tiempo para evitar que el navegador móvil se quede esperando un WebSocket dormido
-      const withTimeout = (promise, ms = 6000) => Promise.race([
-        promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
-      ]);
-
-      // 1. Obtener la lista más reciente de pagos en rentFlotaEnterpriseV2/payments y fusionar el nuevo pago
-      let mergedPayments = sortPaymentsNewestFirst(appState.payments || []);
-      if (!mergedPayments.some(p => p && p.id === cleanPayment.id)) {
-        mergedPayments.unshift(cleanPayment);
-      }
-
+      // Canal 1: HTTPS REST PUT ligero (envía únicamente este pago de ~0.5KB a 25KB a rentFlotaEnterpriseV2/inbox/{ID})
       if (baseUrl) {
-        try {
-          const getRes = await withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, { cache: 'no-store' }), 5000);
-          if (getRes && getRes.ok) {
-            const remotePayments = normalizeCloudList(await getRes.json());
-            const map = new Map();
-            map.set(cleanPayment.id, cleanPayment);
-            remotePayments.forEach(p => { if (p && p.id && !map.has(p.id)) map.set(p.id, p); });
-            mergedPayments.forEach(p => { if (p && p.id && !map.has(p.id)) map.set(p.id, p); });
-            mergedPayments = sortPaymentsNewestFirst(Array.from(map.values()));
-          }
-        } catch (e) {}
+        attemptPromises.push(
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cleanPayment)
+          }).then(res => {
+            if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 'error'));
+            return true;
+          })
+        );
+
+        // Canal 2: HTTPS REST PUT directo a rentFlotaEnterpriseV2/payments/{ID}
+        attemptPromises.push(
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments/${encodeURIComponent(cleanPayment.id)}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cleanPayment)
+          }).then(res => {
+            if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 'error'));
+            return true;
+          })
+        );
       }
 
-      const cleanPaymentsList = JSON.parse(JSON.stringify(mergedPayments));
-      const cleanCarsList = JSON.parse(JSON.stringify(appState.cars || []));
-
-      // Vía 1: Escribir mediante el SDK de Firebase directamente en rentFlotaEnterpriseV2 (el mismo nodo que usa Admin para crear choferes)
+      // Canal 3: SDK de Firebase Realtime Database directo al subnodo del pago (sin subir toda la base de datos)
       if (isFirebaseReady && db) {
-        try {
-          await withTimeout(
-            db.ref('rentFlotaEnterpriseV2').update({
-              payments: cleanPaymentsList,
-              cars: cleanCarsList,
-              ['inbox/' + cleanPayment.id]: cleanPayment
-            }),
-            6000
-          );
-          delivered = true;
-          updateFirebaseStatusBadges(true, 'Firebase Activo');
-        } catch (e) {
-          console.warn('Aviso SDK update rentFlotaEnterpriseV2:', e);
-        }
+        attemptPromises.push(
+          db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment).then(() => true)
+        );
+        attemptPromises.push(
+          db.ref('rentFlotaEnterpriseV2/payments/' + cleanPayment.id).set(cleanPayment).then(() => true)
+        );
       }
 
-      // Vía 2: Respaldo HTTPS REST directo sobre rentFlotaEnterpriseV2 (funciona incluso si Opera bloquea WebSockets)
-      if (baseUrl) {
-        try {
-          const [patchMainRes, putInboxRes, putPaymentsRes] = await Promise.all([
-            withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                payments: cleanPaymentsList,
-                cars: cleanCarsList
-              })
-            }), 6500).catch(() => null),
-            withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(cleanPayment)
-            }), 6500).catch(() => null),
-            withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(cleanPaymentsList)
-            }), 6500).catch(() => null)
-          ]);
-
-          if ((patchMainRes && patchMainRes.ok) || (putInboxRes && putInboxRes.ok) || (putPaymentsRes && putPaymentsRes.ok)) {
-            delivered = true;
-            updateFirebaseStatusBadges(true, 'Firebase Activo');
-          }
-        } catch (e) {
-          console.warn('Aviso REST rentFlotaEnterpriseV2:', e);
-        }
-      }
-
-      // Vía 3: Puente en Nube Integrado (Firestore Cloud Bridge)
+      // Canal 4: Puente Firestore integrado si está activo
       if (typeof window.pushPaymentToFirestoreBridge === 'function') {
-        try {
-          const fsOk = await withTimeout(window.pushPaymentToFirestoreBridge(cleanPayment), 5000);
-          if (fsOk) {
-            delivered = true;
-            updateFirebaseStatusBadges(true, 'Nube Activa');
-          }
-        } catch (e) {
-          console.warn('Aviso Firestore Bridge:', e);
+        attemptPromises.push(
+          window.pushPaymentToFirestoreBridge(cleanPayment).then(ok => {
+            if (!ok) throw new Error('fs_not_ready');
+            return true;
+          })
+        );
+      }
+
+      if (attemptPromises.length === 0) return false;
+
+      // Confirmar apenas el primer canal responda exitosamente (toma < 1 segundo incluso con señal baja)
+      try {
+        const firstSuccess = await new Promise((resolve, reject) => {
+          let pending = attemptPromises.length;
+          let resolved = false;
+          const timer = setTimeout(() => {
+            if (!resolved) reject(new Error('timeout'));
+          }, 12000);
+
+          attemptPromises.forEach(p => {
+            Promise.resolve(p).then(val => {
+              if (!resolved && val === true) {
+                resolved = true;
+                clearTimeout(timer);
+                resolve(true);
+              }
+            }).catch(() => {
+              pending--;
+              if (pending <= 0 && !resolved) {
+                clearTimeout(timer);
+                reject(new Error('all_failed'));
+              }
+            });
+          });
+        });
+
+        if (firstSuccess) {
+          updateFirebaseStatusBadges(true, 'Firebase Activo');
+          return true;
         }
+      } catch (err) {
+        console.warn('Error sincronizando pago con la nube:', err);
       }
 
-      if (delivered) {
-        appState.payments = cleanPaymentsList;
-      }
-
-      return delivered;
+      return false;
     }
 
     // Actualiza un pago específico en el nodo diccionario de la nube
     async function syncSinglePaymentStatusToCloud(paymentObj) {
       if (!paymentObj || !paymentObj.id) return;
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
+      cleanPayment.updatedAt = Date.now();
       if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
       appState.inbox[cleanPayment.id] = cleanPayment;
 
       const baseUrl = getCleanFirebaseDbUrl();
       if (isFirebaseReady && db) {
         db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment).catch(() => {});
+        db.ref('rentFlotaEnterpriseV2/payments/' + cleanPayment.id).set(cleanPayment).catch(() => {});
       }
       if (baseUrl) {
         fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cleanPayment)
+        }).catch(() => {});
+        fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments/${encodeURIComponent(cleanPayment.id)}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(cleanPayment)
@@ -3246,10 +3239,12 @@
     // Limpia o elimina un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
     async function removePaymentFromCloudInbox(paymentId, alsoRemoveFromPermanentNode = false) {
       if (!paymentId) return;
-      if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
-      if (!appState.processedInboxIds.includes(paymentId)) {
-        appState.processedInboxIds.push(paymentId);
-        if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
+      if (alsoRemoveFromPermanentNode) {
+        if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
+        if (!appState.processedInboxIds.includes(paymentId)) {
+          appState.processedInboxIds.push(paymentId);
+          if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
+        }
       }
       if (appState.inbox && appState.inbox[paymentId]) {
         delete appState.inbox[paymentId];
@@ -3264,6 +3259,9 @@
           method: 'DELETE'
         }).catch(() => {});
         if (alsoRemoveFromPermanentNode) {
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments/${encodeURIComponent(paymentId)}.json`, {
+            method: 'DELETE'
+          }).catch(() => {});
           fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(paymentId)}.json`, {
             method: 'DELETE'
           }).catch(() => {});
@@ -3273,6 +3271,7 @@
         db.ref('rentFlotaEnterpriseV2/inbox/' + paymentId).remove().catch(() => {});
         db.ref('rentFlotaEnterpriseV2_inbox/' + paymentId).remove().catch(() => {});
         if (alsoRemoveFromPermanentNode) {
+          db.ref('rentFlotaEnterpriseV2/payments/' + paymentId).remove().catch(() => {});
           db.ref('rentFlotaEnterpriseV2_payments/' + paymentId).remove().catch(() => {});
         }
       }
@@ -3298,14 +3297,16 @@
 
       incoming.forEach(pay => {
         if (!pay || !pay.id) return;
+        if (processedIds.includes(pay.id)) return;
         const existing = existingMap.get(pay.id);
         if (!existing) {
-          // Si está en processedInboxIds pero tiene estado Aprobado, sí se conserva en el historial
-          if (processedIds.includes(pay.id) && (!pay.status || pay.status === 'Pendiente')) return;
           appState.payments.unshift(pay);
           existingMap.set(pay.id, pay);
           addedCount++;
-        } else if (existing.status === 'Pendiente' && pay.status === 'Aprobado') {
+        } else if (
+          (pay.updatedAt && (!existing.updatedAt || pay.updatedAt > existing.updatedAt)) ||
+          (existing.status === 'Pendiente' && pay.status && pay.status !== 'Pendiente')
+        ) {
           Object.assign(existing, pay);
           updatedCount++;
         }
@@ -3491,24 +3492,28 @@
           console.warn('Memoria local llena, sincronizando directo con Firebase:', e2);
         }
       }
+
+      // No sobrescribir nunca el subnodo inbox al guardar el estado general (evita borrar pagos que acaben de entrar)
+      const cloudPayload = Object.assign({}, sanitizedState);
+      delete cloudPayload.inbox;
       
       if (isFirebaseReady && db && (hasInitialCloudSync || forceCloudWrite)) {
-        db.ref('rentFlotaEnterpriseV2').set(sanitizedState).catch(err => console.error(err));
+        db.ref('rentFlotaEnterpriseV2').update(cloudPayload).catch(err => console.error(err));
       }
 
       // Sincronizar también en el puente en la nube integrado (Firestore) para que todos los teléfonos compartan el mismo estado
       if (typeof window.pushFullStateToFirestoreBridge === 'function' && (hasInitialCloudSync || forceCloudWrite)) {
-        window.pushFullStateToFirestoreBridge(sanitizedState).catch(() => {});
+        window.pushFullStateToFirestoreBridge(cloudPayload).catch(() => {});
       }
 
-      // Respaldo HTTPS REST para garantizar que el guardado suba siempre a la nube
+      // Respaldo HTTPS REST con PATCH para actualizar sin borrar rentFlotaEnterpriseV2/inbox
       if (forceCloudWrite) {
         const baseUrl = getCleanFirebaseDbUrl();
         if (baseUrl) {
           fetch(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
-            method: 'PUT',
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(sanitizedState)
+            body: JSON.stringify(cloudPayload)
           }).then(r => {
             if (r.ok) updateFirebaseStatusBadges(true, 'Firebase Conectado');
           }).catch(() => {});
@@ -3667,7 +3672,14 @@
       appState.accessLogs.unshift(logEntry);
       if (appState.accessLogs.length > 200) appState.accessLogs.pop();
 
-      saveStateAndBroadcast();
+      try {
+        localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+      } catch (e) {}
+
+      // Subir únicamente el nodo ligero de accesos (sin saturar la red móvil del chofer subiendo toda la base de datos)
+      if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2/accessLogs').set(appState.accessLogs.slice(0, 80)).catch(() => {});
+      }
 
       if (adminCredentials && adminCredentials.tgEnabled && adminCredentials.tgNotifyLogin) {
         sendTelegramNotification(
@@ -6269,7 +6281,17 @@
         appState.payments.unshift(newPayment);
       }
       appState.payments = sortPaymentsNewestFirst(appState.payments);
-      saveStateAndBroadcast(true);
+      try {
+        localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+      } catch (e) {}
+
+      // Si el kilometraje del auto se actualizó, sincronizar solo ese campo ligero sin re-subir toda la base de datos
+      if (car) {
+        const carIdx = (appState.cars || []).findIndex(c => c && c.id === car.id);
+        if (carIdx !== -1 && isFirebaseReady && db) {
+          db.ref(`rentFlotaEnterpriseV2/cars/${carIdx}/km`).set(kmCheck.km).catch(() => {});
+        }
+      }
 
       // Enviar alerta inmediata + foto del comprobante al Bot de Telegram
       const tgCaption = `💵 <b>NUEVO PAGO REPORTADO (${brandingConfig.companyName})</b>\n\n` +
