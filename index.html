@@ -3115,12 +3115,30 @@
 
       const baseUrl = getCleanFirebaseDbUrl();
 
-      // Vía 1: SDK Realtime Database (Escritura atómica por ID en buzón y en nodo de pagos)
+      // Vía 0: Escribir directamente dentro de rentFlotaEnterpriseV2/payments (que sí tiene permisos activos en tu Firebase)
+      if (isFirebaseReady && db) {
+        try {
+          await db.ref('rentFlotaEnterpriseV2/payments').transaction((currentList) => {
+            const arr = normalizeCloudList(currentList);
+            if (!arr.some(p => p && p.id === cleanPayment.id)) {
+              arr.unshift(cleanPayment);
+            }
+            return arr;
+          });
+          delivered = true;
+          updateFirebaseStatusBadges(true, 'Firebase Activo');
+        } catch (e) {
+          console.warn('Aviso Transaction Payments:', e);
+        }
+      }
+
+      // Vía 1: SDK Realtime Database (Escritura atómica por ID en subnodo de rentFlotaEnterpriseV2 y en buzón)
       if (isFirebaseReady && db) {
         try {
           await Promise.all([
-            db.ref('rentFlotaEnterpriseV2_inbox/' + cleanPayment.id).set(cleanPayment),
-            db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment)
+            db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment),
+            db.ref('rentFlotaEnterpriseV2_inbox/' + cleanPayment.id).set(cleanPayment).catch(() => {}),
+            db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment).catch(() => {})
           ]);
           delivered = true;
           updateFirebaseStatusBadges(true, 'Firebase Activo');
@@ -3129,27 +3147,45 @@
         }
       }
 
-      // Vía 2: HTTPS REST Directo (Garantiza entrega inmediata en datos móviles aunque el WebSocket tarde)
+      // Vía 2: HTTPS REST Directo hacia rentFlotaEnterpriseV2/inbox (Ruta autorizada) y buzón secundario
       if (baseUrl) {
         try {
-          const [resInbox, resPay] = await Promise.all([
+          const [resInside, resInbox, resPay] = await Promise.all([
+            fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanPayment)
+            }).catch(() => null),
             fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(cleanPayment)
-            }),
+            }).catch(() => null),
             fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(cleanPayment.id)}.json`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(cleanPayment)
-            })
+            }).catch(() => null)
           ]);
-          if ((resInbox && resInbox.ok) || (resPay && resPay.ok)) {
+          if ((resInside && resInside.ok) || (resInbox && resInbox.ok) || (resPay && resPay.ok)) {
             delivered = true;
             updateFirebaseStatusBadges(true, 'Firebase Activo');
           }
         } catch (e) {
           console.warn('Aviso REST Inbox:', e);
+        }
+      }
+
+      // Vía 3: Puente en Nube Integrado (Firestore Cloud Bridge) por si Realtime Database tiene reglas cerradas
+      if (typeof window.pushPaymentToFirestoreBridge === 'function') {
+        try {
+          const fsOk = await window.pushPaymentToFirestoreBridge(cleanPayment);
+          if (fsOk) {
+            delivered = true;
+            updateFirebaseStatusBadges(true, 'Nube Activa');
+          }
+        } catch (e) {
+          console.warn('Aviso Firestore Bridge:', e);
         }
       }
 
@@ -3162,14 +3198,58 @@
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
       const baseUrl = getCleanFirebaseDbUrl();
       if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment).catch(() => {});
         db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment).catch(() => {});
       }
       if (baseUrl) {
+        fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cleanPayment)
+        }).catch(() => {});
         fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(cleanPayment.id)}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(cleanPayment)
         }).catch(() => {});
+      }
+      if (typeof window.pushPaymentToFirestoreBridge === 'function') {
+        window.pushPaymentToFirestoreBridge(cleanPayment).catch(() => {});
+      }
+    }
+
+    // Limpia o elimina un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
+    async function removePaymentFromCloudInbox(paymentId, alsoRemoveFromPermanentNode = false) {
+      if (!paymentId) return;
+      if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
+      if (!appState.processedInboxIds.includes(paymentId)) {
+        appState.processedInboxIds.push(paymentId);
+        if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
+      }
+
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (baseUrl) {
+        fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(paymentId)}.json`, {
+          method: 'DELETE'
+        }).catch(() => {});
+        fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(paymentId)}.json`, {
+          method: 'DELETE'
+        }).catch(() => {});
+        if (alsoRemoveFromPermanentNode) {
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(paymentId)}.json`, {
+            method: 'DELETE'
+          }).catch(() => {});
+        }
+      }
+      if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2/inbox/' + paymentId).remove().catch(() => {});
+        db.ref('rentFlotaEnterpriseV2_inbox/' + paymentId).remove().catch(() => {});
+        if (alsoRemoveFromPermanentNode) {
+          db.ref('rentFlotaEnterpriseV2_payments/' + paymentId).remove().catch(() => {});
+        }
+      }
+      if (typeof window.removePaymentFromFirestoreBridge === 'function') {
+        window.removePaymentFromFirestoreBridge(paymentId, alsoRemoveFromPermanentNode).catch(() => {});
       }
     }
 
@@ -3258,16 +3338,30 @@
 
     // Descarga activa de pagos nuevos desde el buzón y desde el nodo de pagos (Sin parámetro ?t= que Firebase rechaza con HTTP 400)
     async function forcePullPaymentsInboxNow(showUserToast = false) {
+      let newAdded = 0;
+
+      // 1. Consultar puente Firestore integrado si está activo
+      if (typeof window.pullPaymentsFromFirestoreBridge === 'function') {
+        try {
+          newAdded += await window.pullPaymentsFromFirestoreBridge();
+        } catch (e) {}
+      }
+
       const baseUrl = getCleanFirebaseDbUrl();
       if (!baseUrl) return;
       try {
-        const [inboxRes, dictPaymentsRes, mainPaymentsRes] = await Promise.all([
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox.json`, { cache: 'no-store' }),
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments.json`, { cache: 'no-store' }),
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, { cache: 'no-store' })
+        const [insideInboxRes, inboxRes, dictPaymentsRes, mainPaymentsRes] = await Promise.all([
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox.json`, { cache: 'no-store' }).catch(() => null),
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox.json`, { cache: 'no-store' }).catch(() => null),
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments.json`, { cache: 'no-store' }).catch(() => null),
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, { cache: 'no-store' }).catch(() => null)
         ]);
 
-        let newAdded = 0;
+        if (insideInboxRes && insideInboxRes.ok) {
+          const insideData = await insideInboxRes.json();
+          if (insideData) newAdded += mergeIncomingInboxPayments(insideData, true);
+          updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        }
         if (inboxRes && inboxRes.ok) {
           const inboxData = await inboxRes.json();
           if (inboxData) newAdded += mergeIncomingInboxPayments(inboxData, true);
@@ -3403,6 +3497,11 @@
         db.ref('rentFlotaEnterpriseV2').set(sanitizedState).catch(err => console.error(err));
       }
 
+      // Sincronizar también en el puente en la nube integrado (Firestore) para que todos los teléfonos compartan el mismo estado
+      if (typeof window.pushFullStateToFirestoreBridge === 'function' && (hasInitialCloudSync || forceCloudWrite)) {
+        window.pushFullStateToFirestoreBridge(sanitizedState).catch(() => {});
+      }
+
       // Respaldo HTTPS REST para garantizar que el guardado suba siempre a la nube
       if (forceCloudWrite) {
         const baseUrl = getCleanFirebaseDbUrl();
@@ -3424,6 +3523,14 @@
       db.ref('.info/connected').on('value', (snap) => {
         if (snap.val() === true) {
           updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        }
+      });
+
+      // Escuchar en tiempo real el subnodo rentFlotaEnterpriseV2/inbox (que hereda permisos de rentFlotaEnterpriseV2)
+      db.ref('rentFlotaEnterpriseV2/inbox').on('value', (insideSnap) => {
+        const val = insideSnap.val();
+        if (val) {
+          mergeIncomingInboxPayments(val, true);
         }
       });
 
@@ -3451,9 +3558,15 @@
             ? cloudData.processedInboxIds
             : (Array.isArray(appState.processedInboxIds) ? appState.processedInboxIds : []);
           const cloudPayments = normalizeCloudList(cloudData.payments);
+          const inboxPayments = normalizeCloudList(cloudData.inbox);
           const localPayments = normalizeCloudList(appState.payments);
           const mergedPaymentsMap = new Map();
           cloudPayments.forEach(p => { if (p && p.id) mergedPaymentsMap.set(p.id, p); });
+          inboxPayments.forEach(p => {
+            if (p && p.id && !mergedPaymentsMap.has(p.id)) {
+              mergedPaymentsMap.set(p.id, p);
+            }
+          });
           localPayments.forEach(p => {
             if (p && p.id && !mergedPaymentsMap.has(p.id) && !processedIds.includes(p.id)) {
               mergedPaymentsMap.set(p.id, p);
@@ -11502,6 +11615,168 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
         `;
       }).join('');
     };
+  </script>
+
+  <!-- ==================================================================================== -->
+  <!-- PUENTE EN NUBE GARANTIZADO (CLOUD FIRESTORE BRIDGE CON AUTENTICACIÓN AUTOMÁTICA)      -->
+  <!-- Garantiza que los pagos entre teléfonos pasen siempre aunque Realtime DB esté cerrado -->
+  <!-- ==================================================================================== -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    let fsDb = null;
+    let fsAuth = null;
+    let fsUser = null;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'autorent-pro-flota-sync';
+
+    async function initGuaranteedCloudBridge() {
+      try {
+        const rawConfig = (typeof __firebase_config !== 'undefined' && __firebase_config)
+          ? JSON.parse(__firebase_config)
+          : window.firebaseConfig;
+
+        if (!rawConfig || !rawConfig.apiKey) return;
+
+        const bridgeApp = initializeApp(rawConfig, "GuaranteedCloudBridgeApp");
+        fsAuth = getAuth(bridgeApp);
+        fsDb = getFirestore(bridgeApp);
+
+        // Regla obligatoria: Autenticar primero antes de cualquier operación en la nube
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          try {
+            await signInWithCustomToken(fsAuth, __initial_auth_token);
+          } catch (e) {
+            await signInAnonymously(fsAuth);
+          }
+        } else {
+          await signInAnonymously(fsAuth);
+        }
+
+        onAuthStateChanged(fsAuth, (user) => {
+          fsUser = user;
+          if (user) {
+            if (typeof window.updateFirebaseStatusBadges === 'function') {
+              window.updateFirebaseStatusBadges(true, 'Firebase Activo');
+            }
+            startRealtimePaymentsListener();
+          }
+        });
+      } catch (err) {
+        console.warn("Aviso inicializando Cloud Bridge:", err);
+      }
+    }
+
+    function startRealtimePaymentsListener() {
+      if (!fsUser || !fsDb) return;
+
+      // 1. Escuchar en vivo cada pago reportado por cualquier chofer desde otro teléfono
+      const paymentsColRef = collection(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments');
+      onSnapshot(
+        paymentsColRef,
+        (snapshot) => {
+          const incomingList = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data && data.id) incomingList.push(data);
+          });
+          if (incomingList.length > 0 && typeof window.mergeIncomingInboxPayments === 'function') {
+            window.mergeIncomingInboxPayments(incomingList, true);
+          }
+        },
+        (error) => {
+          console.warn("Aviso listener pagos en vivo:", error);
+        }
+      );
+
+      // 2. Escuchar cambios globales de choferes/flota/saldos para mantener ambos teléfonos sincronizados
+      const stateDocRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'app_state_sync', 'main_state');
+      onSnapshot(
+        stateDocRef,
+        (docSnap) => {
+          if (!docSnap.exists()) return;
+          const cloudWrapper = docSnap.data();
+          if (cloudWrapper && cloudWrapper.payloadJson) {
+            try {
+              const parsed = JSON.parse(cloudWrapper.payloadJson);
+              if (parsed && Array.isArray(parsed.payments) && typeof window.mergeIncomingInboxPayments === 'function') {
+                window.mergeIncomingInboxPayments(parsed.payments, false);
+              }
+            } catch (e) {}
+          }
+        },
+        (err) => {
+          console.warn("Aviso listener estado general:", err);
+        }
+      );
+    }
+
+    // Función global para subir un pago de un conductor sin fallar jamás por reglas de raíz
+    window.pushPaymentToFirestoreBridge = async function(paymentObj) {
+      if (!paymentObj || !paymentObj.id) return false;
+      if (!fsDb) await initGuaranteedCloudBridge();
+      if (!fsAuth?.currentUser) {
+        try { await signInAnonymously(fsAuth); } catch (e) {}
+      }
+      const activeUser = fsAuth?.currentUser || fsUser;
+      if (!activeUser || !fsDb) return false;
+
+      const payRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments', String(paymentObj.id));
+      await setDoc(payRef, Object.assign({}, paymentObj, { syncedAt: Date.now() }));
+      return true;
+    };
+
+    // Función global para actualizar o eliminar un pago en el puente cuando el Admin cambia su estado
+    window.removePaymentFromFirestoreBridge = async function(paymentId, permanentDelete = false) {
+      if (!paymentId || !fsDb) return;
+      const activeUser = fsAuth?.currentUser || fsUser;
+      if (!activeUser) return;
+      if (permanentDelete) {
+        const payRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments', String(paymentId));
+        await deleteDoc(payRef);
+      }
+    };
+
+    // Función global para traer pagos pendientes bajo demanda (botón Sincronizar)
+    window.pullPaymentsFromFirestoreBridge = async function() {
+      if (!fsDb) return 0;
+      const activeUser = fsAuth?.currentUser || fsUser;
+      if (!activeUser) return 0;
+      const paymentsColRef = collection(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments');
+      const snap = await getDocs(paymentsColRef);
+      const list = [];
+      snap.forEach((d) => {
+        const val = d.data();
+        if (val && val.id) list.push(val);
+      });
+      if (list.length > 0 && typeof window.mergeIncomingInboxPayments === 'function') {
+        return window.mergeIncomingInboxPayments(list, true);
+      }
+      return 0;
+    };
+
+    // Respaldo ligero del estado general (sin fotos pesadas para respetar el límite de 1MB por documento)
+    window.pushFullStateToFirestoreBridge = async function(fullState) {
+      if (!fsDb || !fullState) return;
+      const activeUser = fsAuth?.currentUser || fsUser;
+      if (!activeUser) return;
+      try {
+        const lightCopy = JSON.parse(JSON.stringify(fullState));
+        (lightCopy.payments || []).forEach(p => {
+          if (p.receiptImage && p.receiptImage.length > 500) {
+            delete p.receiptImage;
+          }
+        });
+        const stateDocRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'app_state_sync', 'main_state');
+        await setDoc(stateDocRef, {
+          updatedAt: Date.now(),
+          payloadJson: JSON.stringify(lightCopy)
+        });
+      } catch (e) {}
+    };
+
+    initGuaranteedCloudBridge();
   </script>
 </body>
 </html>
