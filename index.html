@@ -2721,6 +2721,7 @@
     if (savedCustomFirebase) {
       try { firebaseConfig = Object.assign(firebaseConfig, JSON.parse(savedCustomFirebase)); } catch(e){}
     }
+    window.firebaseConfig = firebaseConfig;
 
     // Configuración de Marca y Estilos
     let brandingConfig = {
@@ -2823,6 +2824,7 @@
       ],
       expenses: [],
       payments: [],
+      inbox: {},
       partnerPayouts: [],
       inspections: [],
       faultReports: [],
@@ -3113,73 +3115,95 @@
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
       let delivered = false;
 
+      if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
+      appState.inbox[cleanPayment.id] = cleanPayment;
+
       const baseUrl = getCleanFirebaseDbUrl();
 
-      // Vía 0: Escribir directamente dentro de rentFlotaEnterpriseV2/payments (que sí tiene permisos activos en tu Firebase)
-      if (isFirebaseReady && db) {
-        try {
-          await db.ref('rentFlotaEnterpriseV2/payments').transaction((currentList) => {
-            const arr = normalizeCloudList(currentList);
-            if (!arr.some(p => p && p.id === cleanPayment.id)) {
-              arr.unshift(cleanPayment);
-            }
-            return arr;
-          });
-          delivered = true;
-          updateFirebaseStatusBadges(true, 'Firebase Activo');
-        } catch (e) {
-          console.warn('Aviso Transaction Payments:', e);
-        }
+      // Helper con límite de tiempo para evitar que el navegador móvil se quede esperando un WebSocket dormido
+      const withTimeout = (promise, ms = 6000) => Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+      ]);
+
+      // 1. Obtener la lista más reciente de pagos en rentFlotaEnterpriseV2/payments y fusionar el nuevo pago
+      let mergedPayments = sortPaymentsNewestFirst(appState.payments || []);
+      if (!mergedPayments.some(p => p && p.id === cleanPayment.id)) {
+        mergedPayments.unshift(cleanPayment);
       }
 
-      // Vía 1: SDK Realtime Database (Escritura atómica por ID en subnodo de rentFlotaEnterpriseV2 y en buzón)
-      if (isFirebaseReady && db) {
-        try {
-          await Promise.all([
-            db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment),
-            db.ref('rentFlotaEnterpriseV2_inbox/' + cleanPayment.id).set(cleanPayment).catch(() => {}),
-            db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment).catch(() => {})
-          ]);
-          delivered = true;
-          updateFirebaseStatusBadges(true, 'Firebase Activo');
-        } catch (e) {
-          console.warn('Aviso SDK Inbox:', e);
-        }
-      }
-
-      // Vía 2: HTTPS REST Directo hacia rentFlotaEnterpriseV2/inbox (Ruta autorizada) y buzón secundario
       if (baseUrl) {
         try {
-          const [resInside, resInbox, resPay] = await Promise.all([
-            fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+          const getRes = await withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, { cache: 'no-store' }), 5000);
+          if (getRes && getRes.ok) {
+            const remotePayments = normalizeCloudList(await getRes.json());
+            const map = new Map();
+            map.set(cleanPayment.id, cleanPayment);
+            remotePayments.forEach(p => { if (p && p.id && !map.has(p.id)) map.set(p.id, p); });
+            mergedPayments.forEach(p => { if (p && p.id && !map.has(p.id)) map.set(p.id, p); });
+            mergedPayments = sortPaymentsNewestFirst(Array.from(map.values()));
+          }
+        } catch (e) {}
+      }
+
+      const cleanPaymentsList = JSON.parse(JSON.stringify(mergedPayments));
+      const cleanCarsList = JSON.parse(JSON.stringify(appState.cars || []));
+
+      // Vía 1: Escribir mediante el SDK de Firebase directamente en rentFlotaEnterpriseV2 (el mismo nodo que usa Admin para crear choferes)
+      if (isFirebaseReady && db) {
+        try {
+          await withTimeout(
+            db.ref('rentFlotaEnterpriseV2').update({
+              payments: cleanPaymentsList,
+              cars: cleanCarsList,
+              ['inbox/' + cleanPayment.id]: cleanPayment
+            }),
+            6000
+          );
+          delivered = true;
+          updateFirebaseStatusBadges(true, 'Firebase Activo');
+        } catch (e) {
+          console.warn('Aviso SDK update rentFlotaEnterpriseV2:', e);
+        }
+      }
+
+      // Vía 2: Respaldo HTTPS REST directo sobre rentFlotaEnterpriseV2 (funciona incluso si Opera bloquea WebSockets)
+      if (baseUrl) {
+        try {
+          const [patchMainRes, putInboxRes, putPaymentsRes] = await Promise.all([
+            withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                payments: cleanPaymentsList,
+                cars: cleanCarsList
+              })
+            }), 6500).catch(() => null),
+            withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(cleanPayment)
-            }).catch(() => null),
-            fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+            }), 6500).catch(() => null),
+            withTimeout(fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments.json`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(cleanPayment)
-            }).catch(() => null),
-            fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(cleanPayment.id)}.json`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(cleanPayment)
-            }).catch(() => null)
+              body: JSON.stringify(cleanPaymentsList)
+            }), 6500).catch(() => null)
           ]);
-          if ((resInside && resInside.ok) || (resInbox && resInbox.ok) || (resPay && resPay.ok)) {
+
+          if ((patchMainRes && patchMainRes.ok) || (putInboxRes && putInboxRes.ok) || (putPaymentsRes && putPaymentsRes.ok)) {
             delivered = true;
             updateFirebaseStatusBadges(true, 'Firebase Activo');
           }
         } catch (e) {
-          console.warn('Aviso REST Inbox:', e);
+          console.warn('Aviso REST rentFlotaEnterpriseV2:', e);
         }
       }
 
-      // Vía 3: Puente en Nube Integrado (Firestore Cloud Bridge) por si Realtime Database tiene reglas cerradas
+      // Vía 3: Puente en Nube Integrado (Firestore Cloud Bridge)
       if (typeof window.pushPaymentToFirestoreBridge === 'function') {
         try {
-          const fsOk = await window.pushPaymentToFirestoreBridge(cleanPayment);
+          const fsOk = await withTimeout(window.pushPaymentToFirestoreBridge(cleanPayment), 5000);
           if (fsOk) {
             delivered = true;
             updateFirebaseStatusBadges(true, 'Nube Activa');
@@ -3189,6 +3213,10 @@
         }
       }
 
+      if (delivered) {
+        appState.payments = cleanPaymentsList;
+      }
+
       return delivered;
     }
 
@@ -3196,18 +3224,15 @@
     async function syncSinglePaymentStatusToCloud(paymentObj) {
       if (!paymentObj || !paymentObj.id) return;
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
+      if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
+      appState.inbox[cleanPayment.id] = cleanPayment;
+
       const baseUrl = getCleanFirebaseDbUrl();
       if (isFirebaseReady && db) {
         db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment).catch(() => {});
-        db.ref('rentFlotaEnterpriseV2_payments/' + cleanPayment.id).set(cleanPayment).catch(() => {});
       }
       if (baseUrl) {
         fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(cleanPayment)
-        }).catch(() => {});
-        fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(cleanPayment.id)}.json`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(cleanPayment)
@@ -3225,6 +3250,9 @@
       if (!appState.processedInboxIds.includes(paymentId)) {
         appState.processedInboxIds.push(paymentId);
         if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
+      }
+      if (appState.inbox && appState.inbox[paymentId]) {
+        delete appState.inbox[paymentId];
       }
 
       const baseUrl = getCleanFirebaseDbUrl();
@@ -3250,34 +3278,6 @@
       }
       if (typeof window.removePaymentFromFirestoreBridge === 'function') {
         window.removePaymentFromFirestoreBridge(paymentId, alsoRemoveFromPermanentNode).catch(() => {});
-      }
-    }
-
-    // Limpia o elimina un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
-    async function removePaymentFromCloudInbox(paymentId, alsoRemoveFromPermanentNode = false) {
-      if (!paymentId) return;
-      if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
-      if (!appState.processedInboxIds.includes(paymentId)) {
-        appState.processedInboxIds.push(paymentId);
-        if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
-      }
-
-      const baseUrl = getCleanFirebaseDbUrl();
-      if (baseUrl) {
-        fetch(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(paymentId)}.json`, {
-          method: 'DELETE'
-        }).catch(() => {});
-        if (alsoRemoveFromPermanentNode) {
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(paymentId)}.json`, {
-            method: 'DELETE'
-          }).catch(() => {});
-        }
-      }
-      if (isFirebaseReady && db) {
-        db.ref('rentFlotaEnterpriseV2_inbox/' + paymentId).remove().catch(() => {});
-        if (alsoRemoveFromPermanentNode) {
-          db.ref('rentFlotaEnterpriseV2_payments/' + paymentId).remove().catch(() => {});
-        }
       }
     }
 
@@ -3324,8 +3324,7 @@
         }
 
         if (currentSession.role === 'admin') {
-          renderDashboardPaymentsCard();
-          renderPaymentsHistoryTable(appState.payments);
+          renderAdminView();
           if (addedCount > 0) playAdminAlertTone('payments');
         } else if (currentSession.role === 'driver') {
           renderDriverView();
@@ -3579,6 +3578,7 @@
             accessLogs: normalizeCloudList(cloudData.accessLogs),
             custodyLogs: normalizeCloudList(cloudData.custodyLogs || appState.custodyLogs),
             processedInboxIds: processedIds,
+            inbox: (cloudData.inbox && typeof cloudData.inbox === 'object') ? cloudData.inbox : (appState.inbox || {}),
             lastDailyFeeDate: cloudData.lastDailyFeeDate || "",
             skipSundays: !!cloudData.skipSundays,
             soundSettings: Object.assign({ payments: true, maintenance: false, overdue: false, driverNotes: true, driverVoice: true, voicePreset: 'femenina_clara', graceHours: 12 }, cloudData.soundSettings || appState.soundSettings || {}),
@@ -6203,11 +6203,12 @@
       const submitBtn = document.getElementById('btn-driver-submit-payment');
       const submitBtnText = document.getElementById('btn-driver-submit-payment-text');
       if (submitBtn) submitBtn.disabled = true;
-      if (submitBtnText) submitBtnText.textContent = '⏳ Sincronizando pago en la nube...';
+      if (submitBtnText) submitBtnText.textContent = '⏳ Enviando pago al Administrador...';
 
       const receiptPhotoToSave = isCash ? DEFAULT_PLACEHOLDER_RECEIPT : tempCompressedReceipt.base64;
       const receiptFingerprint = isCash ? ('cash_' + Date.now()) : tempCompressedReceipt.fingerprint;
 
+      const previousCarKm = car ? car.km : 0;
       if (car) car.km = kmCheck.km;
 
       const newPayment = {
@@ -6228,15 +6229,46 @@
         status: 'Pendiente'
       };
 
-      if (!Array.isArray(appState.payments)) appState.payments = [];
-      appState.payments.unshift(newPayment);
-      appState.payments = sortPaymentsNewestFirst(appState.payments);
-
-      // Esperar confirmación real de subida a Firebase antes de limpiar el formulario
+      // Intentar sincronizar primero en la nube antes de darlo por enviado
       const cloudDelivered = await pushSinglePaymentToCloudInbox(newPayment);
-      if (car && isFirebaseReady && db) {
-        db.ref('rentFlotaEnterpriseV2/cars').set(JSON.parse(JSON.stringify(appState.cars))).catch(() => {});
+
+      if (submitBtn) submitBtn.disabled = false;
+      if (submitBtnText) submitBtnText.textContent = 'Enviar Reporte de Pago';
+
+      // Si hubo una falla al sincronizar con el Administrador, NO decir que se envió con éxito ni agregarlo como enviado
+      if (!cloudDelivered) {
+        if (car) car.km = previousCarKm;
+        const scanBanner = document.getElementById('ocr-scan-result-banner');
+        if (scanBanner) {
+          scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
+          scanBanner.innerHTML = `
+            <div class="flex flex-col space-y-2.5">
+              <div class="flex items-start space-x-2.5">
+                <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">⚠️</div>
+                <div class="text-xs">
+                  <p class="font-black text-rose-800 uppercase">No se pudo enviar el reporte de pago</p>
+                  <p class="font-semibold text-rose-700 mt-0.5">Ocurrió una falla al sincronizar con el sistema. Por favor contacta al administrador para reportar esta falla o validar tu pago.</p>
+                </div>
+              </div>
+              <button type="button" onclick="document.getElementById('btn-driver-whatsapp').click()" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center space-x-1.5 shadow">
+                <span>📲 Contactar al Administrador por WhatsApp</span>
+              </button>
+            </div>
+          `;
+          scanBanner.classList.remove('hidden');
+        }
+        if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
+          speakTextWithSelectedVoice('No se pudo enviar el reporte de pago. Por favor contacta al administrador en caso de que tengas una falla.');
+        }
+        showToast('❌ No se pudo enviar el pago. Por favor contacta al administrador.', 'error');
+        return;
       }
+
+      if (!Array.isArray(appState.payments)) appState.payments = [];
+      if (!appState.payments.some(p => p && p.id === newPayment.id)) {
+        appState.payments.unshift(newPayment);
+      }
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
       saveStateAndBroadcast(true);
 
       // Enviar alerta inmediata + foto del comprobante al Bot de Telegram
@@ -6251,9 +6283,6 @@
         (newPayment.aiDuplicateWarning ? `\n\n🚨 <b>¡ALERTA!: Captura o referencia marcada como DUPLICADA</b>` : '');
       sendTelegramNotification(tgCaption, isCash ? null : receiptPhotoToSave);
 
-      if (submitBtn) submitBtn.disabled = false;
-      if (submitBtnText) submitBtnText.textContent = 'Enviar Reporte de Pago';
-
       if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
         const spokenSentAmount = numberToSpanishWords(amount);
         speakTextWithSelectedVoice(`Reporte de pago enviado con éxito por la suma de ${spokenSentAmount}.`);
@@ -6261,12 +6290,7 @@
 
       resetDriverPaymentFormState();
       renderDriverView();
-
-      if (cloudDelivered) {
-        showToast('✅ ¡Pago sincronizado en la nube! Ya aparece en la Bandeja del Administrador', 'success');
-      } else {
-        showToast('⚠️ Guardado localmente. Verifica tu conexión a internet o las Reglas de Firebase.', 'warning');
-      }
+      showToast('✅ ¡Pago enviado y sincronizado con el Administrador!', 'success');
     });
 
     function openCreatePartnerModal() {
