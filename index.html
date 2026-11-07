@@ -26,6 +26,7 @@
 
   <!-- Firebase App & Realtime Database SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
   
   <!-- Tesseract OCR Engine -->
@@ -1658,6 +1659,7 @@
             <select id="edit-payment-status" class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-bold">
               <option value="Aprobado">Aprobado</option>
               <option value="Pendiente">Pendiente</option>
+              <option value="Rechazado">Rechazado</option>
             </select>
           </div>
         </div>
@@ -1934,13 +1936,24 @@
           </span>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Estado</label>
-              <select id="edit-payment-status" class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-bold">
-                <option value="Aprobado">Aprobado</option>
-                <option value="Pendiente">Pendiente</option>
-                <option value="Rechazado">Rechazado</option>
-              </select>
+              <label class="block text-[10px] font-bold text-blue-800">Vencimiento Póliza Seguro</label>
+              <input type="date" id="addcar-doc-insurance" class="w-full text-xs p-2 rounded-xl border border-blue-300 bg-white">
             </div>
+            <div>
+              <label class="block text-[10px] font-bold text-blue-800">Vencimiento Revisado / Placa</label>
+              <input type="date" id="addcar-doc-registration" class="w-full text-xs p-2 rounded-xl border border-blue-300 bg-white">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Estado Operativo</label>
+            <select id="addcar-status" class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-bold">
+              <option value="Alquilado">Alquilado</option>
+              <option value="Disponible">Disponible</option>
+              <option value="Taller">En Taller / Mantenimiento</option>
+            </select>
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">Conductor Asignado</label>
@@ -2844,245 +2857,442 @@
         if (!appState.accessLogs) appState.accessLogs = [];
         if (!appState.faultReports) appState.faultReports = [];
         if (!appState.partnerPayouts) appState.partnerPayouts = [];
-        if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
+        if (!appState.custodyLogs) appState.custodyLogs = [];
+        if (!appState.processedInboxIds) appState.processedInboxIds = [];
+        if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
+        if (!appState.soundSettings) {
+          appState.soundSettings = {
+            payments: true,
+            maintenance: false,
+            overdue: false,
+            driverNotes: true,
+            driverVoice: true,
+            voicePreset: 'femenina_clara',
+            graceHours: 12
+          };
+        }
         if (appState.branding) brandingConfig = Object.assign(brandingConfig, appState.branding);
-      } catch(e){}
+        if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
+      } catch (e) {
+        console.warn('Error leyendo caché local:', e);
+      }
     }
-    const savedBrandingBackup = localStorage.getItem('autorent_branding_backup');
-    if (savedBrandingBackup) {
-      try {
-        brandingConfig = Object.assign(brandingConfig, JSON.parse(savedBrandingBackup));
-        appState.branding = brandingConfig;
-      } catch(e){}
+
+    const savedBrandBackup = localStorage.getItem('autorent_branding_backup');
+    if (savedBrandBackup) {
+      try { brandingConfig = Object.assign(brandingConfig, JSON.parse(savedBrandBackup)); } catch (e) {}
     }
     const savedCredsBackup = localStorage.getItem('autorent_creds_backup');
     if (savedCredsBackup) {
-      try {
-        adminCredentials = Object.assign(adminCredentials, JSON.parse(savedCredsBackup));
-        appState.adminCreds = adminCredentials;
-      } catch(e){}
+      try { adminCredentials = Object.assign(adminCredentials, JSON.parse(savedCredsBackup)); } catch (e) {}
     }
 
+    // Variables globales de sesión, mapas e interfaz
     let currentSession = { role: null, driverId: null, partnerId: null };
-    let tempCompressedReceipt = null;
     let logoTapCount = 0;
     let logoTapTimer = null;
+    let tempCompressedReceipt = null;
+    let adminDriverMap = null;
+    let adminDriverMarker = null;
+    let driverPortalMap = null;
+    let driverPortalMarker = null;
+    let viewInspMap = null;
+    let viewInspMarker = null;
 
-    // MAPAS LEAFLET
-    let adminDriverMap = null, adminDriverMarker = null;
-    let driverPortalMap = null, driverPortalMarker = null;
-    let viewInspMap = null, viewInspMarker = null;
-
-    // APLICAR DISEÑO Y TEMA OSCURO
     function applyBrandingUI() {
-      document.documentElement.style.setProperty('--primary-color', brandingConfig.primaryColor);
-      document.documentElement.style.setProperty('--app-font', brandingConfig.fontFamily);
-      
-      const isDark = brandingConfig.theme === 'dark';
-      document.documentElement.classList.toggle('dark', isDark);
-      const themeIcon = document.getElementById('theme-toggle-icon');
-      if (themeIcon) themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+      const name = brandingConfig.companyName || 'AutoRent Pro';
+      document.title = `${name} - Control de Flota`;
+      document.documentElement.style.setProperty('--primary-color', brandingConfig.primaryColor || '#4f46e5');
+      document.documentElement.style.setProperty('--app-font', brandingConfig.fontFamily || "'Inter', sans-serif");
 
-      const nameDisplays = [
-        document.getElementById('company-name-display'),
-        document.getElementById('auth-company-name'),
-        document.getElementById('cfg-preview-title')
-      ];
+      if (brandingConfig.theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
 
-      nameDisplays.forEach(el => {
+      const titleIds = ['company-name-display', 'auth-company-name', 'cfg-preview-title'];
+      titleIds.forEach(id => {
+        const el = document.getElementById(id);
         if (!el) return;
-        el.textContent = brandingConfig.companyName;
+        el.textContent = name;
         if (brandingConfig.nameColorMode === 'gradient') {
-          el.className = 'font-black tracking-tight company-title-gradient';
-          el.style.backgroundImage = `linear-gradient(135deg, ${brandingConfig.nameGradColor1}, ${brandingConfig.nameGradColor2})`;
-          el.style.color = 'transparent';
+          const c1 = brandingConfig.nameGradColor1 || '#4f46e5';
+          const c2 = brandingConfig.nameGradColor2 || '#ec4899';
+          el.className = (id === 'auth-company-name' ? 'text-2xl ' : 'text-base sm:text-lg ') + 'font-black tracking-tight company-title-gradient';
+          el.style.backgroundImage = `linear-gradient(90deg, ${c1}, ${c2})`;
+          el.style.color = '';
         } else {
-          el.className = 'font-black tracking-tight';
-          el.style.backgroundImage = 'none';
-          el.style.webkitTextFillColor = 'initial';
+          el.className = (id === 'auth-company-name' ? 'text-2xl ' : 'text-base sm:text-lg ') + 'font-black tracking-tight';
+          el.style.backgroundImage = '';
           el.style.color = brandingConfig.nameSolidColor || '#0f172a';
         }
       });
 
-      document.title = brandingConfig.companyName + " - Gestión de Flota";
-
-      const hasLogo = !!brandingConfig.logoBase64;
-      const navImg = document.getElementById('company-logo-img');
-      const navIcon = document.getElementById('company-default-icon');
+      const hasLogo = !!(brandingConfig.logoBase64 && brandingConfig.logoBase64.startsWith('data:image'));
+      const headerImg = document.getElementById('company-logo-img');
+      const headerIcon = document.getElementById('company-default-icon');
       const authImg = document.getElementById('auth-logo-img');
       const authIcon = document.getElementById('auth-logo-icon');
       const cfgPreview = document.getElementById('cfg-logo-preview');
       const cfgPlaceholder = document.getElementById('cfg-logo-placeholder');
 
-      if (hasLogo) {
-        if (navImg) { navImg.src = brandingConfig.logoBase64; navImg.classList.remove('hidden'); }
-        if (navIcon) navIcon.classList.add('hidden');
-        if (authImg) { authImg.src = brandingConfig.logoBase64; authImg.classList.remove('hidden'); }
-        if (authIcon) authIcon.classList.add('hidden');
-        if (cfgPreview) { cfgPreview.src = brandingConfig.logoBase64; cfgPreview.classList.remove('hidden'); }
-        if (cfgPlaceholder) cfgPlaceholder.classList.add('hidden');
-      } else {
-        if (navImg) navImg.classList.add('hidden');
-        if (navIcon) navIcon.classList.remove('hidden');
-        if (authImg) authImg.classList.add('hidden');
-        if (authIcon) authIcon.classList.remove('hidden');
-        if (cfgPreview) cfgPreview.classList.add('hidden');
-        if (cfgPlaceholder) cfgPlaceholder.classList.remove('hidden');
+      if (headerImg && headerIcon) {
+        headerImg.src = hasLogo ? brandingConfig.logoBase64 : '';
+        headerImg.classList.toggle('hidden', !hasLogo);
+        headerIcon.classList.toggle('hidden', hasLogo);
+      }
+      if (authImg && authIcon) {
+        authImg.src = hasLogo ? brandingConfig.logoBase64 : '';
+        authImg.classList.toggle('hidden', !hasLogo);
+        authIcon.classList.toggle('hidden', hasLogo);
+      }
+      if (cfgPreview && cfgPlaceholder) {
+        cfgPreview.src = hasLogo ? brandingConfig.logoBase64 : '';
+        cfgPreview.classList.toggle('hidden', !hasLogo);
+        cfgPlaceholder.classList.toggle('hidden', hasLogo);
       }
 
       if (document.getElementById('cfg-admin-user')) {
-        document.getElementById('cfg-admin-user').value = adminCredentials.user;
-        document.getElementById('cfg-admin-pass').value = adminCredentials.pass;
-        if (document.getElementById('cfg-admin-whatsapp')) {
-          document.getElementById('cfg-admin-whatsapp').value = adminCredentials.whatsapp || '';
-        }
-        if (document.getElementById('cfg-pay-yappy-phone')) {
-          document.getElementById('cfg-pay-yappy-phone').value = adminCredentials.yappyPhone || '';
-          document.getElementById('cfg-pay-yappy-name').value = adminCredentials.yappyName || '';
-          document.getElementById('cfg-pay-bank-account').value = adminCredentials.bankAccount || '';
-          document.getElementById('cfg-pay-bank-name').value = adminCredentials.bankHolder || '';
-        }
-        if (document.getElementById('cfg-tg-token')) {
-          document.getElementById('cfg-tg-enabled').checked = !!adminCredentials.tgEnabled;
-          document.getElementById('cfg-tg-token').value = adminCredentials.tgToken || '';
-          document.getElementById('cfg-tg-chatid').value = adminCredentials.tgChatId || '';
-          document.getElementById('cfg-tg-notify-login').checked = !!adminCredentials.tgNotifyLogin;
-        }
+        document.getElementById('cfg-admin-user').value = adminCredentials.user || 'admin';
+        document.getElementById('cfg-admin-pass').value = adminCredentials.pass || 'admin123';
+        if (document.getElementById('cfg-admin-whatsapp')) document.getElementById('cfg-admin-whatsapp').value = adminCredentials.whatsapp || '';
+        if (document.getElementById('cfg-pay-yappy-phone')) document.getElementById('cfg-pay-yappy-phone').value = adminCredentials.yappyPhone || '';
+        if (document.getElementById('cfg-pay-yappy-name')) document.getElementById('cfg-pay-yappy-name').value = adminCredentials.yappyName || '';
+        if (document.getElementById('cfg-pay-bank-account')) document.getElementById('cfg-pay-bank-account').value = adminCredentials.bankAccount || '';
+        if (document.getElementById('cfg-pay-bank-name')) document.getElementById('cfg-pay-bank-name').value = adminCredentials.bankHolder || '';
+        if (document.getElementById('cfg-tg-enabled')) document.getElementById('cfg-tg-enabled').checked = !!adminCredentials.tgEnabled;
+        if (document.getElementById('cfg-tg-token')) document.getElementById('cfg-tg-token').value = adminCredentials.tgToken || '';
+        if (document.getElementById('cfg-tg-chatid')) document.getElementById('cfg-tg-chatid').value = adminCredentials.tgChatId || '';
+        if (document.getElementById('cfg-tg-notify-login')) document.getElementById('cfg-tg-notify-login').checked = !!adminCredentials.tgNotifyLogin;
       }
     }
 
-    // FUNCIÓN PARA ENVIAR NOTIFICACIONES Y FOTOS AL BOT DE TELEGRAM
-    function base64ToBlobSafe(base64Data) {
-      const parts = base64Data.split(',');
-      const mimeMatch = parts[0].match(/:(.*?);/);
-      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const byteString = atob(parts[1]);
-      const ab = new ArrayBuffer(byteString.length);
-      const ia = new Uint8Array(ab);
-      for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-      }
-      return new Blob([ab], { type: mime });
-    }
-
-    async function sendTelegramNotification(textMessage, base64Photo = null, forceTest = false) {
-      const creds = Object.assign({}, appState.adminCreds || {}, adminCredentials || {});
-      const domToken = document.getElementById('cfg-tg-token') ? document.getElementById('cfg-tg-token').value.trim() : '';
-      const domChatId = document.getElementById('cfg-tg-chatid') ? document.getElementById('cfg-tg-chatid').value.trim() : '';
-
-      const token = (creds.tgToken || domToken || '').trim().replace(/^bot/i, '');
-      const chatId = (creds.tgChatId || domChatId || '').trim();
-      const enabled = forceTest || creds.tgEnabled !== false;
-
-      if (!enabled || !token || !chatId) return false;
-
-      let sentOk = false;
-
-      if (base64Photo && base64Photo.startsWith('data:image')) {
-        try {
-          const blob = base64ToBlobSafe(base64Photo);
-          const formData = new FormData();
-          formData.append('chat_id', chatId);
-          formData.append('photo', blob, 'comprobante.jpg');
-          formData.append('caption', textMessage.substring(0, 1020));
-          formData.append('parse_mode', 'HTML');
-
-          const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST',
-            body: formData
-          });
-          if (photoRes && photoRes.ok) return true;
-        } catch (photoErr) {
-          console.warn('Reintentando envío de texto a Telegram:', photoErr);
-        }
-      }
-
-      try {
-        const params = new URLSearchParams();
-        params.append('chat_id', chatId);
-        params.append('text', textMessage);
-        params.append('parse_mode', 'HTML');
-
-        const msgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          body: params
-        });
-        if (msgRes && msgRes.ok) sentOk = true;
-      } catch (err) {
-        try {
-          const getUrl = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&parse_mode=HTML&text=${encodeURIComponent(textMessage)}`;
-          await fetch(getUrl, { mode: 'no-cors' });
-          sentOk = true;
-        } catch (fallbackErr) {
-          console.warn('Aviso Telegram:', fallbackErr);
-        }
-      }
-
-      return sentOk;
-    }
-
-    function saveTelegramBotConfig() {
-      const tokenVal = document.getElementById('cfg-tg-token').value.trim().replace(/^bot/i, '');
-      const chatIdVal = document.getElementById('cfg-tg-chatid').value.trim();
-      if (tokenVal && chatIdVal) {
-        document.getElementById('cfg-tg-enabled').checked = true;
-      }
-      adminCredentials.tgEnabled = !!document.getElementById('cfg-tg-enabled').checked;
-      adminCredentials.tgToken = tokenVal;
-      adminCredentials.tgChatId = chatIdVal;
-      adminCredentials.tgNotifyLogin = !!document.getElementById('cfg-tg-notify-login').checked;
-      appState.adminCreds = Object.assign({}, adminCredentials);
-      saveStateAndBroadcast();
-      showToast('✓ Configuración de Telegram guardada', 'success');
-    }
-
-    async function testTelegramBotConnection() {
-      saveTelegramBotConfig();
-      if (!adminCredentials.tgToken || !adminCredentials.tgChatId) {
-        showToast('Ingresa tu Bot Token y Chat ID primero', 'warning');
-        return;
-      }
-      const ok = await sendTelegramNotification(
-        `✅ <b>Bot Conectado con Éxito</b>\n🏢 <b>Empresa:</b> ${brandingConfig.companyName}\n📲 Recibirás aquí los reportes de pago con foto y alertas de la flota.`,
-        null,
-        true
-      );
-      if (ok) {
-        showToast('✓ Mensaje de prueba enviado a tu Telegram', 'success');
-      } else {
-        showToast('No se pudo enviar. Verifica el Token, Chat ID y haber iniciado el Bot con /start', 'error');
-      }
+    const themeToggleBtn = document.getElementById('btn-theme-toggle');
+    if (themeToggleBtn) {
+      themeToggleBtn.addEventListener('click', () => {
+        brandingConfig.theme = brandingConfig.theme === 'dark' ? 'light' : 'dark';
+        applyBrandingUI();
+        saveStateAndBroadcast();
+      });
     }
 
     function copyDriverPaymentInfo(type) {
       const textToCopy = type === 'yappy'
-        ? (adminCredentials.yappyPhone || '').trim()
-        : (adminCredentials.bankAccount || '').trim();
-      if (!textToCopy) return;
+        ? (adminCredentials.yappyPhone || '')
+        : (adminCredentials.bankAccount || '');
+      if (!textToCopy) {
+        showToast('No hay dato configurado para copiar', 'warning');
+        return;
+      }
       const tempInput = document.createElement('input');
       tempInput.value = textToCopy;
       document.body.appendChild(tempInput);
       tempInput.select();
       document.execCommand('copy');
       document.body.removeChild(tempInput);
-      showToast(type === 'yappy' ? '✓ Dato de Yappy copiado' : '✓ Número de cuenta copiado', 'success');
+      showToast(`✓ Copiado al portapapeles: ${textToCopy}`, 'success');
     }
 
-    // TOGGLE MODO OSCURO
-    document.getElementById('btn-theme-toggle').addEventListener('click', () => {
-      brandingConfig.theme = (brandingConfig.theme === 'dark') ? 'light' : 'dark';
-      applyBrandingUI();
-      saveStateAndBroadcast();
-      lucide.createIcons();
-    });
+    function saveTelegramBotConfig() {
+      adminCredentials.tgEnabled = !!document.getElementById('cfg-tg-enabled')?.checked;
+      adminCredentials.tgToken = (document.getElementById('cfg-tg-token')?.value || '').trim();
+      adminCredentials.tgChatId = (document.getElementById('cfg-tg-chatid')?.value || '').trim();
+      adminCredentials.tgNotifyLogin = !!document.getElementById('cfg-tg-notify-login')?.checked;
+      appState.adminCreds = adminCredentials;
+      saveStateAndBroadcast(true);
+      showToast('✓ Configuración de Telegram guardada', 'success');
+    }
 
-    // INICIALIZACIÓN Y BUZÓN ATÓMICO DE PAGOS EN FIREBASE (SDK + HTTPS REST)
+    async function sendTelegramNotification(htmlText, base64Photo = null) {
+      if (!adminCredentials || !adminCredentials.tgEnabled || !adminCredentials.tgToken || !adminCredentials.tgChatId) return false;
+      const token = adminCredentials.tgToken.trim();
+      const chatId = adminCredentials.tgChatId.trim();
+      try {
+        if (base64Photo && base64Photo.startsWith('data:image')) {
+          const resBlob = await fetch(base64Photo);
+          const blob = await resBlob.blob();
+          const formData = new FormData();
+          formData.append('chat_id', chatId);
+          formData.append('caption', htmlText);
+          formData.append('parse_mode', 'HTML');
+          formData.append('photo', blob, 'comprobante.jpg');
+          const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            body: formData
+          });
+          if (r.ok) return true;
+        }
+        const rMsg = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: htmlText,
+            parse_mode: 'HTML'
+          })
+        });
+        return rMsg.ok;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function testTelegramBotConnection() {
+      saveTelegramBotConfig();
+      if (!adminCredentials.tgToken || !adminCredentials.tgChatId) {
+        showToast('Ingresa el Bot Token y el Chat ID primero', 'warning');
+        return;
+      }
+      adminCredentials.tgEnabled = true;
+      const ok = await sendTelegramNotification(`✅ <b>Conexión exitosa con ${brandingConfig.companyName || 'AutoRent Pro'}</b>\nLas alertas de pagos y fotos llegarán a este chat.`);
+      if (ok) {
+        showToast('📲 ¡Mensaje de prueba enviado a tu Telegram!', 'success');
+      } else {
+        showToast('❌ No se pudo enviar. Verifica el Token y Chat ID.', 'error');
+      }
+    }
+
+    // INICIALIZACIÓN Y BUZÓN ATÓMICO DE PAGOS EN FIREBASE (SDK + HTTPS REST + RELAY EN NUBE)
     function getCleanFirebaseDbUrl() {
       let url = (firebaseConfig && firebaseConfig.databaseURL ? firebaseConfig.databaseURL : defaultFirebaseConfig.databaseURL || '').trim();
       if (!url) return '';
       url = url.replace(/\/+$/, '');
       if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
       return url;
+    }
+
+    function getCloudRelayTopicBase() {
+      const proj = ((firebaseConfig && firebaseConfig.projectId) || defaultFirebaseConfig.projectId || 'personal-d1073')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_');
+      return `autorent_sync_${proj}_v3`;
+    }
+
+    const cloudPhotoMemoryCache = {};
+    let cloudRelayEventSource = null;
+
+    async function publishPacketToCloudRelay(packetObj, isPhotoTopic = false) {
+      try {
+        const topic = getCloudRelayTopicBase() + (isPhotoTopic ? '_photos' : '_main');
+        const res = await fetch(`https://ntfy.sh/${topic}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify(packetObj)
+        });
+        return !!(res && res.ok);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function uploadReceiptPhotoToCloudRelay(paymentId, base64Photo) {
+      if (!paymentId || !base64Photo || !base64Photo.startsWith('data:image')) return;
+      try {
+        cloudPhotoMemoryCache[paymentId] = base64Photo;
+        const chunkSize = 2800;
+        const total = Math.ceil(base64Photo.length / chunkSize);
+        if (total > 25) return;
+        for (let idx = 0; idx < total; idx++) {
+          const chunk = base64Photo.slice(idx * chunkSize, (idx + 1) * chunkSize);
+          await publishPacketToCloudRelay({
+            t: 'PHOTO_CHUNK',
+            id: paymentId,
+            i: idx,
+            n: total,
+            c: chunk
+          }, true);
+        }
+      } catch (e) {}
+    }
+
+    async function pullReceiptPhotosFromCloudRelay(neededPaymentIds) {
+      if (!Array.isArray(neededPaymentIds) || neededPaymentIds.length === 0) return false;
+      try {
+        const topic = getCloudRelayTopicBase() + '_photos';
+        const res = await fetch(`https://ntfy.sh/${topic}/json?poll=1&since=48h`, { cache: 'no-store' });
+        if (!res || !res.ok) return false;
+        const text = await res.text();
+        const byId = {};
+        text.split('\n').forEach(line => {
+          if (!line.trim()) return;
+          try {
+            const env = JSON.parse(line);
+            if (!env || env.event !== 'message' || !env.message) return;
+            const pkt = JSON.parse(env.message);
+            if (pkt && pkt.t === 'PHOTO_CHUNK' && pkt.id && neededPaymentIds.includes(pkt.id)) {
+              if (!byId[pkt.id]) byId[pkt.id] = { total: pkt.n, parts: {} };
+              byId[pkt.id].parts[pkt.i] = pkt.c;
+            }
+          } catch (e) {}
+        });
+
+        let anyRestored = false;
+        Object.keys(byId).forEach(payId => {
+          const entry = byId[payId];
+          const keys = Object.keys(entry.parts);
+          if (entry.total > 0 && keys.length === entry.total) {
+            let fullBase64 = '';
+            for (let i = 0; i < entry.total; i++) {
+              fullBase64 += (entry.parts[i] || '');
+            }
+            if (fullBase64.startsWith('data:image')) {
+              cloudPhotoMemoryCache[payId] = fullBase64;
+              const targetPay = (appState.payments || []).find(p => p && p.id === payId);
+              if (targetPay && (!targetPay.receiptImage || targetPay.receiptImage === DEFAULT_PLACEHOLDER_RECEIPT)) {
+                targetPay.receiptImage = fullBase64;
+                anyRestored = true;
+              }
+            }
+          }
+        });
+        return anyRestored;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function applyCloudRelayPacket(pkt) {
+      if (!pkt || !pkt.t) return { added: 0, changed: false };
+      let added = 0;
+      let changed = false;
+
+      if (pkt.t === 'PAYMENT_UPSERT' && pkt.p && pkt.p.id) {
+        const pay = Object.assign({}, pkt.p);
+        if (cloudPhotoMemoryCache[pay.id] && (!pay.receiptImage || pay.receiptImage === DEFAULT_PLACEHOLDER_RECEIPT)) {
+          pay.receiptImage = cloudPhotoMemoryCache[pay.id];
+        }
+        if (!Array.isArray(appState.payments)) appState.payments = [];
+        const processedIds = Array.isArray(appState.processedInboxIds) ? appState.processedInboxIds : [];
+        if (!processedIds.includes(pay.id)) {
+          const existing = appState.payments.find(x => x && x.id === pay.id);
+          if (!existing) {
+            appState.payments.unshift(pay);
+            added++;
+            changed = true;
+          } else {
+            const incomingTime = Number(pay.updatedAt) || Number(pay.createdAt) || 0;
+            const currentTime = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
+            if (incomingTime >= currentTime || (existing.status === 'Pendiente' && pay.status && pay.status !== 'Pendiente')) {
+              const keepPhoto = (existing.receiptImage && existing.receiptImage.startsWith('data:image'))
+                ? existing.receiptImage
+                : (pay.receiptImage || DEFAULT_PLACEHOLDER_RECEIPT);
+              Object.assign(existing, pay, { receiptImage: keepPhoto });
+              changed = true;
+            }
+          }
+        }
+      } else if (pkt.t === 'PAYMENT_DELETE' && pkt.id) {
+        if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
+        if (!appState.processedInboxIds.includes(pkt.id)) {
+          appState.processedInboxIds.push(pkt.id);
+        }
+        const beforeLen = (appState.payments || []).length;
+        appState.payments = (appState.payments || []).filter(p => p && p.id !== pkt.id);
+        if (appState.payments.length !== beforeLen) changed = true;
+      } else if (pkt.t === 'STATE_SYNC' && pkt.s) {
+        const s = pkt.s;
+        if (Array.isArray(s.drivers) && s.drivers.length > 0 && currentSession.role !== 'admin') {
+          appState.drivers = s.drivers;
+          changed = true;
+        }
+        if (Array.isArray(s.cars) && s.cars.length > 0 && currentSession.role !== 'admin') {
+          appState.cars = s.cars;
+          changed = true;
+        }
+        if (typeof s.generalDriverNotice === 'string') {
+          appState.generalDriverNotice = s.generalDriverNotice;
+        }
+      }
+
+      return { added, changed };
+    }
+
+    async function pullPaymentsFromCloudRelay() {
+      try {
+        const topic = getCloudRelayTopicBase() + '_main';
+        const res = await fetch(`https://ntfy.sh/${topic}/json?poll=1&since=48h`, { cache: 'no-store' });
+        if (!res || !res.ok) return 0;
+        const text = await res.text();
+        let totalAdded = 0;
+        let anyChanged = false;
+
+        text.split('\n').forEach(line => {
+          if (!line.trim()) return;
+          try {
+            const env = JSON.parse(line);
+            if (!env || env.event !== 'message' || !env.message) return;
+            const pkt = JSON.parse(env.message);
+            const r = applyCloudRelayPacket(pkt);
+            totalAdded += r.added;
+            if (r.changed) anyChanged = true;
+          } catch (e) {}
+        });
+
+        const missingPhotoIds = (appState.payments || [])
+          .filter(p => p && p.hasCloudPhoto && (!p.receiptImage || p.receiptImage === DEFAULT_PLACEHOLDER_RECEIPT))
+          .map(p => p.id);
+
+        if (missingPhotoIds.length > 0) {
+          const restored = await pullReceiptPhotosFromCloudRelay(missingPhotoIds);
+          if (restored) anyChanged = true;
+        }
+
+        if (anyChanged) {
+          appState.payments = sortPaymentsNewestFirst(appState.payments);
+          try {
+            localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+          } catch (e) {}
+          if (currentSession.role === 'admin') {
+            renderAdminView();
+            if (totalAdded > 0) playAdminAlertTone('payments');
+          } else if (currentSession.role === 'driver') {
+            renderDriverView();
+          } else if (currentSession.role === 'partner') {
+            renderPartnerView();
+          }
+        }
+        return totalAdded;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    function startCloudRelayLiveStream() {
+      if (typeof EventSource === 'undefined') return;
+      try {
+        if (cloudRelayEventSource) cloudRelayEventSource.close();
+        const topic = getCloudRelayTopicBase() + '_main';
+        cloudRelayEventSource = new EventSource(`https://ntfy.sh/${topic}/sse`);
+        cloudRelayEventSource.onmessage = async (event) => {
+          try {
+            const env = JSON.parse(event.data);
+            const pkt = env && env.message ? JSON.parse(env.message) : env;
+            const r = applyCloudRelayPacket(pkt);
+            if (pkt && pkt.t === 'PAYMENT_UPSERT' && pkt.p && pkt.p.hasCloudPhoto) {
+              setTimeout(() => {
+                pullReceiptPhotosFromCloudRelay([pkt.p.id]).then(restored => {
+                  if (restored && currentSession.role === 'admin') renderAdminView();
+                });
+              }, 1200);
+            }
+            if (r.changed) {
+              appState.payments = sortPaymentsNewestFirst(appState.payments);
+              try {
+                localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+              } catch (e) {}
+              if (currentSession.role === 'admin') {
+                renderAdminView();
+                if (r.added > 0) playAdminAlertTone('payments');
+              } else if (currentSession.role === 'driver') {
+                renderDriverView();
+              } else if (currentSession.role === 'partner') {
+                renderPartnerView();
+              }
+            }
+          } catch (e) {}
+        };
+      } catch (e) {}
     }
 
     function updateFirebaseStatusBadges(isOnline, labelText) {
@@ -3121,10 +3331,39 @@
       const baseUrl = getCleanFirebaseDbUrl();
       const attemptPromises = [];
 
+      // Canal 0: Puente en Nube Directo Multi-Teléfonos (Funciona siempre aunque las reglas de Firebase hayan expirado)
+      const lightRelayPayment = Object.assign({}, cleanPayment);
+      const hasRealPhoto = !!(lightRelayPayment.receiptImage && lightRelayPayment.receiptImage.startsWith('data:image'));
+      if (hasRealPhoto) {
+        lightRelayPayment.hasCloudPhoto = true;
+        lightRelayPayment.receiptImage = DEFAULT_PLACEHOLDER_RECEIPT;
+      }
+      attemptPromises.push(
+        publishPacketToCloudRelay({
+          t: 'PAYMENT_UPSERT',
+          p: lightRelayPayment
+        }, false).then(ok => {
+          if (!ok) throw new Error('relay_failed');
+          if (hasRealPhoto) {
+            uploadReceiptPhotoToCloudRelay(cleanPayment.id, cleanPayment.receiptImage);
+          }
+          return true;
+        })
+      );
+
+      // Obtener token de autenticación si Firebase Auth está activo
+      let authQuery = '';
+      try {
+        if (firebase.auth && firebase.auth().currentUser) {
+          const tok = await firebase.auth().currentUser.getIdToken();
+          if (tok) authQuery = `?auth=${encodeURIComponent(tok)}`;
+        }
+      } catch (e) {}
+
       // Canal 1: HTTPS REST PUT ligero (envía únicamente este pago de ~0.5KB a 25KB a rentFlotaEnterpriseV2/inbox/{ID})
       if (baseUrl) {
         attemptPromises.push(
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json${authQuery}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cleanPayment)
@@ -3136,7 +3375,7 @@
 
         // Canal 2: HTTPS REST PUT directo a rentFlotaEnterpriseV2/payments/{ID}
         attemptPromises.push(
-          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments/${encodeURIComponent(cleanPayment.id)}.json`, {
+          fetch(`${baseUrl}/rentFlotaEnterpriseV2/payments/${encodeURIComponent(cleanPayment.id)}.json${authQuery}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cleanPayment)
@@ -3214,6 +3453,13 @@
       if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
       appState.inbox[cleanPayment.id] = cleanPayment;
 
+      const lightRelayPayment = Object.assign({}, cleanPayment);
+      if (lightRelayPayment.receiptImage && lightRelayPayment.receiptImage.startsWith('data:image')) {
+        lightRelayPayment.hasCloudPhoto = true;
+        lightRelayPayment.receiptImage = DEFAULT_PLACEHOLDER_RECEIPT;
+      }
+      publishPacketToCloudRelay({ t: 'PAYMENT_UPSERT', p: lightRelayPayment }, false);
+
       const baseUrl = getCleanFirebaseDbUrl();
       if (isFirebaseReady && db) {
         db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment).catch(() => {});
@@ -3245,6 +3491,7 @@
           appState.processedInboxIds.push(paymentId);
           if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
         }
+        publishPacketToCloudRelay({ t: 'PAYMENT_DELETE', id: paymentId }, false);
       }
       if (appState.inbox && appState.inbox[paymentId]) {
         delete appState.inbox[paymentId];
@@ -3340,6 +3587,11 @@
     async function forcePullPaymentsInboxNow(showUserToast = false) {
       let newAdded = 0;
 
+      // 0. Consultar Canal de Sincronización en Nube Directo (Multi-Teléfonos)
+      try {
+        newAdded += await pullPaymentsFromCloudRelay();
+      } catch (e) {}
+
       // 1. Consultar puente Firestore integrado si está activo
       if (typeof window.pullPaymentsFromFirestoreBridge === 'function') {
         try {
@@ -3433,23 +3685,26 @@
 
     function initFirebase() {
       firebaseConfig.databaseURL = getCleanFirebaseDbUrl();
+      startCloudRelayLiveStream();
       try {
+        const onAppReady = () => {
+          db = firebase.database();
+          isFirebaseReady = true;
+          if (firebase.auth) {
+            firebase.auth().signInAnonymously().catch(() => {});
+          }
+          setupFirebaseCloudSync();
+        };
         if (firebase.apps.length) {
           firebase.app().delete().then(() => {
             firebase.initializeApp(firebaseConfig);
-            db = firebase.database();
-            isFirebaseReady = true;
-            setupFirebaseCloudSync();
+            onAppReady();
           }).catch(() => {
-            db = firebase.database();
-            isFirebaseReady = true;
-            setupFirebaseCloudSync();
+            onAppReady();
           });
         } else {
           firebase.initializeApp(firebaseConfig);
-          db = firebase.database();
-          isFirebaseReady = true;
-          setupFirebaseCloudSync();
+          onAppReady();
         }
       } catch (err) {
         console.warn("Firebase en modo local:", err);
@@ -3504,6 +3759,25 @@
       // Sincronizar también en el puente en la nube integrado (Firestore) para que todos los teléfonos compartan el mismo estado
       if (typeof window.pushFullStateToFirestoreBridge === 'function' && (hasInitialCloudSync || forceCloudWrite)) {
         window.pushFullStateToFirestoreBridge(cloudPayload).catch(() => {});
+      }
+
+      // Sincronizar resumen de choferes/autos por el Canal de Nube cuando el Admin guarda cambios
+      if (currentSession.role === 'admin') {
+        try {
+          const lightDrivers = (appState.drivers || []).map(d => {
+            const copy = Object.assign({}, d);
+            delete copy.damageAgreement;
+            return copy;
+          });
+          publishPacketToCloudRelay({
+            t: 'STATE_SYNC',
+            s: {
+              drivers: lightDrivers,
+              cars: appState.cars || [],
+              generalDriverNotice: appState.generalDriverNotice || ''
+            }
+          }, false);
+        } catch (e) {}
       }
 
       // Respaldo HTTPS REST con PATCH para actualizar sin borrar rentFlotaEnterpriseV2/inbox
@@ -8489,10 +8763,10 @@
     setInterval(checkDailyFeeAutomation, 60000);
     setInterval(checkAndPlayAdminPeriodicSounds, 10000);
     setInterval(() => {
-      if (currentSession.role === 'admin' || currentSession.role === 'partner') {
+      if (currentSession.role === 'admin' || currentSession.role === 'partner' || currentSession.role === 'driver') {
         forcePullPaymentsInboxNow(false);
       }
-    }, 6000);
+    }, 5000);
 
     window.addEventListener('DOMContentLoaded', () => {
       applyBrandingUI();
@@ -11765,11 +12039,11 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
       if (!fsAuth?.currentUser) {
         try { await signInAnonymously(fsAuth); } catch (e) {}
       }
-      const activeUser = fsAuth?.currentUser || fsUser;
-      if (!activeUser || !fsDb) return false;
+      if (!fsDb) return false;
 
+      const payload = Object.assign({}, paymentObj, { syncedAt: Date.now() });
       const payRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments', String(paymentObj.id));
-      await setDoc(payRef, Object.assign({}, paymentObj, { syncedAt: Date.now() }));
+      await setDoc(payRef, payload);
       return true;
     };
 
