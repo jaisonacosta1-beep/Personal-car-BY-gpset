@@ -1,4 +1,4 @@
-```html
+
 <!DOCTYPE html>
 <html lang="es" class="h-full bg-slate-50">
 <head>
@@ -133,7 +133,7 @@
           <div>
             <div class="flex items-center space-x-2">
               <span id="company-name-display" class="font-black text-base sm:text-lg tracking-tight leading-tight">AutoRent Pro</span>
-              <span id="cloud-status-badge" class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span id="cloud-status-badge" onclick="showFirebaseErrorDetails(event)" class="cursor-pointer inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Toca para ver estado o sincronizar Firebase">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-pulse mr-1"></span> Firebase Activo
               </span>
             </div>
@@ -2889,7 +2889,7 @@
       try { adminCredentials = Object.assign(adminCredentials, JSON.parse(savedCredsBackup)); } catch (e) {}
     }
 
-    // Respaldo ultraligero de saldos, choferes y pagos (sin fotos pesadas, nunca falla por límite de 5MB de localStorage)
+    // Respaldo ultraligero local solo para arranque rápido (nunca bloquea ni sobrescribe datos de Firebase)
     function saveFastCoreBackup() {
       try {
         const fastCore = {
@@ -2925,49 +2925,21 @@
       } catch (e) {}
     }
 
-    function mergeDriversPreservingNewest(incomingDrivers, currentDrivers) {
-      const incList = normalizeCloudList(incomingDrivers);
-      const curList = normalizeCloudList(currentDrivers);
-      if (incList.length === 0) return curList;
-      if (curList.length === 0) return incList;
-
-      const curMap = new Map();
-      curList.forEach(d => { if (d && d.id) curMap.set(d.id, d); });
-
-      const merged = incList.map(incDrv => {
-        if (!incDrv || !incDrv.id) return incDrv;
-        const curDrv = curMap.get(incDrv.id);
-        if (!curDrv) return incDrv;
-        curMap.delete(incDrv.id);
-
-        const incTime = Math.max(Number(incDrv.balanceUpdatedAt) || 0, Number(incDrv.updatedAt) || 0);
-        const curTime = Math.max(Number(curDrv.balanceUpdatedAt) || 0, Number(curDrv.updatedAt) || 0);
-
-        if (curTime > incTime) {
-          return Object.assign({}, incDrv, curDrv);
-        }
-        return Object.assign({}, curDrv, incDrv);
-      });
-
-      // Conservar conductores nuevos creados localmente con timestamp reciente
-      curMap.forEach(remDrv => {
-        if (remDrv && ! remDrv._deleted && (Number(remDrv.updatedAt) || 0) > 0) {
-          merged.push(remDrv);
-        }
-      });
-
-      return merged;
-    }
-
-    function mergePaymentsPreservingNewest(cloudPayments, inboxPayments, localPayments, processedIds) {
+    // Combina pagos del nodo principal + buzón en la nube sin duplicados y respetando el estado oficial
+    function mergePaymentsFromCloudSources(cloudPayments, inboxObj, processedIds) {
       const procSet = new Set(Array.isArray(processedIds) ? processedIds : []);
       const map = new Map();
 
-      const upsertPay = (p) => {
+      const upsertPay = (p, fromInbox = false) => {
         if (!p || !p.id || procSet.has(p.id)) return;
         const existing = map.get(p.id);
         if (!existing) {
           map.set(p.id, Object.assign({}, p));
+          return;
+        }
+        // Si ya fue aprobado/rechazado en el historial principal, prevalece sobre una copia vieja del buzón
+        if (fromInbox && existing.status && existing.status !== 'Pendiente') {
+          if (!existing.receiptImage && p.receiptImage) existing.receiptImage = p.receiptImage;
           return;
         }
         const existingTime = Math.max(Number(existing.updatedAt) || 0, Number(existing.createdAt) || 0);
@@ -2983,35 +2955,10 @@
         }
       };
 
-      normalizeCloudList(cloudPayments).forEach(upsertPay);
-      normalizeCloudList(inboxPayments).forEach(upsertPay);
-      normalizeCloudList(localPayments).forEach(upsertPay);
+      normalizeCloudList(cloudPayments).forEach(p => upsertPay(p, false));
+      normalizeCloudList(inboxObj).forEach(p => upsertPay(p, true));
 
       return sortPaymentsNewestFirst(Array.from(map.values()));
-    }
-
-    // Restaurar de inmediato cualquier cambio reciente guardado en el respaldo ultraligero
-    const savedFastCore = localStorage.getItem('autorent_core_fast_v2');
-    if (savedFastCore) {
-      try {
-        const fc = JSON.parse(savedFastCore);
-        if (fc && (Number(fc.updatedAt) || 0) >= (Number(appState.updatedAt) || 0)) {
-          appState.updatedAt = fc.updatedAt;
-          if (fc.lastDailyFeeDate) appState.lastDailyFeeDate = fc.lastDailyFeeDate;
-          if (typeof fc.skipSundays === 'boolean') appState.skipSundays = fc.skipSundays;
-          if (typeof fc.generalDriverNotice === 'string') appState.generalDriverNotice = fc.generalDriverNotice;
-          if (Array.isArray(fc.processedInboxIds)) appState.processedInboxIds = fc.processedInboxIds;
-          if (Array.isArray(fc.drivers) && fc.drivers.length > 0) {
-            appState.drivers = mergeDriversPreservingNewest(appState.drivers, fc.drivers);
-          }
-          if (Array.isArray(fc.cars) && fc.cars.length > 0) {
-            appState.cars = fc.cars;
-          }
-          if (Array.isArray(fc.paymentsMeta) && fc.paymentsMeta.length > 0) {
-            appState.payments = mergePaymentsPreservingNewest(appState.payments, [], fc.paymentsMeta, appState.processedInboxIds);
-          }
-        }
-      } catch (e) {}
     }
 
     // Variables globales de sesión, mapas e interfaz
@@ -3173,29 +3120,48 @@
       }
       adminCredentials.tgEnabled = true;
       const ok = await sendTelegramNotification(`✅ <b>Conexión exitosa con ${brandingConfig.companyName || 'AutoRent Pro'}</b>\nLas alertas de pagos y fotos llegarán a este chat.`);
-      if (ok) {
-        showToast('📲 ¡Mensaje de prueba enviado a tu Telegram!', 'success');
-      } else {
-        showToast('❌ No se pudo enviar. Verifica el Token y Chat ID.', 'error');
+      showToast(ok ? '✅ Mensaje de prueba enviado a tu Telegram' : '❌ No se pudo enviar a Telegram. Revisa Token y Chat ID.', ok ? 'success' : 'error');
+    }
+
+    function getCleanFirebaseDbUrl() {
+      const raw = (firebaseConfig && firebaseConfig.databaseURL) ? String(firebaseConfig.databaseURL).trim() : '';
+      return raw.replace(/\/+$/, '');
+    }
+
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    // =========================================================================
-    // MOTOR LIMPIO DE SINCRONIZACIÓN EN TIEMPO REAL CON FIREBASE REALTIME DB
-    // =========================================================================
-    function getCleanFirebaseDbUrl() {
-      let url = (firebaseConfig && firebaseConfig.databaseURL ? firebaseConfig.databaseURL : defaultFirebaseConfig.databaseURL || '').trim();
-      if (!url) return '';
-      url = url.replace(/\/+$/, '');
-      if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-      return url;
-    }
+    let lastFirebaseErrorInfo = { code: '', message: '' };
 
-    function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      return fetch(url, Object.assign({}, options, { signal: controller.signal }))
-        .finally(() => clearTimeout(timer));
+    function showFirebaseErrorDetails(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (!lastFirebaseErrorInfo.code && hasInitialCloudSync) {
+        forcePullPaymentsInboxNow(true);
+        return;
+      }
+      const isPerm = /permission_denied|401|403/i.test(lastFirebaseErrorInfo.code + ' ' + lastFirebaseErrorInfo.message);
+      if (isPerm) {
+        const rulesText = '{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}';
+        try {
+          const tmp = document.createElement('textarea');
+          tmp.value = rulesText;
+          document.body.appendChild(tmp);
+          tmp.select();
+          document.execCommand('copy');
+          document.body.removeChild(tmp);
+        } catch (e) {}
+        showToast('🔒 Reglas de Firebase bloqueadas (PERMISSION_DENIED). Reglas copiadas: pégalas en Firebase Console → Realtime Database → Reglas y pulsa Publicar.', 'error');
+      } else {
+        showToast(`⚠️ Estado Firebase: ${lastFirebaseErrorInfo.code || lastFirebaseErrorInfo.message || 'Reconectando...'}`, 'warning');
+        initFirebase();
+      }
     }
 
     function updateFirebaseStatusBadges(isOnline, labelText) {
@@ -3203,7 +3169,7 @@
       const cfgBadge = document.getElementById('cfg-firebase-badge');
       if (isOnline) {
         if (topBadge) {
-          topBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
+          topBadge.className = 'cursor-pointer inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
           topBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-pulse mr-1"></span> ${labelText || 'Firebase Conectado'}`;
         }
         if (cfgBadge) {
@@ -3212,17 +3178,17 @@
         }
       } else {
         if (topBadge) {
-          topBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200';
+          topBadge.className = 'cursor-pointer inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200';
           topBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-500 badge-pulse mr-1"></span> ${labelText || 'Sin Conexión Nube'}`;
         }
         if (cfgBadge) {
           cfgBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300';
-          cfgBadge.textContent = '🔴 Revisar Conexión';
+          cfgBadge.textContent = '🔴 Revisar Reglas';
         }
       }
     }
 
-    // Envío atómico directo a rentFlotaEnterpriseV2/inbox/{ID} (no corrompe el arreglo payments ni congela la app)
+    // Envía un pago individual directo al buzón atómico rentFlotaEnterpriseV2/inbox/{ID} (sin corromper el arreglo payments ni congelar el teléfono)
     async function pushSinglePaymentToCloudInbox(paymentObj) {
       if (!paymentObj || !paymentObj.id) return false;
       const cleanPayment = JSON.parse(JSON.stringify(paymentObj));
@@ -3234,14 +3200,18 @@
       const baseUrl = getCleanFirebaseDbUrl();
       const attemptPromises = [];
 
-      // Canal 1: HTTPS REST PUT directo y ultraligero con límite de 10 segundos
+      // Canal 1: HTTPS REST PUT directo al subnodo atómico del pago (con timeout estricto)
       if (baseUrl) {
         attemptPromises.push(
-          fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(cleanPayment)
-          }, 10000).then(res => {
+          fetchWithTimeout(
+            `${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(cleanPayment.id)}.json`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanPayment)
+            },
+            10000
+          ).then(res => {
             if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 'error'));
             return true;
           })
@@ -3251,62 +3221,61 @@
       // Canal 2: SDK de Firebase Realtime Database directo al buzón
       if (isFirebaseReady && db) {
         attemptPromises.push(
-          new Promise((resolve, reject) => {
-            const t = setTimeout(() => reject(new Error('sdk_timeout')), 10000);
-            db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment)
-              .then(() => { clearTimeout(t); resolve(true); })
-              .catch(err => { clearTimeout(t); reject(err); });
-          })
+          db.ref('rentFlotaEnterpriseV2/inbox/' + cleanPayment.id).set(cleanPayment).then(() => true)
         );
       }
 
       if (attemptPromises.length === 0) return false;
 
       try {
-        const delivered = await new Promise((resolve, reject) => {
-          let remaining = attemptPromises.length;
-          let settled = false;
+        const firstSuccess = await new Promise((resolve, reject) => {
+          let pending = attemptPromises.length;
+          let resolved = false;
+          const timer = setTimeout(() => {
+            if (!resolved) reject(new Error('timeout'));
+          }, 11000);
+
           attemptPromises.forEach(p => {
-            Promise.resolve(p).then(ok => {
-              if (!settled && ok === true) {
-                settled = true;
+            Promise.resolve(p).then(val => {
+              if (!resolved && val === true) {
+                resolved = true;
+                clearTimeout(timer);
                 resolve(true);
               }
             }).catch(() => {
-              remaining--;
-              if (remaining <= 0 && !settled) {
-                settled = true;
-                reject(new Error('all_channels_failed'));
+              pending--;
+              if (pending <= 0 && !resolved) {
+                clearTimeout(timer);
+                reject(new Error('all_failed'));
               }
             });
           });
         });
 
-        if (delivered) {
+        if (firstSuccess) {
           updateFirebaseStatusBadges(true, 'Firebase Conectado');
           return true;
         }
       } catch (err) {
-        console.warn('No se pudo subir el reporte de pago a Firebase:', err);
+        console.warn('Error sincronizando pago con Firebase:', err);
       }
+
       return false;
     }
 
-    // Mantiene el buzón limpio: si ya fue Aprobado/Rechazado se retira de inbox (no lo vuelve a meter)
+    // Mantiene limpio el buzón cuando el Admin aprueba, rechaza o edita un pago
     async function syncSinglePaymentStatusToCloud(paymentObj) {
       if (!paymentObj || !paymentObj.id) return;
-      const st = paymentObj.status || 'Pendiente';
-      if (st === 'Pendiente') {
-        await pushSinglePaymentToCloudInbox(paymentObj);
-      } else {
-        await removePaymentFromCloudInbox(paymentObj.id, false);
+      paymentObj.updatedAt = Date.now();
+      if (paymentObj.status && paymentObj.status !== 'Pendiente') {
+        removePaymentFromCloudInbox(paymentObj.id, false);
       }
     }
 
-    // Retira un pago del buzón cuando el Admin ya lo aprobó, rechazó o eliminó
-    async function removePaymentFromCloudInbox(paymentId, alsoRemoveFromPermanentNode = false) {
+    // Retira un pago procesado o eliminado del buzón en Firebase
+    async function removePaymentFromCloudInbox(paymentId, alsoMarkDeleted = false) {
       if (!paymentId) return;
-      if (alsoRemoveFromPermanentNode) {
+      if (alsoMarkDeleted) {
         if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
         if (!appState.processedInboxIds.includes(paymentId)) {
           appState.processedInboxIds.push(paymentId);
@@ -3319,27 +3288,22 @@
 
       const baseUrl = getCleanFirebaseDbUrl();
       if (baseUrl) {
-        fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(paymentId)}.json`, { method: 'DELETE' }, 8000).catch(() => {});
-        fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2_inbox/${encodeURIComponent(paymentId)}.json`, { method: 'DELETE' }, 8000).catch(() => {});
-        if (alsoRemoveFromPermanentNode) {
-          fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2_payments/${encodeURIComponent(paymentId)}.json`, { method: 'DELETE' }, 8000).catch(() => {});
-        }
+        fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/inbox/${encodeURIComponent(paymentId)}.json`, {
+          method: 'DELETE'
+        }, 8000).catch(() => {});
       }
       if (isFirebaseReady && db) {
         db.ref('rentFlotaEnterpriseV2/inbox/' + paymentId).remove().catch(() => {});
-        db.ref('rentFlotaEnterpriseV2_inbox/' + paymentId).remove().catch(() => {});
-        if (alsoRemoveFromPermanentNode) {
-          db.ref('rentFlotaEnterpriseV2_payments/' + paymentId).remove().catch(() => {});
-        }
       }
     }
 
-    // Combina pagos entrantes del buzón con el listado principal sin duplicar ni borrar nada
+    // Integra pagos entrantes del buzón de la nube sin duplicados
     function mergeIncomingInboxPayments(inboxMapOrList, persistToMainNode = false) {
       const incoming = normalizeCloudList(inboxMapOrList);
       if (incoming.length === 0) return 0;
 
       if (!Array.isArray(appState.payments)) appState.payments = [];
+      if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
       const processedIds = Array.isArray(appState.processedInboxIds) ? appState.processedInboxIds : [];
       const existingMap = new Map();
       appState.payments.forEach(p => {
@@ -3352,18 +3316,18 @@
       incoming.forEach(pay => {
         if (!pay || !pay.id) return;
         if (processedIds.includes(pay.id)) return;
+        appState.inbox[pay.id] = pay;
         const existing = existingMap.get(pay.id);
         if (!existing) {
           appState.payments.unshift(pay);
           existingMap.set(pay.id, pay);
           addedCount++;
-        } else {
-          const incTime = Number(pay.updatedAt) || Number(pay.createdAt) || 0;
-          const curTime = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
-          if (incTime > curTime || (existing.status === 'Pendiente' && pay.status && pay.status !== 'Pendiente')) {
-            Object.assign(existing, pay);
-            updatedCount++;
-          }
+        } else if (existing.status === 'Pendiente' && pay.status && pay.status !== 'Pendiente') {
+          Object.assign(existing, pay);
+          updatedCount++;
+        } else if ((!existing.receiptImage || existing.receiptImage === DEFAULT_PLACEHOLDER_RECEIPT) && pay.receiptImage && pay.receiptImage.startsWith('data:image')) {
+          existing.receiptImage = pay.receiptImage;
+          updatedCount++;
         }
       });
 
@@ -3373,11 +3337,6 @@
         try {
           localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
         } catch (e) {}
-
-        if (persistToMainNode && currentSession.role === 'admin' && isFirebaseReady && db) {
-          const cleanPayments = JSON.parse(JSON.stringify(appState.payments));
-          db.ref('rentFlotaEnterpriseV2/payments').set(cleanPayments).catch(() => {});
-        }
 
         if (currentSession.role === 'admin') {
           renderAdminView();
@@ -3391,36 +3350,148 @@
       return addedCount;
     }
 
-    // Consulta ligera exclusiva del buzón de pagos nuevos (sin descargar todo el historial con fotos)
-    let isPullingInboxNow = false;
+    // Aplica el estado oficial descargado de Firebase (fuente única de verdad para Admin, Socios y Conductores)
+    function applyCloudStateToLocal(cloudData) {
+      if (!cloudData || typeof cloudData !== 'object') return;
+      lastFirebaseErrorInfo = { code: '', message: '' };
+      hasInitialCloudSync = true;
+      updateFirebaseStatusBadges(true, 'Firebase Conectado');
+
+      const processedIds = normalizeCloudList(cloudData.processedInboxIds);
+      const cloudInbox = (cloudData.inbox && typeof cloudData.inbox === 'object') ? cloudData.inbox : {};
+      const mergedPayments = mergePaymentsFromCloudSources(cloudData.payments, cloudInbox, processedIds);
+
+      appState = {
+        updatedAt: Number(cloudData.updatedAt) || Date.now(),
+        adminCreds: Object.assign({}, adminCredentials, cloudData.adminCreds || {}),
+        accessLogs: normalizeCloudList(cloudData.accessLogs),
+        custodyLogs: normalizeCloudList(cloudData.custodyLogs),
+        processedInboxIds: processedIds,
+        inbox: cloudInbox,
+        lastDailyFeeDate: cloudData.lastDailyFeeDate || '',
+        skipSundays: !!cloudData.skipSundays,
+        soundSettings: Object.assign(
+          { payments: true, maintenance: false, overdue: false, driverNotes: true, driverVoice: true, voicePreset: 'femenina_clara', graceHours: 12 },
+          cloudData.soundSettings || {}
+        ),
+        generalDriverNotice: cloudData.generalDriverNotice || '',
+        partners: normalizeCloudList(cloudData.partners),
+        cars: normalizeCloudList(cloudData.cars),
+        drivers: normalizeCloudList(cloudData.drivers),
+        expenses: normalizeCloudList(cloudData.expenses),
+        payments: mergedPayments,
+        partnerPayouts: normalizeCloudList(cloudData.partnerPayouts),
+        inspections: normalizeCloudList(cloudData.inspections),
+        faultReports: normalizeCloudList(cloudData.faultReports),
+        emergencyContacts: normalizeCloudList(cloudData.emergencyContacts).length ? normalizeCloudList(cloudData.emergencyContacts) : appState.emergencyContacts,
+        dismissedAlerts: normalizeCloudList(cloudData.dismissedAlerts),
+        branding: Object.assign({}, brandingConfig, cloudData.branding || {})
+      };
+
+      if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
+      if (appState.branding) {
+        const prevLogo = brandingConfig.logoBase64;
+        const prevName = brandingConfig.companyName;
+        brandingConfig = Object.assign(brandingConfig, appState.branding);
+        if (!brandingConfig.logoBase64 && prevLogo && !brandingConfig.logoExplicitlyRemoved) {
+          brandingConfig.logoBase64 = prevLogo;
+        }
+        if ((!brandingConfig.companyName || brandingConfig.companyName === 'AutoRent Pro') && prevName && prevName !== 'AutoRent Pro') {
+          brandingConfig.companyName = prevName;
+        }
+      }
+
+      saveFastCoreBackup();
+      try {
+        localStorage.setItem('autorent_branding_backup', JSON.stringify(brandingConfig));
+        localStorage.setItem('autorent_creds_backup', JSON.stringify(adminCredentials));
+        localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+      } catch (storageErr) {
+        console.warn('No se pudo guardar copia completa en localStorage:', storageErr);
+      }
+
+      applyBrandingUI();
+      populateSettingsForms();
+      updateSelects();
+      checkDailyFeeAutomation();
+
+      if (!currentSession.role) checkUrlParameters();
+      if (currentSession.role === 'admin') renderAdminView();
+      else if (currentSession.role === 'driver') renderDriverView();
+      else if (currentSession.role === 'partner') renderPartnerView();
+    }
+
+    // Descarga inicial rápida por HTTPS REST (respaldo inmediato si WebSocket tarda en celulares)
+    let activeCloudFetchPromise = null;
+    async function fetchLatestCloudStateOnce() {
+      if (activeCloudFetchPromise) return activeCloudFetchPromise;
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (!baseUrl) return false;
+
+      activeCloudFetchPromise = (async () => {
+        try {
+          const res = await fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, { cache: 'no-store' }, 9000);
+          if (res && res.ok) {
+            const data = await res.json();
+            lastFirebaseErrorInfo = { code: '', message: '' };
+            if (data) {
+              applyCloudStateToLocal(data);
+              return true;
+            }
+            hasInitialCloudSync = true;
+            updateFirebaseStatusBadges(true, 'Firebase Conectado');
+            return true;
+          } else if (res) {
+            const errBody = await res.text().catch(() => '');
+            const isPerm = res.status === 401 || res.status === 403 || /permission/i.test(errBody);
+            lastFirebaseErrorInfo = {
+              code: isPerm ? 'PERMISSION_DENIED' : ('HTTP_' + res.status),
+              message: errBody || ('HTTP ' + res.status)
+            };
+            updateFirebaseStatusBadges(false, isPerm ? 'Reglas Firebase' : 'Error Firebase');
+          }
+        } catch (e) {
+          lastFirebaseErrorInfo = { code: 'NETWORK_ERROR', message: e.message || 'Sin conexión' };
+          console.warn('Aviso descarga REST inicial:', e);
+        } finally {
+          activeCloudFetchPromise = null;
+        }
+        return false;
+      })();
+
+      return activeCloudFetchPromise;
+    }
+
+    // Verificación ligera del buzón en segundo plano (y refresco completo cuando el usuario toca "Sincronizar")
     async function forcePullPaymentsInboxNow(showUserToast = false) {
-      if (isPullingInboxNow) return;
       const baseUrl = getCleanFirebaseDbUrl();
       if (!baseUrl) return;
-      isPullingInboxNow = true;
-
       try {
-        let newAdded = 0;
-        const inboxRes = await fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/inbox.json`, { cache: 'no-store' }, 8000).catch(() => null);
-        if (inboxRes && inboxRes.ok) {
-          const inboxData = await inboxRes.json();
-          if (inboxData) newAdded += mergeIncomingInboxPayments(inboxData, true);
-          updateFirebaseStatusBadges(true, 'Firebase Conectado');
+        if (showUserToast) {
+          const prevPending = (appState.payments || []).filter(p => !p.status || p.status === 'Pendiente').length;
+          const ok = await fetchLatestCloudStateOnce();
+          const newPending = (appState.payments || []).filter(p => !p.status || p.status === 'Pendiente').length;
+          if (!ok) {
+            showToast('⚠️ No se pudo conectar con Firebase. Verifica tu internet.', 'error');
+          } else if (newPending > prevPending) {
+            showToast(`✅ ¡Llegaron ${newPending - prevPending} pago(s) nuevo(s) a la bandeja!`, 'success');
+          } else {
+            showToast('✓ Datos y bandeja sincronizados al día con Firebase', 'info');
+          }
+          return;
         }
 
-        if (showUserToast) {
-          if (newAdded > 0) {
-            showToast(`✅ ¡Llegaron ${newAdded} pago(s) nuevo(s) a la bandeja!`, 'success');
-          } else {
-            showToast('✓ Bandeja sincronizada al día con Firebase', 'info');
-          }
+        // En segundo plano consultamos únicamente el buzón ligero (sin descargar todas las fotos históricas)
+        const inboxRes = await fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/inbox.json`, { cache: 'no-store' }, 8000);
+        if (inboxRes && inboxRes.ok) {
+          const inboxData = await inboxRes.json();
+          if (inboxData) mergeIncomingInboxPayments(inboxData, false);
+          updateFirebaseStatusBadges(true, 'Firebase Conectado');
         }
       } catch (err) {
         if (showUserToast) {
           showToast('⚠️ Error al consultar la nube: ' + err.message, 'error');
         }
-      } finally {
-        isPullingInboxNow = false;
       }
     }
 
@@ -3442,12 +3513,11 @@
           const errText = await testRes.text();
           throw new Error(`HTTP ${testRes.status}: ${errText}`);
         }
-        await forcePullPaymentsInboxNow(false);
-        saveStateAndBroadcast(true);
+        await fetchLatestCloudStateOnce();
         updateFirebaseStatusBadges(true, 'Firebase Conectado');
         if (diagBox) {
           diagBox.className = 'p-3.5 rounded-2xl border-2 border-emerald-400 bg-emerald-50 text-emerald-950 text-xs space-y-1';
-          diagBox.innerHTML = `<strong>✅ ¡Conexión a Firebase funcionando al 100%!</strong><p>La lectura y escritura en tiempo real están activas y el buzón de pagos está sincronizado.</p>`;
+          diagBox.innerHTML = `<strong>✅ ¡Conexión a Firebase funcionando al 100%!</strong><p>La lectura y escritura en tiempo real están activas y todos los teléfonos están sincronizados.</p>`;
         }
         showToast('✅ Conexión con Firebase verificada', 'success');
       } catch (err) {
@@ -3471,7 +3541,11 @@
         const onAppReady = () => {
           db = firebase.database();
           isFirebaseReady = true;
+          if (firebase.auth) {
+            firebase.auth().signInAnonymously().catch(() => {});
+          }
           setupFirebaseCloudSync();
+          fetchLatestCloudStateOnce();
         };
         if (firebase.apps.length) {
           firebase.app().delete().then(() => {
@@ -3486,6 +3560,7 @@
         }
       } catch (err) {
         console.warn("Firebase en modo local:", err);
+        fetchLatestCloudStateOnce();
       }
     }
 
@@ -3528,21 +3603,46 @@
           });
           (lightState.inspections || []).forEach(ins => { ins.photos = []; });
           localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(lightState));
-        } catch (e2) {}
+        } catch (e2) {
+          console.warn('Memoria local llena, usando autorent_core_fast_v2:', e2);
+        }
       }
 
-      // Nunca sobrescribir el buzón rentFlotaEnterpriseV2/inbox al guardar el estado general
+      // Jamás sobrescribir Firebase antes de recibir la primera sincronización real
+      if (!hasInitialCloudSync && !forceCloudWrite) return;
+
+      const baseUrl = getCleanFirebaseDbUrl();
+
+      // Si quien guarda es un conductor, solo actualiza sus nodos permitidos (nunca sobrescribe pagos, ajustes ni socios del Admin)
+      if (currentSession.role === 'driver') {
+        const driverPatch = {
+          drivers: sanitizedState.drivers || [],
+          cars: sanitizedState.cars || [],
+          faultReports: sanitizedState.faultReports || [],
+          updatedAt: nowTs
+        };
+        if (isFirebaseReady && db) {
+          db.ref('rentFlotaEnterpriseV2').update(driverPatch).catch(err => console.error(err));
+        }
+        if (baseUrl) {
+          fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(driverPatch)
+          }, 10000).catch(() => {});
+        }
+        return;
+      }
+
+      // Nunca sobrescribir el buzón inbox al guardar el estado general del Admin/Socio
       const cloudPayload = Object.assign({}, sanitizedState);
       delete cloudPayload.inbox;
 
-      if (isFirebaseReady && db && (hasInitialCloudSync || forceCloudWrite)) {
-        db.ref('rentFlotaEnterpriseV2').update(cloudPayload)
-          .then(() => updateFirebaseStatusBadges(true, 'Firebase Conectado'))
-          .catch(err => console.error('Error guardando en Firebase:', err));
+      if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2').update(cloudPayload).catch(err => console.error(err));
       }
 
-      const baseUrl = getCleanFirebaseDbUrl();
-      if (baseUrl && (forceCloudWrite || currentSession.role === 'admin') && (hasInitialCloudSync || forceCloudWrite)) {
+      if (baseUrl) {
         fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -3553,135 +3653,45 @@
       }
     }
 
-    function applyCloudStateToLocal(cloudData) {
-      if (!cloudData || typeof cloudData !== 'object') return;
-      const processedIds = Array.isArray(cloudData.processedInboxIds) ? cloudData.processedInboxIds : [];
-      const cloudPayments = normalizeCloudList(cloudData.payments);
-      const inboxPayments = normalizeCloudList(cloudData.inbox);
-
-      // Unir pagos confirmados/históricos de Firebase + pagos pendientes del buzón en tiempo real
-      const payMap = new Map();
-      cloudPayments.forEach(p => {
-        if (p && p.id && !processedIds.includes(p.id)) payMap.set(p.id, p);
-      });
-      inboxPayments.forEach(p => {
-        if (!p || !p.id || processedIds.includes(p.id)) return;
-        const existing = payMap.get(p.id);
-        if (!existing) {
-          payMap.set(p.id, p);
-        } else {
-          const existingTime = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
-          const inboxTime = Number(p.updatedAt) || Number(p.createdAt) || 0;
-          if (inboxTime > existingTime && existing.status === 'Pendiente') {
-            payMap.set(p.id, p);
-          }
-        }
-      });
-
-      const mergedPayments = sortPaymentsNewestFirst(Array.from(payMap.values()));
-
-      // Firebase Realtime Database es la fuente única de verdad en vivo para Admin, Choferes y Socios
-      appState = {
-        updatedAt: Number(cloudData.updatedAt) || Date.now(),
-        adminCreds: cloudData.adminCreds || adminCredentials,
-        accessLogs: normalizeCloudList(cloudData.accessLogs),
-        custodyLogs: normalizeCloudList(cloudData.custodyLogs),
-        processedInboxIds: processedIds,
-        inbox: (cloudData.inbox && typeof cloudData.inbox === 'object') ? cloudData.inbox : {},
-        lastDailyFeeDate: cloudData.lastDailyFeeDate || "",
-        skipSundays: !!cloudData.skipSundays,
-        soundSettings: Object.assign({
-          payments: true,
-          maintenance: false,
-          overdue: false,
-          driverNotes: true,
-          driverVoice: true,
-          voicePreset: 'femenina_clara',
-          graceHours: 12
-        }, cloudData.soundSettings || {}),
-        generalDriverNotice: cloudData.generalDriverNotice || "",
-        partners: normalizeCloudList(cloudData.partners),
-        cars: normalizeCloudList(cloudData.cars),
-        drivers: normalizeCloudList(cloudData.drivers),
-        expenses: normalizeCloudList(cloudData.expenses),
-        payments: mergedPayments,
-        partnerPayouts: normalizeCloudList(cloudData.partnerPayouts),
-        inspections: normalizeCloudList(cloudData.inspections),
-        faultReports: normalizeCloudList(cloudData.faultReports),
-        emergencyContacts: normalizeCloudList(cloudData.emergencyContacts).length
-          ? normalizeCloudList(cloudData.emergencyContacts)
-          : appState.emergencyContacts,
-        dismissedAlerts: normalizeCloudList(cloudData.dismissedAlerts),
-        branding: cloudData.branding || brandingConfig
-      };
-
-      if (appState.adminCreds) adminCredentials = Object.assign(adminCredentials, appState.adminCreds);
-      if (appState.branding) {
-        const prevLogo = brandingConfig.logoBase64;
-        const prevName = brandingConfig.companyName;
-        brandingConfig = Object.assign(brandingConfig, appState.branding);
-        if (!brandingConfig.logoBase64 && prevLogo && !brandingConfig.logoExplicitlyRemoved) {
-          brandingConfig.logoBase64 = prevLogo;
-        }
-        if ((!brandingConfig.companyName || brandingConfig.companyName === 'AutoRent Pro') && prevName && prevName !== 'AutoRent Pro') {
-          brandingConfig.companyName = prevName;
-        }
-      }
-
-      saveFastCoreBackup();
-      try {
-        localStorage.setItem('autorent_branding_backup', JSON.stringify(brandingConfig));
-        localStorage.setItem('autorent_creds_backup', JSON.stringify(adminCredentials));
-        localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
-      } catch (e) {}
-    }
-
     function setupFirebaseCloudSync() {
       if (!isFirebaseReady || !db) return;
 
-      // Limpiar listeners previos para evitar duplicaciones
-      db.ref('.info/connected').off();
-      db.ref('rentFlotaEnterpriseV2/inbox').off();
-      db.ref('rentFlotaEnterpriseV2').off();
-
       db.ref('.info/connected').on('value', (snap) => {
-        if (snap.val() === true) {
+        if (snap.val() === true && lastFirebaseErrorInfo.code !== 'PERMISSION_DENIED') {
           updateFirebaseStatusBadges(true, 'Firebase Conectado');
         }
       });
 
-      // Escucha en vivo del buzón de pagos nuevos reportados por conductores
+      // Escuchar en vivo el buzón atómico donde llegan los pagos de los conductores
       db.ref('rentFlotaEnterpriseV2/inbox').on('value', (insideSnap) => {
         const val = insideSnap.val();
-        appState.inbox = (val && typeof val === 'object') ? val : {};
         if (val) {
           mergeIncomingInboxPayments(val, false);
         }
+      }, (err) => {
+        console.warn('Aviso listener inbox Firebase:', err && err.code ? err.code : err);
       });
 
-      // Escucha en vivo del estado maestro de Firebase (sincroniza cambios al instante en todos los teléfonos)
+      // Escuchar en vivo el estado principal de la flota (fuente única de verdad)
       db.ref('rentFlotaEnterpriseV2').on('value', (snapshot) => {
+        lastFirebaseErrorInfo = { code: '', message: '' };
         const cloudData = snapshot.val();
-        hasInitialCloudSync = true;
-        updateFirebaseStatusBadges(true, 'Firebase Conectado');
-
         if (cloudData) {
           applyCloudStateToLocal(cloudData);
         } else {
-          saveStateAndBroadcast(true);
+          hasInitialCloudSync = true;
+          updateFirebaseStatusBadges(true, 'Firebase Conectado');
+          if (currentSession.role === 'admin') {
+            saveStateAndBroadcast(true);
+          }
         }
-
-        applyBrandingUI();
-        populateSettingsForms();
-        updateSelects();
-        checkDailyFeeAutomation();
-        if (!currentSession.role) checkUrlParameters();
-        if (currentSession.role === 'admin') renderAdminView();
-        else if (currentSession.role === 'driver') renderDriverView();
-        else if (currentSession.role === 'partner') renderPartnerView();
       }, (err) => {
-        console.warn('Error escuchando Firebase:', err);
-        updateFirebaseStatusBadges(false, 'Error Firebase');
+        const errCode = (err && err.code) ? String(err.code) : 'ERROR';
+        const errMsg = (err && err.message) ? String(err.message) : 'Error de conexión';
+        lastFirebaseErrorInfo = { code: errCode, message: errMsg };
+        console.warn('Error listener Firebase RTDB:', errCode, errMsg);
+        const isPerm = /permission_denied/i.test(errCode + ' ' + errMsg);
+        updateFirebaseStatusBadges(false, isPerm ? 'Reglas Firebase' : 'Error Firebase');
       });
     }
 
@@ -3776,138 +3786,139 @@
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
-        hourCycle: 'h23'
+        hour12: false
       }).formatToParts(now);
 
       const map = {};
       parts.forEach(p => { map[p.type] = p.value; });
-      const year = map.year;
-      const month = map.month;
-      const day = map.day;
-      const hour = parseInt(map.hour, 10) % 24;
-      const minute = parseInt(map.minute || '0', 10);
-      const todayIso = `${year}-${month}-${day}`;
+      const rawHour = parseInt(map.hour, 10) || 0;
+      const hour = rawHour === 24 ? 0 : rawHour;
+      const minute = parseInt(map.minute, 10) || 0;
+      const todayIso = `${map.year}-${map.month}-${map.day}`;
       return { todayIso, hour, minute };
     }
 
-    // Separa la cuota del día corriente (que tiene hasta las 12:30 AM para pagarse) de la deuda del día anterior
     function getDriverOverdueInfo(driver) {
       if (!driver) return { totalBalance: 0, runningQuota: 0, overdueBalance: 0, overdueDays: 0 };
-      const bal = Number(driver.balance) || 0;
+      const totalBalance = Number(driver.balance) || 0;
       const rate = Number(driver.dailyRate) || 25;
-      if (bal <= 0 || driver.billingPaused) {
-        return { totalBalance: bal, runningQuota: 0, overdueBalance: 0, overdueDays: 0 };
+      if (totalBalance <= 0) {
+        return { totalBalance, runningQuota: 0, overdueBalance: 0, overdueDays: 0 };
       }
-
-      const { todayIso, hour, minute } = getPanamaDateParts();
-      const skipSunday = !!(appState.skipSundays || driver.freeSundays);
-      const isTodaySunday = new Date(todayIso + 'T12:00:00').getDay() === 0;
-      const todayChargeable = !(skipSunday && isTodaySunday);
-
-      let runningQuota = 0;
-      if (hour >= 1) {
-        // Después de la 1:00 AM, la cuota cargada hoy corresponde al día corriente (tienen hasta las 12:30 AM para pagarla)
-        if (todayChargeable) runningQuota = rate;
-      } else if (hour === 0 && minute < 30) {
-        // Entre 12:00 AM y 12:29 AM aún no vence el plazo de las 12:30 AM del día en curso
-        runningQuota = rate;
-      } else {
-        // Entre 12:30 AM y 12:59 AM ya inició el periodo de gracia del día anterior y aún no se ha sumado la 1:00 AM
-        runningQuota = 0;
-      }
-
-      const overdueBalance = Number(Math.max(0, bal - runningQuota).toFixed(2));
-      const overdueDays = rate > 0 ? (overdueBalance / rate) : 0;
-      return {
-        totalBalance: bal,
-        runningQuota: Math.min(bal, runningQuota),
-        overdueBalance,
-        overdueDays
-      };
-    }
-
-    let isRunningDailyFeeAutomation = false;
-    function checkDailyFeeAutomation() {
-      // Esperar a tener la sincronización real con Firebase para no calcular sobre caché vieja
-      if (!hasInitialCloudSync || !isFirebaseReady || !db || isRunningDailyFeeAutomation) return;
 
       const { todayIso, hour } = getPanamaDateParts();
+      const todayDate = new Date(todayIso + 'T12:00:00');
+      const isSunday = todayDate.getDay() === 0;
+      const skipSunday = !!(appState.skipSundays || driver.freeSundays);
+      const car = getDriverAssignedCar(driver.id);
+      const isBilledToday = !!(
+        car &&
+        car.status === 'Alquilado' &&
+        !driver.billingPaused &&
+        !(skipSunday && isSunday) &&
+        hour >= 1 &&
+        appState.lastDailyFeeDate === todayIso
+      );
 
-      // Si nunca se había guardado fecha base, inicializarla en Firebase sin duplicar cargos del mismo día
+      const runningQuota = isBilledToday ? Math.min(totalBalance, rate) : 0;
+      const overdueBalance = Math.max(0, Number((totalBalance - runningQuota).toFixed(2)));
+      const overdueDays = rate > 0 ? Number((overdueBalance / rate).toFixed(2)) : 0;
+      return { totalBalance, runningQuota, overdueBalance, overdueDays };
+    }
+
+    let dailyFeeAutomationInFlight = false;
+    function checkDailyFeeAutomation() {
+      if (!hasInitialCloudSync || dailyFeeAutomationInFlight) return;
+      const { todayIso, hour } = getPanamaDateParts();
+
+      // Si aún no existe fecha base guardada en la nube, inicializarla una sola vez sin cobrar retroactivamente
       if (!appState.lastDailyFeeDate) {
-        if (hour >= 1) {
-          appState.lastDailyFeeDate = todayIso;
-          db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').set(todayIso).catch(() => {});
-          return;
-        } else {
+        let initialDate = todayIso;
+        if (hour < 1) {
           const yesterday = new Date(todayIso + 'T12:00:00');
           yesterday.setDate(yesterday.getDate() - 1);
-          const yestIso = yesterday.toISOString().split('T')[0];
-          appState.lastDailyFeeDate = yestIso;
-          db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').set(yestIso).catch(() => {});
-          return;
+          initialDate = yesterday.toISOString().split('T')[0];
         }
+        appState.lastDailyFeeDate = initialDate;
+        if (isFirebaseReady && db) {
+          db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').set(initialDate).catch(() => {});
+        }
+        return;
       }
 
-      // Ejecutar desde la 1:00 AM (hora de Panamá) mediante transacción atómica (evita cobros dobles entre celulares)
-      if (hour >= 1 && appState.lastDailyFeeDate !== todayIso) {
-        isRunningDailyFeeAutomation = true;
-        let previousCloudDate = appState.lastDailyFeeDate;
+      // Ejecutar desde la 1:00 AM (hora de Panamá) si la última fecha cobrada es distinta a hoy
+      if (hour < 1 || appState.lastDailyFeeDate === todayIso) return;
 
-        db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').transaction((currentCloudVal) => {
-          if (currentCloudVal === todayIso) {
-            return; // Otro dispositivo ya procesó el cobro de hoy
-          }
-          if (currentCloudVal) previousCloudDate = currentCloudVal;
-          return todayIso;
-        }, (error, committed) => {
-          isRunningDailyFeeAutomation = false;
-          if (error || !committed) return;
+      const applyFeesForRange = (previousDateStr) => {
+        if (!previousDateStr || previousDateStr === todayIso) return false;
+        const lastDate = new Date(previousDateStr + 'T12:00:00');
+        const currDate = new Date(todayIso + 'T12:00:00');
+        const rawDiffDays = Math.round((currDate - lastDate) / (1000 * 60 * 60 * 24));
+        const totalDiffDays = Math.min(Math.max(0, rawDiffDays), 60);
+        if (totalDiffDays <= 0) return false;
 
-          const lastDate = new Date((previousCloudDate || appState.lastDailyFeeDate) + 'T12:00:00');
-          const currDate = new Date(todayIso + 'T12:00:00');
-          const totalDiffDays = Math.min(60, Math.round((currDate - lastDate) / (1000 * 60 * 60 * 24)));
+        const nowTs = Date.now();
+        let anyDriverUpdated = false;
+        (appState.drivers || []).forEach(driver => {
+          const car = getDriverAssignedCar(driver.id);
+          if (car && car.status === 'Alquilado' && !driver.billingPaused) {
+            let driverChargeableDays = 0;
+            const skipSundayForThisDriver = !!(appState.skipSundays || driver.freeSundays);
 
-          if (totalDiffDays > 0) {
-            let anyDriverUpdated = false;
-            const nowTs = Date.now();
-
-            (appState.drivers || []).forEach(driver => {
-              const car = getDriverAssignedCar(driver.id);
-              if (car && car.status === 'Alquilado' && !driver.billingPaused) {
-                let driverChargeableDays = 0;
-                const skipSundayForThisDriver = !!(appState.skipSundays || driver.freeSundays);
-
-                for (let i = 1; i <= totalDiffDays; i++) {
-                  const stepDate = new Date(lastDate);
-                  stepDate.setDate(stepDate.getDate() + i);
-                  const isSunday = stepDate.getDay() === 0;
-                  if (skipSundayForThisDriver && isSunday) continue;
-                  driverChargeableDays++;
-                }
-
-                if (driverChargeableDays > 0) {
-                  const rate = Number(driver.dailyRate) || 25;
-                  driver.balance = Number(((Number(driver.balance) || 0) + (rate * driverChargeableDays)).toFixed(2));
-                  driver.balanceUpdatedAt = nowTs;
-                  driver.updatedAt = nowTs;
-                  anyDriverUpdated = true;
-                }
-              }
-            });
-
-            appState.lastDailyFeeDate = todayIso;
-            appState.updatedAt = nowTs;
-
-            if (anyDriverUpdated) {
-              const cleanDrivers = JSON.parse(JSON.stringify(appState.drivers));
-              db.ref('rentFlotaEnterpriseV2/drivers').set(cleanDrivers).catch(() => {});
-              db.ref('rentFlotaEnterpriseV2/updatedAt').set(nowTs).catch(() => {});
+            for (let i = 1; i <= totalDiffDays; i++) {
+              const stepDate = new Date(lastDate);
+              stepDate.setDate(stepDate.getDate() + i);
+              const isSunday = stepDate.getDay() === 0;
+              if (skipSundayForThisDriver && isSunday) continue;
+              driverChargeableDays++;
             }
 
+            if (driverChargeableDays > 0) {
+              const rate = Number(driver.dailyRate) || 25;
+              driver.balance = Number(((Number(driver.balance) || 0) + (rate * driverChargeableDays)).toFixed(2));
+              driver.balanceUpdatedAt = nowTs;
+              driver.updatedAt = nowTs;
+              anyDriverUpdated = true;
+            }
+          }
+        });
+
+        appState.lastDailyFeeDate = todayIso;
+        appState.updatedAt = nowTs;
+        return anyDriverUpdated || true;
+      };
+
+      // Usar transacción atómica en Firebase para que el cobro diario de la 1:00 AM se aplique una sola vez y llegue a todos los teléfonos
+      if (isFirebaseReady && db) {
+        dailyFeeAutomationInFlight = true;
+        let capturedPrevDate = appState.lastDailyFeeDate;
+        db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').transaction((currentCloudDate) => {
+          if (currentCloudDate === todayIso) {
+            return; // Abortar: otro dispositivo ya aplicó el cobro de hoy
+          }
+          capturedPrevDate = currentCloudDate || appState.lastDailyFeeDate;
+          return todayIso;
+        }, (error, committed) => {
+          dailyFeeAutomationInFlight = false;
+          if (!error && committed) {
+            applyFeesForRange(capturedPrevDate);
+            const driversSnapshot = JSON.parse(JSON.stringify(appState.drivers || []));
+            const patchObj = {
+              drivers: driversSnapshot,
+              lastDailyFeeDate: todayIso,
+              updatedAt: Date.now()
+            };
+            db.ref('rentFlotaEnterpriseV2').update(patchObj).catch(() => {});
+            const baseUrl = getCleanFirebaseDbUrl();
+            if (baseUrl) {
+              fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patchObj)
+              }, 10000).catch(() => {});
+            }
             saveFastCoreBackup();
             try { localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState)); } catch (e) {}
-
             if (currentSession.role === 'admin') renderAdminView();
             else if (currentSession.role === 'driver') renderDriverView();
             else if (currentSession.role === 'partner') renderPartnerView();
@@ -5634,12 +5645,12 @@
 
     document.getElementById('form-submit-adddriver').addEventListener('submit', (e) => {
       e.preventDefault();
+      const nowTs = Date.now();
       const editId = document.getElementById('edit-driver-id').value;
-      const drvId = editId || ('drv-' + Date.now());
+      const drvId = editId || ('drv-' + nowTs);
       const rate = parseFloat(document.getElementById('newdriver-rate').value) || 25;
       const paidDays = parseFloat(document.getElementById('driver-rto-prev-days').value) || 0;
       const selectedCarId = document.getElementById('newdriver-car-select').value;
-      const nowTs = Date.now();
       const drvObj = {
         id: drvId,
         updatedAt: nowTs,
@@ -5817,6 +5828,274 @@
           </div>
         `;
       }).join('');
+    }
+
+    function openCreatePartnerModal() {
+      document.getElementById('form-submit-partner').reset();
+      document.getElementById('edit-partner-id').value = '';
+      document.getElementById('modal-partner-title').textContent = 'Registrar Nuevo Socio';
+      document.getElementById('btn-delete-partner').classList.add('hidden');
+      openModal('modal-add-partner');
+    }
+
+    function openEditPartnerModal(partnerId) {
+      const p = (appState.partners || []).find(x => x.id === partnerId);
+      if (!p) return;
+      document.getElementById('edit-partner-id').value = p.id;
+      document.getElementById('modal-partner-title').textContent = `Editar Socio: ${p.name}`;
+      document.getElementById('partner-name').value = p.name || '';
+      document.getElementById('partner-phone').value = p.phone || '';
+      document.getElementById('partner-share').value = p.share || 100;
+      document.getElementById('partner-notes').value = p.notes || '';
+
+      const delBtn = document.getElementById('btn-delete-partner');
+      delBtn.classList.remove('hidden');
+      delBtn.onclick = () => {
+        appState.partners = (appState.partners || []).filter(x => x.id !== p.id);
+        (appState.cars || []).forEach(c => { if (c.partnerId === p.id) c.partnerId = ''; });
+        saveStateAndBroadcast(true);
+        updateSelects();
+        closeModal('modal-add-partner');
+        renderAdminView();
+        showToast('Socio eliminado', 'info');
+      };
+      openModal('modal-add-partner');
+    }
+
+    document.getElementById('form-submit-partner').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const editId = document.getElementById('edit-partner-id').value;
+      const existing = editId ? (appState.partners || []).find(x => x.id === editId) : null;
+      const partObj = {
+        id: editId || ('part-' + Date.now()),
+        accessToken: existing && existing.accessToken ? existing.accessToken : ('ptk_' + Math.random().toString(36).substring(2, 12)),
+        name: document.getElementById('partner-name').value.trim(),
+        phone: document.getElementById('partner-phone').value.trim(),
+        share: parseFloat(document.getElementById('partner-share').value) || 100,
+        notes: document.getElementById('partner-notes').value.trim()
+      };
+      if (editId) {
+        const idx = (appState.partners || []).findIndex(x => x.id === editId);
+        if (idx !== -1) appState.partners[idx] = partObj;
+      } else {
+        appState.partners.push(partObj);
+      }
+      saveStateAndBroadcast(true);
+      updateSelects();
+      closeModal('modal-add-partner');
+      renderAdminView();
+      showToast('Ficha del socio guardada', 'success');
+    });
+
+    // ACTAS DE ENTREGA E INSPECCIÓN DE VEHÍCULOS
+    const CHECKLIST_LABELS = {
+      fullFuel: 'Tanque Lleno',
+      spareTire: 'Llanta de Repuesto',
+      jackAndTool: 'Gato y Herramientas',
+      documentsOk: 'Póliza y Papeles',
+      cleanInsideOut: 'Limpieza Impecable',
+      lightsWorking: 'Luces Conformes'
+    };
+    let tempInspectionPhotos = [];
+
+    function getOrCreateInspectionForCar(carId) {
+      if (!Array.isArray(appState.inspections)) appState.inspections = [];
+      let insp = appState.inspections.find(i => i.carId === carId);
+      if (!insp) {
+        const car = (appState.cars || []).find(c => c.id === carId);
+        insp = {
+          id: 'insp-' + carId,
+          carId: carId,
+          driverId: car ? (car.driverId || '') : '',
+          updatedAt: new Date().toLocaleDateString('es-PA'),
+          items: { fullFuel: true, spareTire: true, jackAndTool: true, documentsOk: true, cleanInsideOut: true, lightsWorking: true },
+          notes: '',
+          photos: [],
+          signature: ''
+        };
+        appState.inspections.push(insp);
+      }
+      return insp;
+    }
+
+    function renderInspectionSectionSelects() {
+      const carSel = document.getElementById('inspect-select-car');
+      const drvSel = document.getElementById('inspect-select-driver');
+      if (carSel) {
+        carSel.innerHTML = (appState.cars || []).map(c => `<option value="${c.id}">${c.model} (${c.plate})</option>`).join('');
+      }
+      if (drvSel) {
+        drvSel.innerHTML = '<option value="">Sin asignar</option>' + (appState.drivers || []).map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+      }
+    }
+
+    function renderInspectPhotosGallery() {
+      const gal = document.getElementById('inspect-photos-gallery');
+      if (!gal) return;
+      if (tempInspectionPhotos.length === 0) {
+        gal.innerHTML = `<p class="col-span-full text-xs text-slate-400 text-center py-4">Sin fotos registradas aún.</p>`;
+        return;
+      }
+      gal.innerHTML = tempInspectionPhotos.map((img, idx) => `
+        <div class="relative">
+          <img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Foto de Acta #${idx + 1}')" class="w-full h-24 object-cover rounded-xl border border-slate-300 cursor-pointer">
+          <button type="button" onclick="removeInspectPhoto(${idx})" class="absolute top-1 right-1 bg-rose-600 text-white rounded-full w-6 h-6 text-xs font-black flex items-center justify-center shadow">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function removeInspectPhoto(idx) {
+      tempInspectionPhotos.splice(idx, 1);
+      renderInspectPhotosGallery();
+    }
+
+    function loadInspectionIntoModal(carId) {
+      if (!carId) return;
+      const insp = getOrCreateInspectionForCar(carId);
+      const car = (appState.cars || []).find(c => c.id === carId);
+      document.getElementById('inspect-select-car').value = carId;
+      document.getElementById('inspect-select-driver').value = insp.driverId || (car ? (car.driverId || '') : '');
+      const items = insp.items || {};
+      document.getElementById('chk-fullFuel').checked = !!items.fullFuel;
+      document.getElementById('chk-spareTire').checked = !!items.spareTire;
+      document.getElementById('chk-jackAndTool').checked = !!items.jackAndTool;
+      document.getElementById('chk-documentsOk').checked = !!items.documentsOk;
+      document.getElementById('chk-cleanInsideOut').checked = !!items.cleanInsideOut;
+      document.getElementById('chk-lightsWorking').checked = !!items.lightsWorking;
+      document.getElementById('chk-notes').value = insp.notes || '';
+      tempInspectionPhotos = Array.isArray(insp.photos) ? [...insp.photos] : [];
+      renderInspectPhotosGallery();
+      setTimeout(() => initInspectionSignaturePad(insp.signature || ''), 120);
+    }
+
+    function openCreateInspectionModal() {
+      renderInspectionSectionSelects();
+      const firstCarId = (appState.cars && appState.cars[0]) ? appState.cars[0].id : '';
+      if (firstCarId) loadInspectionIntoModal(firstCarId);
+      openModal('modal-inspection');
+    }
+
+    function openEditInspectionModal(carId) {
+      renderInspectionSectionSelects();
+      loadInspectionIntoModal(carId);
+      openModal('modal-inspection');
+    }
+
+    function openViewInspectionModal(carId) {
+      const car = (appState.cars || []).find(c => c.id === carId);
+      if (!car) return;
+      const insp = getOrCreateInspectionForCar(carId);
+      const drv = (appState.drivers || []).find(d => d.id === (insp.driverId || car.driverId));
+
+      document.getElementById('view-insp-subtitle').textContent = `Actualizado: ${insp.updatedAt || 'Reciente'}`;
+      document.getElementById('view-insp-car-title').textContent = `${car.model} (${car.year || 2023})`;
+      document.getElementById('view-insp-car-plate').textContent = `PLACA: ${car.plate}`;
+      document.getElementById('view-insp-driver-name').textContent = drv ? drv.name : 'Sin asignar';
+      document.getElementById('view-insp-driver-phone').textContent = drv ? (drv.phone || '') : '';
+      document.getElementById('view-insp-address-text').textContent = drv ? (drv.address || 'David, Chiriquí') : 'Sin domicilio';
+
+      const itemsObj = insp.items || {};
+      document.getElementById('view-insp-checklist-items').innerHTML = Object.entries(CHECKLIST_LABELS).map(([k, label]) => {
+        const ok = !!itemsObj[k];
+        return `
+          <div class="p-2 rounded-xl border ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'} font-bold">
+            ${ok ? '✓' : '✕'} ${label}
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('view-insp-notes-text').textContent = insp.notes || 'Sin novedades adicionales registradas.';
+      const photos = Array.isArray(insp.photos) ? insp.photos : [];
+      document.getElementById('view-insp-photos-grid').innerHTML = photos.length > 0
+        ? photos.map(img => `<img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Acta ${car.plate}')" class="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer">`).join('')
+        : `<p class="text-xs text-slate-400 col-span-full">Sin fotografías registradas.</p>`;
+
+      const sigBox = document.getElementById('view-insp-signature-box');
+      const sigImg = document.getElementById('view-insp-signature-img');
+      if (insp.signature) {
+        sigImg.src = insp.signature;
+        sigBox.classList.remove('hidden');
+      } else {
+        sigBox.classList.add('hidden');
+      }
+
+      document.getElementById('btn-switch-to-editinspection').onclick = () => {
+        closeModal('modal-view-inspection');
+        openEditInspectionModal(car.id);
+      };
+
+      openModal('modal-view-inspection');
+
+      const lat = drv ? (parseFloat(drv.lat) || 8.4273) : 8.4273;
+      const lng = drv ? (parseFloat(drv.lng) || -82.4308) : -82.4308;
+      setTimeout(() => {
+        if (!viewInspMap) {
+          viewInspMap = L.map('view-insp-minimap').setView([lat, lng], 14);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(viewInspMap);
+          viewInspMarker = L.marker([lat, lng]).addTo(viewInspMap);
+        } else {
+          viewInspMap.invalidateSize();
+          viewInspMap.setView([lat, lng], 14);
+          viewInspMarker.setLatLng([lat, lng]);
+        }
+      }, 220);
+    }
+
+    function renderDeliveredCarsSection() {
+      const grid = document.getElementById('delivered-cars-grid');
+      if (!grid) return;
+      const deliveredCars = (appState.cars || []).filter(c => c.driverId || c.status === 'Alquilado');
+      if (deliveredCars.length === 0) {
+        grid.innerHTML = `<p class="text-xs text-slate-400 col-span-full text-center py-6">No hay autos entregados actualmente.</p>`;
+        return;
+      }
+
+      grid.innerHTML = deliveredCars.map(car => {
+        const drv = (appState.drivers || []).find(d => d.id === car.driverId);
+        const insp = getOrCreateInspectionForCar(car.id);
+        const photoCount = Array.isArray(insp.photos) ? insp.photos.length : 0;
+        return `
+          <div class="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4">
+            <div class="space-y-2">
+              <div class="flex items-start justify-between">
+                <div>
+                  <span class="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">${car.plate}</span>
+                  <h4 class="font-black text-slate-900 text-base mt-1">${car.model}</h4>
+                </div>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${insp.signature ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}">
+                  ${insp.signature ? '✍️ Firmada' : 'Sin Firma'}
+                </span>
+              </div>
+              <p class="text-xs text-slate-600">👤 Custodio: <strong>${drv ? drv.name : 'Sin asignar'}</strong></p>
+              <p class="text-[11px] text-slate-400">📸 ${photoCount} foto(s) · Actualizada: ${insp.updatedAt || '-'}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+              <button onclick="openViewInspectionModal('${car.id}')" class="py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">Ver Acta</button>
+              <button onclick="openEditInspectionModal('${car.id}')" class="py-2 rounded-xl custom-primary-bg text-white font-bold text-xs">Editar Acta</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    const inspectSelectCarEl = document.getElementById('inspect-select-car');
+    if (inspectSelectCarEl) {
+      inspectSelectCarEl.addEventListener('change', (e) => loadInspectionIntoModal(e.target.value));
+    }
+
+    const inputInspectPhotoEl = document.getElementById('input-inspect-photo');
+    if (inputInspectPhotoEl) {
+      inputInspectPhotoEl.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const compressed = await compressImageFile(file, 800, 800, 0.68);
+          tempInspectionPhotos.push(compressed);
+          renderInspectPhotosGallery();
+          showToast('✓ Foto agregada al acta', 'success');
+        } catch (err) {}
+        e.target.value = '';
+      });
     }
 
     document.getElementById('form-submit-adjust-balance').addEventListener('submit', (e) => {
@@ -6332,7 +6611,9 @@
 
       const receiptPhotoToSave = isCash ? DEFAULT_PLACEHOLDER_RECEIPT : tempCompressedReceipt.base64;
       const receiptFingerprint = isCash ? ('cash_' + Date.now()) : tempCompressedReceipt.fingerprint;
+
       const previousCarKm = car ? car.km : 0;
+      if (car) car.km = kmCheck.km;
 
       const newPayment = {
         id: 'PAY-' + Math.floor(10000 + Math.random() * 90000),
@@ -6352,405 +6633,97 @@
         status: 'Pendiente'
       };
 
-      let cloudDelivered = false;
       try {
-        cloudDelivered = await pushSinglePaymentToCloudInbox(newPayment);
-      } catch (sendErr) {
-        console.warn('Falla inesperada enviando pago:', sendErr);
-        cloudDelivered = false;
+        // Sincronizar en el buzón atómico de Firebase antes de darlo por enviado
+        const cloudDelivered = await pushSinglePaymentToCloudInbox(newPayment);
+
+        // Si hubo una falla al sincronizar con el Administrador, NO decir que se envió con éxito ni agregarlo como enviado
+        if (!cloudDelivered) {
+          if (car) car.km = previousCarKm;
+          const scanBanner = document.getElementById('ocr-scan-result-banner');
+          if (scanBanner) {
+            scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
+            scanBanner.innerHTML = `
+              <div class="flex flex-col space-y-2.5">
+                <div class="flex items-start space-x-2.5">
+                  <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">⚠️</div>
+                  <div class="text-xs">
+                    <p class="font-black text-rose-800 uppercase">No se pudo enviar el reporte de pago</p>
+                    <p class="font-semibold text-rose-700 mt-0.5">Ocurrió una falla al sincronizar con el sistema. Por favor contacta al administrador para reportar esta falla o validar tu pago.</p>
+                  </div>
+                </div>
+                <button type="button" onclick="document.getElementById('btn-driver-whatsapp').click()" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center space-x-1.5 shadow">
+                  <span>📲 Contactar al Administrador por WhatsApp</span>
+                </button>
+              </div>
+            `;
+            scanBanner.classList.remove('hidden');
+          }
+          if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
+            speakTextWithSelectedVoice('No se pudo enviar el reporte de pago. Por favor contacta al administrador en caso de que tengas una falla.');
+          }
+          showToast('❌ No se pudo enviar el pago. Por favor contacta al administrador.', 'error');
+          return;
+        }
+
+        if (!appState.inbox || typeof appState.inbox !== 'object') appState.inbox = {};
+        appState.inbox[newPayment.id] = newPayment;
+
+        if (!Array.isArray(appState.payments)) appState.payments = [];
+        if (!appState.payments.some(p => p && p.id === newPayment.id)) {
+          appState.payments.unshift(newPayment);
+        }
+        appState.payments = sortPaymentsNewestFirst(appState.payments);
+        saveFastCoreBackup();
+        try {
+          localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+        } catch (storageErr) {}
+
+        // Actualizar el kilometraje del vehículo atómicamente sin re-subir toda la base de datos
+        if (car) {
+          const carIdx = (appState.cars || []).findIndex(c => c && c.id === car.id);
+          if (carIdx !== -1) {
+            if (isFirebaseReady && db) {
+              db.ref(`rentFlotaEnterpriseV2/cars/${carIdx}/km`).set(kmCheck.km).catch(() => {});
+            }
+            const baseUrl = getCleanFirebaseDbUrl();
+            if (baseUrl) {
+              fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/cars/${carIdx}/km.json`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(kmCheck.km)
+              }, 8000).catch(() => {});
+            }
+          }
+        }
+
+        // Enviar alerta inmediata + foto del comprobante al Bot de Telegram (sin bloquear)
+        const tgCaption = `💵 <b>NUEVO PAGO REPORTADO (${brandingConfig.companyName})</b>\n\n` +
+          `👤 <b>Conductor:</b> ${driver.name}\n` +
+          `🚗 <b>Vehículo:</b> ${car ? `${car.model} (${car.plate})` : 'Sin auto'}\n` +
+          `💰 <b>Monto:</b> $${amount.toFixed(2)} USD\n` +
+          `🏦 <b>Método:</b> ${method}\n` +
+          `🔢 <b>Referencia:</b> ${ref}\n` +
+          `⚡ <b>Kilometraje:</b> ${kmCheck.km.toLocaleString()} Km\n` +
+          `📅 <b>Fecha:</b> ${date}` +
+          (newPayment.aiDuplicateWarning ? `\n\n🚨 <b>¡ALERTA!: Captura o referencia marcada como DUPLICADA</b>` : '');
+        sendTelegramNotification(tgCaption, isCash ? null : receiptPhotoToSave).catch(() => {});
+
+        if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
+          const spokenSentAmount = numberToSpanishWords(amount);
+          speakTextWithSelectedVoice(`Reporte de pago enviado con éxito por la suma de ${spokenSentAmount}.`);
+        }
+
+        resetDriverPaymentFormState();
+        renderDriverView();
+        showToast('✅ ¡Pago enviado y sincronizado con el Administrador!', 'success');
+      } catch (submitErr) {
+        if (car) car.km = previousCarKm;
+        console.error('Error inesperado enviando pago:', submitErr);
+        showToast('❌ No se pudo enviar el pago. Por favor contacta al administrador.', 'error');
       } finally {
         if (submitBtn) submitBtn.disabled = false;
         if (submitBtnText) submitBtnText.textContent = 'Enviar Reporte de Pago';
-      }
-
-      // Si hubo una falla al sincronizar con el Administrador, NO decir que se envió con éxito ni agregarlo como enviado
-      if (!cloudDelivered) {
-        if (car) car.km = previousCarKm;
-        const scanBanner = document.getElementById('ocr-scan-result-banner');
-        if (scanBanner) {
-          scanBanner.className = 'w-full max-w-md p-3.5 rounded-2xl border-2 border-rose-600 bg-rose-50 text-rose-950 text-left shadow-md anim-scan-dup';
-          scanBanner.innerHTML = `
-            <div class="flex flex-col space-y-2.5">
-              <div class="flex items-start space-x-2.5">
-                <div class="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 font-black text-sm badge-pulse">⚠️</div>
-                <div class="text-xs">
-                  <p class="font-black text-rose-800 uppercase">No se pudo enviar el reporte de pago</p>
-                  <p class="font-semibold text-rose-700 mt-0.5">Ocurrió una falla al sincronizar con el sistema. Por favor contacta al administrador para reportar esta falla o validar tu pago.</p>
-                </div>
-              </div>
-              <button type="button" onclick="document.getElementById('btn-driver-whatsapp').click()" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center space-x-1.5 shadow">
-                <span>📲 Contactar al Administrador por WhatsApp</span>
-              </button>
-            </div>
-          `;
-          scanBanner.classList.remove('hidden');
-        }
-        if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
-          speakTextWithSelectedVoice('No se pudo enviar el reporte de pago. Por favor contacta al administrador en caso de que tengas una falla.');
-        }
-        showToast('❌ No se pudo enviar el pago. Por favor contacta al administrador.', 'error');
-        return;
-      }
-
-      if (car) {
-        car.km = kmCheck.km;
-        const carIdx = (appState.cars || []).findIndex(c => c && c.id === car.id);
-        if (carIdx !== -1) {
-          if (isFirebaseReady && db) {
-            db.ref(`rentFlotaEnterpriseV2/cars/${carIdx}/km`).set(kmCheck.km).catch(() => {});
-          }
-          const baseUrl = getCleanFirebaseDbUrl();
-          if (baseUrl) {
-            fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2/cars/${carIdx}/km.json`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(kmCheck.km)
-            }, 8000).catch(() => {});
-          }
-        }
-      }
-
-      if (!Array.isArray(appState.payments)) appState.payments = [];
-      if (!appState.payments.some(p => p && p.id === newPayment.id)) {
-        appState.payments.unshift(newPayment);
-      }
-      appState.payments = sortPaymentsNewestFirst(appState.payments);
-      saveFastCoreBackup();
-      try {
-        localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
-      } catch (e) {}
-
-      // Enviar alerta inmediata + foto del comprobante al Bot de Telegram (en segundo plano sin trabar el botón)
-      const tgCaption = `💵 <b>NUEVO PAGO REPORTADO (${brandingConfig.companyName})</b>\n\n` +
-        `👤 <b>Conductor:</b> ${driver.name}\n` +
-        `🚗 <b>Vehículo:</b> ${car ? `${car.model} (${car.plate})` : 'Sin auto'}\n` +
-        `💰 <b>Monto:</b> $${amount.toFixed(2)} USD\n` +
-        `🏦 <b>Método:</b> ${method}\n` +
-        `🔢 <b>Referencia:</b> ${ref}\n` +
-        `⚡ <b>Kilometraje:</b> ${kmCheck.km.toLocaleString()} Km\n` +
-        `📅 <b>Fecha:</b> ${date}` +
-        (newPayment.aiDuplicateWarning ? `\n\n🚨 <b>¡ALERTA!: Captura o referencia marcada como DUPLICADA</b>` : '');
-      sendTelegramNotification(tgCaption, isCash ? null : receiptPhotoToSave).catch(() => {});
-
-      if (!appState.soundSettings || appState.soundSettings.driverVoice !== false) {
-        const spokenSentAmount = numberToSpanishWords(amount);
-        speakTextWithSelectedVoice(`Reporte de pago enviado con éxito por la suma de ${spokenSentAmount}.`);
-      }
-
-      resetDriverPaymentFormState();
-      renderDriverView();
-      showToast('✅ ¡Pago enviado y sincronizado con el Administrador!', 'success');
-    });
-
-    function openCreatePartnerModal() {
-      document.getElementById('form-submit-partner').reset();
-      document.getElementById('edit-partner-id').value = '';
-      document.getElementById('modal-partner-title').textContent = 'Registrar Nuevo Socio';
-      document.getElementById('btn-delete-partner').classList.add('hidden');
-      openModal('modal-add-partner');
-    }
-
-    function openEditPartnerModal(partId) {
-      const part = appState.partners.find(p => p.id === partId);
-      if (!part) return;
-      document.getElementById('edit-partner-id').value = part.id;
-      document.getElementById('modal-partner-title').textContent = `Editar Socio: ${part.name}`;
-      document.getElementById('partner-name').value = part.name;
-      document.getElementById('partner-phone').value = part.phone || '';
-      document.getElementById('partner-share').value = part.share || 100;
-      document.getElementById('partner-notes').value = part.notes || '';
-
-      const delBtn = document.getElementById('btn-delete-partner');
-      delBtn.classList.remove('hidden');
-      delBtn.onclick = () => {
-        appState.partners = appState.partners.filter(p => p.id !== part.id);
-        saveStateAndBroadcast();
-        updateSelects();
-        closeModal('modal-add-partner');
-        renderAdminView();
-      };
-      openModal('modal-add-partner');
-    }
-
-    document.getElementById('form-submit-partner').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const editId = document.getElementById('edit-partner-id').value;
-      const pData = {
-        id: editId || ('part-' + Date.now()),
-        name: document.getElementById('partner-name').value.trim(),
-        phone: document.getElementById('partner-phone').value.trim(),
-        share: parseInt(document.getElementById('partner-share').value) || 100,
-        notes: document.getElementById('partner-notes').value.trim()
-      };
-      if (editId) {
-        const idx = appState.partners.findIndex(p => p.id === editId);
-        if (idx !== -1) appState.partners[idx] = pData;
-      } else {
-        appState.partners.push(pData);
-      }
-      saveStateAndBroadcast();
-      updateSelects();
-      closeModal('modal-add-partner');
-      renderAdminView();
-      showToast('Socio guardado correctamente', 'success');
-    });
-
-    let tempInspectionPhotos = [];
-
-    const CHECKLIST_LABELS = {
-      fullFuel: 'Tanque de Combustible Lleno',
-      spareTire: 'Llanta de Repuesto Verificada',
-      jackAndTool: 'Gato Hidráulico y Herramientas',
-      documentsOk: 'Póliza de Seguro y Revisado al Día',
-      cleanInsideOut: 'Limpieza Interior y Exterior Impecable',
-      lightsWorking: 'Luces y Direccionales Conformes'
-    };
-
-    function getOrCreateInspectionForCar(carId) {
-      let insp = appState.inspections.find(i => i.carId === carId);
-      const car = appState.cars.find(c => c.id === carId);
-      if (!insp) {
-        insp = {
-          id: 'insp-' + carId,
-          carId: carId,
-          driverId: car ? car.driverId : '',
-          updatedAt: new Date().toLocaleDateString('es-PA'),
-          items: {
-            fullFuel: true,
-            spareTire: true,
-            jackAndTool: true,
-            documentsOk: true,
-            cleanInsideOut: true,
-            lightsWorking: true
-          },
-          notes: 'Vehículo entregado en óptimas condiciones operativas y de carrocería.',
-          photos: [
-            'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80',
-            'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=600&q=80'
-          ]
-        };
-        appState.inspections.push(insp);
-      }
-      return insp;
-    }
-
-    function renderInspectionSectionSelects() {
-      const carSel = document.getElementById('inspect-select-car');
-      const drvSel = document.getElementById('inspect-select-driver');
-      if (carSel) {
-        carSel.innerHTML = appState.cars.map(c => `<option value="${c.id}">${c.model} (${c.plate})</option>`).join('');
-      }
-      if (drvSel) {
-        drvSel.innerHTML = '<option value="">Sin Conductor</option>' +
-          appState.drivers.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
-      }
-    }
-
-    function renderDeliveredCarsSection() {
-      const grid = document.getElementById('delivered-cars-grid');
-      if (!grid) return;
-
-      grid.innerHTML = appState.cars.map(car => {
-        const insp = getOrCreateInspectionForCar(car.id);
-        const driver = appState.drivers.find(d => d.id === (car.driverId || insp.driverId));
-        const itemsObj = insp.items || {};
-        const checkedCount = Object.keys(CHECKLIST_LABELS).filter(k => itemsObj[k]).length;
-        const photos = insp.photos || [];
-
-        return `
-          <div class="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4">
-            <div class="space-y-3">
-              <div class="flex justify-between items-start">
-                <div>
-                  <span class="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">${car.plate}</span>
-                  <h4 class="font-black text-slate-900 text-base mt-1">${car.model}</h4>
-                  <p class="text-xs text-slate-500">Custodio: <strong class="text-slate-800">${driver ? driver.name : 'Sin asignar'}</strong></p>
-                </div>
-                <span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  ${checkedCount}/6 OK
-                </span>
-              </div>
-
-              <!-- Resumen visual de ítems del checklist -->
-              <div class="grid grid-cols-2 gap-1.5 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-[11px]">
-                ${Object.entries(CHECKLIST_LABELS).map(([k, label]) => `
-                  <div class="flex items-center space-x-1 truncate">
-                    <span class="${itemsObj[k] ? 'text-emerald-600 font-black' : 'text-rose-500 font-bold'}">${itemsObj[k] ? '✓' : '✕'}</span>
-                    <span class="truncate text-slate-700">${label}</span>
-                  </div>
-                `).join('')}
-              </div>
-
-              <div class="p-2.5 bg-amber-50/50 rounded-xl border border-amber-200/70 text-[11px] text-slate-700">
-                <strong class="text-amber-900 block text-[10px] uppercase">Observaciones / Estado:</strong>
-                <p class="line-clamp-2 mt-0.5">${insp.notes || 'Sin observaciones registradas.'}</p>
-              </div>
-
-              <!-- Miniaturas de fotos en la tarjeta -->
-              <div>
-                <span class="text-[10px] font-bold text-slate-400 uppercase block mb-1">Evidencia Fotográfica (${photos.length} fotos)</span>
-                <div class="flex space-x-2 overflow-x-auto py-1">
-                  ${photos.length > 0 ? photos.map(img => `
-                    <img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Evidencia de Entrega - ${car.plate}')" class="w-14 h-14 rounded-xl object-cover border border-slate-200 cursor-pointer flex-shrink-0 hover:opacity-80">
-                  `).join('') : '<span class="text-[11px] text-slate-400">Sin fotos adjuntas</span>'}
-                </div>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-              <button onclick="openViewInspectionModal('${car.id}')" class="py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center space-x-1.5 border border-indigo-200">
-                <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                <span>Ver Acta Completa</span>
-              </button>
-              <button onclick="openEditInspectionModal('${car.id}')" class="py-2.5 rounded-xl custom-primary-bg text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-xs">
-                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                <span>Editar Acta</span>
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
-      lucide.createIcons();
-    }
-
-    function openViewInspectionModal(carId) {
-      const car = appState.cars.find(c => c.id === carId);
-      if (!car) return;
-      const insp = getOrCreateInspectionForCar(car.id);
-      const driver = appState.drivers.find(d => d.id === (car.driverId || insp.driverId));
-      const itemsObj = insp.items || {};
-      const photos = insp.photos || [];
-
-      document.getElementById('view-insp-subtitle').textContent = `Actualizado: ${insp.updatedAt || 'Reciente'} · Odómetro: ${(Number(car.km) || 0).toLocaleString()} Km`;
-      document.getElementById('view-insp-car-title').textContent = `${car.model} (${car.year || 2023})`;
-      document.getElementById('view-insp-car-plate').textContent = `PLACA: ${car.plate} · ${(Number(car.km) || 0).toLocaleString()} Km`;
-      document.getElementById('view-insp-driver-name').textContent = driver ? driver.name : 'Sin chofer asignado';
-      document.getElementById('view-insp-driver-phone').textContent = driver ? driver.phone : '';
-      document.getElementById('view-insp-address-text').textContent = driver && driver.address ? driver.address : 'David, Provincia de Chiriquí, Panamá';
-
-      document.getElementById('view-insp-checklist-items').innerHTML = Object.entries(CHECKLIST_LABELS).map(([k, label]) => {
-        const ok = !!itemsObj[k];
-        return `
-          <div class="p-2.5 rounded-xl border ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'} flex items-center space-x-2">
-            <span class="font-black text-sm">${ok ? '✓' : '✕'}</span>
-            <span class="font-bold text-[11px] leading-tight">${label}</span>
-          </div>
-        `;
-      }).join('');
-
-      document.getElementById('view-insp-notes-text').textContent = insp.notes || 'Sin observaciones adicionales.';
-
-      const photosGrid = document.getElementById('view-insp-photos-grid');
-      if (photos.length === 0) {
-        photosGrid.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-3 text-center">No hay fotografías cargadas en esta acta.</p>`;
-      } else {
-        photosGrid.innerHTML = photos.map((img, i) => `
-          <img src="${img}" onclick="openDirectPhotoViewer('${img}', 'Foto de Acta #${i+1} - ${car.plate}')" class="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 shadow-xs">
-        `).join('');
-      }
-
-      const sigBox = document.getElementById('view-insp-signature-box');
-      const sigImg = document.getElementById('view-insp-signature-img');
-      if (sigBox && sigImg) {
-        if (insp.signature) {
-          sigImg.src = insp.signature;
-          sigBox.classList.remove('hidden');
-        } else {
-          sigBox.classList.add('hidden');
-        }
-      }
-
-      document.getElementById('btn-switch-to-editinspection').onclick = () => {
-        closeModal('modal-view-inspection');
-        openEditInspectionModal(car.id);
-      };
-
-      openModal('modal-view-inspection');
-
-      const lat = driver && driver.lat ? parseFloat(driver.lat) : 8.4273;
-      const lng = driver && driver.lng ? parseFloat(driver.lng) : -82.4308;
-      setTimeout(() => {
-        if (!viewInspMap) {
-          viewInspMap = L.map('view-insp-minimap').setView([lat, lng], 15);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-          }).addTo(viewInspMap);
-          viewInspMarker = L.marker([lat, lng]).addTo(viewInspMap);
-        } else {
-          viewInspMap.invalidateSize();
-          viewInspMap.setView([lat, lng], 15);
-          viewInspMarker.setLatLng([lat, lng]);
-        }
-      }, 220);
-    }
-
-    function openCreateInspectionModal() {
-      const firstCar = appState.cars[0];
-      if (!firstCar) {
-        showToast('Primero registra un vehículo', 'warning');
-        return;
-      }
-      openEditInspectionModal(firstCar.id);
-    }
-
-    function openEditInspectionModal(carId) {
-      renderInspectionSectionSelects();
-      const car = appState.cars.find(c => c.id === carId) || appState.cars[0];
-      if (!car) return;
-      const insp = getOrCreateInspectionForCar(car.id);
-
-      document.getElementById('inspect-select-car').value = car.id;
-      document.getElementById('inspect-select-driver').value = car.driverId || insp.driverId || '';
-
-      const items = insp.items || {};
-      document.getElementById('chk-fullFuel').checked = !!items.fullFuel;
-      document.getElementById('chk-spareTire').checked = !!items.spareTire;
-      document.getElementById('chk-jackAndTool').checked = !!items.jackAndTool;
-      document.getElementById('chk-documentsOk').checked = !!items.documentsOk;
-      document.getElementById('chk-cleanInsideOut').checked = !!items.cleanInsideOut;
-      document.getElementById('chk-lightsWorking').checked = !!items.lightsWorking;
-      document.getElementById('chk-notes').value = insp.notes || '';
-
-      tempInspectionPhotos = Array.isArray(insp.photos) ? [...insp.photos] : [];
-      renderEditInspectionPhotosGallery();
-      openModal('modal-inspection');
-      setTimeout(() => initInspectionSignaturePad(insp.signature || ''), 120);
-    }
-
-    document.getElementById('inspect-select-car').addEventListener('change', (e) => {
-      openEditInspectionModal(e.target.value);
-    });
-
-    function renderEditInspectionPhotosGallery() {
-      const gal = document.getElementById('inspect-photos-gallery');
-      if (!gal) return;
-      if (tempInspectionPhotos.length === 0) {
-        gal.innerHTML = `<p class="col-span-full text-xs text-slate-400 text-center py-6">Sin fotos cargadas. Pulsa "Agregar Foto" para subir evidencia.</p>`;
-        return;
-      }
-      gal.innerHTML = tempInspectionPhotos.map((img, idx) => `
-        <div class="relative group">
-          <img src="${img}" class="w-full h-24 object-cover rounded-xl border border-slate-300">
-          <button type="button" onclick="removeInspectionPhoto(${idx})" class="absolute top-1 right-1 bg-rose-600 text-white rounded-full w-6 h-6 text-xs font-black flex items-center justify-center shadow">✕</button>
-        </div>
-      `).join('');
-    }
-
-    function removeInspectionPhoto(index) {
-      tempInspectionPhotos.splice(index, 1);
-      renderEditInspectionPhotosGallery();
-    }
-
-    document.getElementById('input-inspect-photo').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const compressed = await compressImageFile(file, 800, 800, 0.7);
-        tempInspectionPhotos.push(compressed);
-        renderEditInspectionPhotosGallery();
-        showToast('Fotografía agregada al acta', 'success');
-      } catch (err) {
-        showToast('Error al cargar la foto', 'error');
       }
     });
 
@@ -8089,11 +8062,47 @@
       appState.expenses = [];
       appState.inspections = [];
       appState.accessLogs = [];
-      saveStateAndBroadcast();
+      appState.faultReports = [];
+      appState.partnerPayouts = [];
+      appState.custodyLogs = [];
+      appState.inbox = {};
+      saveStateAndBroadcast(true);
       updateSelects();
       renderAdminView();
-      showToast('Datos operativos limpiados (Firebase intacto)', 'warning');
+      showToast('Datos operativos limpiados (conexión a Firebase conservada)', 'warning');
     }
+
+    function confirmResetAllWithFirebase() {
+      localStorage.removeItem('autorent_enterprise_db_v2');
+      localStorage.removeItem('autorent_core_fast_v2');
+      localStorage.removeItem('autorent_custom_firebase');
+      localStorage.removeItem('autorent_branding_backup');
+      localStorage.removeItem('autorent_creds_backup');
+      if (isFirebaseReady && db) {
+        db.ref('rentFlotaEnterpriseV2').remove().catch(() => {});
+      }
+      showToast('Reseteo total completado. Recargando aplicación...', 'warning');
+      setTimeout(() => window.location.reload(), 1200);
+    }
+
+    document.getElementById('btn-submit-admin').onclick = async () => {
+      const enteredUser = document.getElementById('admin-user').value.trim();
+      const enteredPass = document.getElementById('admin-pass').value.trim();
+
+      if (!hasInitialCloudSync) {
+        await fetchLatestCloudStateOnce();
+      }
+
+      if (enteredUser === adminCredentials.user && enteredPass === adminCredentials.pass) {
+        currentSession.role = 'admin';
+        currentSession.driverId = null;
+        showView('admin');
+        forcePullPaymentsInboxNow(false);
+        showToast('Bienvenido Administrador', 'success');
+      } else {
+        showToast('Usuario o contraseña incorrectos', 'error');
+      }
+    };
 
     document.getElementById('btn-submit-driver').onclick = async () => {
       const enteredUser = document.getElementById('input-driver-username').value.trim().toLowerCase();
@@ -8104,31 +8113,18 @@
         return;
       }
 
-      const findMatchingDriver = () => (appState.drivers || []).find(d => {
+      const btn = document.getElementById('btn-submit-driver');
+      if (!hasInitialCloudSync) {
+        if (btn) btn.disabled = true;
+        await fetchLatestCloudStateOnce();
+        if (btn) btn.disabled = false;
+      }
+
+      const drv = appState.drivers.find(d => {
         const u = (d.username || d.name.split(' ')[0] || '').toLowerCase();
         const fullName = (d.name || '').toLowerCase();
         return (u === enteredUser || fullName === enteredUser) && String(d.pin) === enteredPin;
       });
-
-      let drv = findMatchingDriver();
-
-      // Si aún no ha terminado la carga inicial desde Firebase (ej. teléfono nuevo), descargar directo antes de validar
-      if (!drv && !hasInitialCloudSync) {
-        const baseUrl = getCleanFirebaseDbUrl();
-        if (baseUrl) {
-          try {
-            const res = await fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, { cache: 'no-store' }, 8000);
-            if (res && res.ok) {
-              const cloudData = await res.json();
-              if (cloudData) {
-                hasInitialCloudSync = true;
-                applyCloudStateToLocal(cloudData);
-                drv = findMatchingDriver();
-              }
-            }
-          } catch (e) {}
-        }
-      }
 
       if (!drv) {
         showToast('Usuario o contraseña incorrectos', 'error');
@@ -10602,14 +10598,926 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
   </script>
 
   <!-- ==================================================================================== -->
-  <!-- PUENTE EN NUBE DESACTIVADO (SINCRONIZACIÓN UNIFICADA EN FIREBASE REALTIME DATABASE)  -->
+  <!-- MÓDULO ADICIONAL AISLADO:                                                            -->
+  <!-- 1. DOCUMENTO OFICIAL PNG/IMAGEN DEL ACTA DE DAÑO FIRMADA (CON FOTOS, CÉDULA Y FIRMA) -->
+  <!-- 2. RENTABILIDAD REAL POR VEHÍCULO (ROI INDIVIDUAL EN TARJETA Y FICHA DE CADA AUTO)   -->
+  <!-- 3. HISTORIAL Y BUSCADOR DE CUSTODIA "¿QUIÉN TENÍA EL AUTO EN ESA FECHA?"             -->
   <!-- ==================================================================================== -->
-  <script type="module">
-    // Desactivado para evitar sobrescrituras o conflictos con Firebase Realtime Database
-    window.pushPaymentToFirestoreBridge = async () => false;
-    window.removePaymentFromFirestoreBridge = async () => {};
-    window.pullPaymentsFromFirestoreBridge = async () => 0;
-    window.pushFullStateToFirestoreBridge = async () => {};
+  <div id="modal-car-custody-history" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto no-scrollbar space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black">
+            🕒
+          </div>
+          <div>
+            <h3 class="font-black text-slate-900 text-base" id="custody-modal-title">Historial de Custodia del Vehículo</h3>
+            <p class="text-[11px] text-slate-500">Consulta o registra qué conductor tuvo este auto en cada rango de fechas.</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modal-car-custody-history')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <!-- Formulario para agregar un periodo histórico manual si se requiere -->
+      <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+        <span class="text-[10px] font-black uppercase text-slate-600 block">➕ Registrar Periodo de Custodia (Manual o Anterior)</span>
+        <input type="hidden" id="custody-modal-car-id" value="">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-0.5">Conductor</label>
+            <select id="custody-manual-driver" class="w-full text-xs font-bold p-2 rounded-xl border border-slate-300 bg-white"></select>
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-0.5">Desde Fecha</label>
+            <input type="date" id="custody-manual-start" class="w-full text-xs p-2 rounded-xl border border-slate-300 bg-white">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-0.5">Hasta Fecha (Vacío = Actual)</label>
+            <input type="date" id="custody-manual-end" class="w-full text-xs p-2 rounded-xl border border-slate-300 bg-white">
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button type="button" onclick="addManualCustodyRecord()" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-2xs">
+            + Guardar Registro de Custodia
+          </button>
+        </div>
+      </div>
+
+      <div id="custody-modal-list" class="space-y-2 max-h-72 overflow-y-auto no-scrollbar text-xs"></div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-100">
+        <button type="button" onclick="closeModal('modal-car-custody-history')" class="px-5 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. GENERADOR DE IMAGEN / DOCUMENTO OFICIAL DE ACTA DE DAÑO FIRMADA (PNG)
+    // =========================================================================
+    function wrapCanvasTextLines(ctx, text, maxWidth) {
+      const paragraphs = String(text || '').split('\n');
+      const lines = [];
+      paragraphs.forEach((para, pIdx) => {
+        const words = para.split(/\s+/).filter(Boolean);
+        if (words.length === 0) {
+          lines.push('');
+          return;
+        }
+        let currentLine = words[0];
+        for (let i = 1; i < words.length; i++) {
+          const word = words[i];
+          const width = ctx.measureText(currentLine + ' ' + word).width;
+          if (width < maxWidth) {
+            currentLine += ' ' + word;
+          } else {
+            lines.push(currentLine);
+            currentLine = word;
+          }
+        }
+        lines.push(currentLine);
+        if (pIdx < paragraphs.length - 1) lines.push('');
+      });
+      return lines;
+    }
+
+    function loadSafeImageForCanvas(src) {
+      return new Promise((resolve) => {
+        if (!src) return resolve(null);
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    async function generateOfficialDamageAgreementDocument(driverId) {
+      const drv = (appState.drivers || []).find(d => d.id === driverId);
+      if (!drv || !drv.damageAgreement) {
+        showToast('Este conductor no tiene un acta de daño activa', 'warning');
+        return;
+      }
+
+      const dmg = drv.damageAgreement;
+      const car = getDriverAssignedCar(drv.id);
+      const fin = getDamageFinancialSummary(dmg);
+      const photos = Array.isArray(dmg.evidencePhotos) ? dmg.evidencePhotos.slice(0, 4) : [];
+      const payments = Array.isArray(dmg.payments) ? dmg.payments.slice(0, 6) : [];
+      const isSigned = dmg.status === 'Firmado' && !!dmg.signature;
+
+      showToast('📄 Generando documento oficial de Acta de Daño...', 'info');
+
+      // Pre-cargar imágenes necesarias
+      const logoImg = await loadSafeImageForCanvas(brandingConfig.logoBase64);
+      const loadedEvidenceImgs = [];
+      for (let i = 0; i < photos.length; i++) {
+        const evImg = await loadSafeImageForCanvas(photos[i]);
+        if (evImg) loadedEvidenceImgs.push(evImg);
+      }
+      const idCardImg = await loadSafeImageForCanvas(dmg.idCardPhoto);
+      const sigImg = await loadSafeImageForCanvas(dmg.signature);
+
+      // Calcular alto dinámico según el texto del contrato, fotos y abonos
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.font = '500 18px Inter, sans-serif';
+      const contractLines = wrapCanvasTextLines(tempCtx, dmg.contractText || '', 890);
+
+      const contractBoxHeight = Math.max(150, contractLines.length * 26 + 65);
+      const photosBoxHeight = loadedEvidenceImgs.length > 0 ? 255 : 0;
+      const paymentsBoxHeight = payments.length > 0 ? (payments.length * 36 + 75) : 0;
+      const signatureBoxHeight = 320;
+
+      const totalWidth = 1020;
+      const totalHeight = 520 + contractBoxHeight + photosBoxHeight + paymentsBoxHeight + signatureBoxHeight + 90;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = totalWidth;
+      canvas.height = totalHeight;
+      const ctx = canvas.getContext('2d');
+
+      // Fondo general
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+      // Marco exterior institucional
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(18, 18, totalWidth - 36, totalHeight - 36);
+
+      // Encabezado corporativo
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(20, 20, totalWidth - 40, 155);
+
+      let headerTextX = 55;
+      if (logoImg && logoImg.width > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(50, 42, 108, 108);
+        ctx.drawImage(logoImg, 56, 48, 96, 96);
+        headerTextX = 180;
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 34px Inter, sans-serif';
+      ctx.fillText((brandingConfig.companyName || 'AutoRent Pro').toUpperCase(), headerTextX, 82);
+
+      ctx.fillStyle = '#fca5a5';
+      ctx.font = '800 18px Inter, sans-serif';
+      ctx.fillText('ACTA LEGAL DE RECONOCIMIENTO Y COMPROMISO DE PAGO POR DAÑO VEHICULAR', headerTextX, 114);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '600 14px Inter, sans-serif';
+      ctx.fillText(`Documento ID: ${(dmg.id || 'ACTA-01').toUpperCase()}  ·  Fecha de Emisión: ${dmg.createdAt || new Date().toLocaleDateString('es-PA')}  ·  Estado: ${isSigned ? 'FIRMADO Y VERIFICADO POR IA' : 'PENDIENTE DE FIRMA'}`, headerTextX, 144);
+
+      let curY = 200;
+
+      // Bloque 1: Datos del Conductor y del Vehículo
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      ctx.fillRect(42, curY, totalWidth - 84, 130);
+      ctx.strokeRect(42, curY, totalWidth - 84, 130);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '800 13px Inter, sans-serif';
+      ctx.fillText('DATOS DEL CONDUCTOR RESPONSABLE', 65, curY + 30);
+      ctx.fillText('DATOS DEL VEHÍCULO AFECTADO', 540, curY + 30);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '900 22px Inter, sans-serif';
+      ctx.fillText(drv.name || 'Conductor', 65, curY + 62);
+      ctx.fillText(car ? `${car.model} (${car.year || 2023})` : 'Vehículo Asignado', 540, curY + 62);
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '700 15px Inter, sans-serif';
+      ctx.fillText(`Teléfono: ${drv.phone || 'No registrado'}`, 65, curY + 90);
+      ctx.fillText(`Dirección: ${(drv.address || 'Registrada en contrato').substring(0, 42)}`, 65, curY + 112);
+
+      ctx.fillText(`Placa Oficial: ${car ? car.plate : 'N/A'}`, 540, curY + 90);
+      ctx.fillText(`Odómetro Registrado: ${car ? (Number(car.km) || 0).toLocaleString() + ' Km' : 'N/A'}`, 540, curY + 112);
+
+      curY += 150;
+
+      // Bloque 2: Resumen Financiero de la Cotización y Abonos
+      ctx.fillStyle = fin.isFullyPaid ? '#ecfdf5' : '#fff1f2';
+      ctx.strokeStyle = fin.isFullyPaid ? '#6ee7b7' : '#fda4af';
+      ctx.lineWidth = 2;
+      ctx.fillRect(42, curY, totalWidth - 84, 110);
+      ctx.strokeRect(42, curY, totalWidth - 84, 110);
+
+      ctx.fillStyle = '#881337';
+      ctx.font = '800 13px Inter, sans-serif';
+      ctx.fillText('ESTADO FINANCIERO DE LA REPARACIÓN / COTIZACIÓN DEL DAÑO', 65, curY + 28);
+
+      if (fin.isPendingCost) {
+        ctx.fillStyle = '#b45309';
+        ctx.font = '900 24px Inter, sans-serif';
+        ctx.fillText('MONTO DE REPARACIÓN: PENDIENTE DE COTIZACIÓN OFICIAL EN TALLER', 65, curY + 68);
+        ctx.fillStyle = '#78350f';
+        ctx.font = '600 14px Inter, sans-serif';
+        ctx.fillText('El conductor acepta la responsabilidad del daño y cubrirá el importe una vez cotizado.', 65, curY + 94);
+      } else {
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '900 26px Inter, sans-serif';
+        ctx.fillText(`Cotizado: $${fin.totalCost.toFixed(2)} USD`, 65, curY + 68);
+
+        ctx.fillStyle = '#047857';
+        ctx.fillText(`Abonado: $${fin.paidAmount.toFixed(2)} USD`, 405, curY + 68);
+
+        ctx.fillStyle = fin.isFullyPaid ? '#047857' : '#be123c';
+        ctx.fillText(`Saldo Pendiente: $${fin.remaining.toFixed(2)} USD`, 700, curY + 68);
+
+        ctx.fillStyle = '#475569';
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillText(`Progreso de pago del daño: ${fin.percent}% cubierto ${fin.isFullyPaid ? '(PAGADO EN SU TOTALIDAD)' : ''}`, 65, curY + 95);
+      }
+
+      curY += 130;
+
+      // Bloque 3: Declaración Legal / Cláusula Sexta
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      ctx.fillRect(42, curY, totalWidth - 84, contractBoxHeight);
+      ctx.strokeRect(42, curY, totalWidth - 84, contractBoxHeight);
+
+      ctx.fillStyle = '#be123c';
+      ctx.font = '900 16px Inter, sans-serif';
+      ctx.fillText((dmg.title || 'CLÁUSULA SEXTA: DECLARACIÓN Y ACEPTACIÓN DE DAÑO VEHICULAR').toUpperCase(), 65, curY + 34);
+
+      ctx.fillStyle = '#1e293b';
+      ctx.font = '500 17px Inter, sans-serif';
+      let lineY = curY + 68;
+      contractLines.forEach(line => {
+        ctx.fillText(line, 65, lineY);
+        lineY += 26;
+      });
+
+      curY += contractBoxHeight + 20;
+
+      // Bloque 4: Evidencias Fotográficas del Daño (si existen)
+      if (loadedEvidenceImgs.length > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.fillRect(42, curY, totalWidth - 84, photosBoxHeight);
+        ctx.strokeRect(42, curY, totalWidth - 84, photosBoxHeight);
+
+        ctx.fillStyle = '#475569';
+        ctx.font = '800 13px Inter, sans-serif';
+        ctx.fillText(`EVIDENCIA FOTOGRÁFICA DEL DAÑO Y/O COTIZACIÓN (${loadedEvidenceImgs.length} FOTO/S ADJUNTAS)`, 65, curY + 30);
+
+        const imgW = 205;
+        const imgH = 185;
+        loadedEvidenceImgs.forEach((evImg, idx) => {
+          const xPos = 65 + idx * (imgW + 22);
+          const yPos = curY + 48;
+          ctx.fillStyle = '#f1f5f9';
+          ctx.fillRect(xPos, yPos, imgW, imgH);
+          ctx.drawImage(evImg, xPos, yPos, imgW, imgH);
+          ctx.strokeStyle = '#94a3b8';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(xPos, yPos, imgW, imgH);
+        });
+
+        curY += photosBoxHeight + 20;
+      }
+
+      // Bloque 5: Historial de Abonos Realizados al Daño (si existen)
+      if (payments.length > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.fillRect(42, curY, totalWidth - 84, paymentsBoxHeight);
+        ctx.strokeRect(42, curY, totalWidth - 84, paymentsBoxHeight);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '800 14px Inter, sans-serif';
+        ctx.fillText('HISTORIAL DE ABONOS REGISTRADOS A ESTE DAÑO:', 65, curY + 32);
+
+        let payY = curY + 64;
+        payments.forEach((p, idx) => {
+          ctx.fillStyle = '#334155';
+          ctx.font = '700 15px Inter, sans-serif';
+          ctx.fillText(`${idx + 1}. Fecha: ${p.date || '-'}   ·   Método: ${p.method || 'Abono'} (${p.note || 'S/R'})`, 65, payY);
+
+          ctx.fillStyle = '#047857';
+          ctx.font = '900 16px Inter, sans-serif';
+          ctx.fillText(`-$${Number(p.amount || 0).toFixed(2)} USD [${(p.status || 'APROBADO').toUpperCase()}]`, 690, payY);
+          payY += 34;
+        });
+
+        curY += paymentsBoxHeight + 20;
+      }
+
+      // Bloque 6: Cédula de Identidad Verificada por IA + Firma Digital del Conductor al lado
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = isSigned ? '#10b981' : '#f43f5e';
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(42, curY, totalWidth - 84, signatureBoxHeight);
+      ctx.strokeRect(42, curY, totalWidth - 84, signatureBoxHeight);
+
+      ctx.fillStyle = isSigned ? '#065f46' : '#9f1239';
+      ctx.font = '900 15px Inter, sans-serif';
+      ctx.fillText(
+        isSigned
+          ? `✅ ACEPTACIÓN DEL CONDUCTOR, CÉDULA VERIFICADA POR IA Y FIRMA DIGITAL (Firmado el: ${dmg.signedAt || 'Registrado'})`
+          : '⏳ ESPACIO PARA CÉDULA DE IDENTIDAD Y FIRMA DE ACEPTACIÓN DEL CONDUCTOR (PENDIENTE DE FIRMA)',
+        65,
+        curY + 34
+      );
+
+      // Recuadro Izquierdo: Foto de la Cédula
+      const boxW = 425;
+      const boxH = 225;
+      const leftX = 65;
+      const rightX = 530;
+      const boxY = curY + 55;
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(leftX, boxY, boxW, boxH);
+      ctx.strokeRect(leftX, boxY, boxW, boxH);
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '800 12px Inter, sans-serif';
+      ctx.fillText('1. DOCUMENTO DE IDENTIDAD (CÉDULA / LICENCIA VERIFICADA)', leftX + 16, boxY + 24);
+
+      if (idCardImg && idCardImg.width > 0) {
+        const scale = Math.min((boxW - 36) / idCardImg.width, (boxH - 46) / idCardImg.height);
+        const drawW = idCardImg.width * scale;
+        const drawH = idCardImg.height * scale;
+        const dx = leftX + (boxW - drawW) / 2;
+        const dy = boxY + 34 + ((boxH - 40) - drawH) / 2;
+        ctx.drawImage(idCardImg, dx, dy, drawW, drawH);
+      } else {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillText('Sin fotografía de cédula adjunta', leftX + 95, boxY + 125);
+      }
+
+      // Recuadro Derecho: Firma Digital del Conductor
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.fillRect(rightX, boxY, boxW, boxH);
+      ctx.strokeRect(rightX, boxY, boxW, boxH);
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '800 12px Inter, sans-serif';
+      ctx.fillText('2. FIRMA DIGITAL DE ACEPTACIÓN DEL CONDUCTOR', rightX + 16, boxY + 24);
+
+      if (sigImg && sigImg.width > 0) {
+        const scale = Math.min((boxW - 40) / sigImg.width, (boxH - 70) / sigImg.height);
+        const drawW = sigImg.width * scale;
+        const drawH = sigImg.height * scale;
+        const dx = rightX + (boxW - drawW) / 2;
+        const dy = boxY + 34 + ((boxH - 70) - drawH) / 2;
+        ctx.drawImage(sigImg, dx, dy, drawW, drawH);
+      } else {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillText('Pendiente de firma del conductor', rightX + 100, boxY + 115);
+      }
+
+      // Línea de firma al pie del recuadro derecho
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(rightX + 45, boxY + boxH - 34);
+      ctx.lineTo(rightX + boxW - 45, boxY + boxH - 34);
+      ctx.stroke();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '800 13px Inter, sans-serif';
+      ctx.fillText(`Conductor: ${drv.name}`, rightX + 50, boxY + boxH - 12);
+
+      // Pie de página legal
+      ctx.fillStyle = '#64748b';
+      ctx.font = '600 13px Inter, sans-serif';
+      ctx.fillText(`Documento digital respaldado por ${brandingConfig.companyName || 'AutoRent Pro'} · Válido como evidencia de aceptación de responsabilidad civil y acuerdo de pago.`, 45, totalHeight - 34);
+
+      const dataUrl = canvas.toDataURL('image/png');
+      document.getElementById('receipt-modal-title').textContent = `Acta Oficial de Daño - ${drv.name}`;
+      document.getElementById('receipt-modal-img').src = dataUrl;
+      document.getElementById('receipt-modal-ia-info').innerHTML = `
+        <strong>📄 Documento Legal Consolidado Generado:</strong> Incluye declaración firmada, estado de cotización y abonos, fotos del daño, cédula verificada y firma digital.<br>
+        Pulsa el botón verde <strong>«Descargar Imagen PNG»</strong> abajo para guardarlo o compartirlo por WhatsApp / imprimirlo.
+      `;
+
+      const delBtn = document.getElementById('btn-delete-single-receipt-photo');
+      if (delBtn) delBtn.classList.add('hidden');
+
+      const dlBtn = document.getElementById('btn-download-receipt-img');
+      if (dlBtn) {
+        dlBtn.href = dataUrl;
+        dlBtn.download = `Acta_Oficial_Dano_${drv.name.replace(/\s+/g, '_')}.png`;
+        dlBtn.classList.remove('hidden');
+      }
+
+      openModal('modal-view-receipt');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // Inyectar el botón "📄 Descargar Acta Oficial (PNG)" únicamente en el resumen del Administrador
+    const origBuildAdminDamageSummaryHTML = buildAdminDamageSummaryHTML;
+    buildAdminDamageSummaryHTML = function(drv, contextKey = 'card') {
+      const baseHtml = origBuildAdminDamageSummaryHTML(drv, contextKey);
+      if (!drv || !drv.damageAgreement) return baseHtml;
+
+      const docBtnHtml = `
+        <div class="pt-1.5">
+          <button type="button" onclick="generateOfficialDamageAgreementDocument('${drv.id}')" class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] flex items-center justify-center space-x-1.5 shadow-xs">
+            <span>📄 Descargar Documento Oficial del Acta de Daño (PNG)</span>
+          </button>
+        </div>
+      `;
+      return baseHtml + docBtnHtml;
+    };
+
+    // =========================================================================
+    // 2. RENTABILIDAD REAL POR VEHÍCULO (ROI INDIVIDUAL)
+    // =========================================================================
+    function calculateCarRealProfitability(car) {
+      if (!car) return { collected: 0, expenses: 0, netProfit: 0, marginPct: 0, paymentsCount: 0, expensesCount: 0 };
+
+      // Vínculo exacto de pagos por carId o por los conductores que tuvieron/tienen ese auto
+      const custodyHistory = Array.isArray(appState.custodyLogs) ? appState.custodyLogs.filter(l => l.carId === car.id) : [];
+
+      const approvedPayments = (appState.payments || []).filter(p => {
+        if (p.status !== 'Aprobado') return false;
+        if (p.carId && p.carId === car.id) return true;
+        // Si el pago se hizo durante un periodo registrado en el historial de custodia de este auto
+        if (custodyHistory.length > 0 && p.date) {
+          const matchedCustody = custodyHistory.some(log => {
+            if (log.driverId !== p.driverId) return false;
+            const startOk = !log.startDate || p.date >= log.startDate;
+            const endOk = !log.endDate || p.date <= log.endDate;
+            return startOk && endOk;
+          });
+          if (matchedCustody) return true;
+        }
+        return car.driverId && p.driverId === car.driverId;
+      });
+
+      const collected = approvedPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const carExpenses = (appState.expenses || []).filter(e => e.carId === car.id);
+      const expenses = carExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      const netProfit = Number((collected - expenses).toFixed(2));
+      const marginPct = collected > 0 ? Math.max(0, Math.min(100, Math.round((netProfit / collected) * 100))) : 0;
+
+      return {
+        collected: Number(collected.toFixed(2)),
+        expenses: Number(expenses.toFixed(2)),
+        netProfit,
+        marginPct,
+        paymentsCount: approvedPayments.length,
+        expensesCount: carExpenses.length
+      };
+    }
+
+    // =========================================================================
+    // 3. HISTORIAL Y BUSCADOR DE CUSTODIA "¿QUIÉN TENÍA EL AUTO EN ESA FECHA?"
+    // =========================================================================
+    function ensureInitialCustodyLogs() {
+      if (!Array.isArray(appState.custodyLogs)) {
+        appState.custodyLogs = [];
+      }
+      const todayIso = new Date().toISOString().split('T')[0];
+
+      // Garantizar que todo auto que actualmente tenga un conductor asignado tenga su registro de custodia abierto
+      (appState.cars || []).forEach(car => {
+        if (!car.driverId) return;
+        const activeLog = appState.custodyLogs.find(l => l.carId === car.id && !l.endDate);
+        const drv = (appState.drivers || []).find(d => d.id === car.driverId);
+        if (!activeLog && drv) {
+          // Buscar el pago más antiguo de este conductor para estimar desde cuándo tiene el auto
+          const drvPayments = (appState.payments || [])
+            .filter(p => p.driverId === drv.id && p.date)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const earliestDate = drvPayments.length > 0 ? drvPayments[0].date : todayIso;
+
+          appState.custodyLogs.unshift({
+            id: 'cust-' + car.id + '-' + drv.id,
+            carId: car.id,
+            carPlate: car.plate,
+            carModel: car.model,
+            driverId: drv.id,
+            driverName: drv.name,
+            driverPhone: drv.phone || '',
+            startDate: earliestDate,
+            endDate: '', // vacío significa que sigue activo hoy
+            notes: 'Custodia activa registrada'
+          });
+        } else if (activeLog && activeLog.driverId !== car.driverId) {
+          // Si cambió de conductor, cerramos el registro anterior hoy y abrimos el nuevo
+          activeLog.endDate = todayIso;
+          if (drv) {
+            appState.custodyLogs.unshift({
+              id: 'cust-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+              carId: car.id,
+              carPlate: car.plate,
+              carModel: car.model,
+              driverId: drv.id,
+              driverName: drv.name,
+              driverPhone: drv.phone || '',
+              startDate: todayIso,
+              endDate: '',
+              notes: 'Cambio de custodia registrado automáticamente'
+            });
+          }
+        }
+      });
+
+      // Si un auto quedó sin conductor pero tenía un registro abierto, cerrarlo
+      (appState.cars || []).forEach(car => {
+        if (!car.driverId) {
+          const openLog = appState.custodyLogs.find(l => l.carId === car.id && !l.endDate);
+          if (openLog) openLog.endDate = todayIso;
+        }
+      });
+    }
+
+    function findCustodianByCarAndDate(carId, targetDateStr) {
+      ensureInitialCustodyLogs();
+      if (!carId || !targetDateStr) return [];
+      const car = (appState.cars || []).find(c => c.id === carId);
+      const matches = [];
+
+      // 1. Buscar en los registros de custodia por rango de fechas
+      (appState.custodyLogs || []).forEach(log => {
+        if (log.carId !== carId) return;
+        const startOk = !log.startDate || targetDateStr >= log.startDate;
+        const endOk = !log.endDate || targetDateStr <= log.endDate;
+        if (startOk && endOk) {
+          matches.push({
+            driverId: log.driverId,
+            driverName: log.driverName,
+            driverPhone: log.driverPhone || '',
+            startDate: log.startDate || 'Inicio',
+            endDate: log.endDate || 'Actualidad',
+            source: 'Historial de Custodia Oficial'
+          });
+        }
+      });
+
+      // 2. Respaldo adicional: revisar si algún conductor reportó pago ese día exacto para ese auto
+      if (matches.length === 0) {
+        (appState.payments || []).forEach(p => {
+          if (p.date === targetDateStr) {
+            const pCar = getDriverAssignedCar(p.driverId);
+            if ((p.carId && p.carId === carId) || (pCar && pCar.id === carId)) {
+              const drv = (appState.drivers || []).find(d => d.id === p.driverId);
+              if (drv && !matches.some(m => m.driverId === drv.id)) {
+                matches.push({
+                  driverId: drv.id,
+                  driverName: drv.name,
+                  driverPhone: drv.phone || '',
+                  startDate: p.date,
+                  endDate: p.date,
+                  source: `Pago registrado en esa fecha (${p.id})`
+                });
+              }
+            }
+          }
+        });
+      }
+
+      // 3. Si es la fecha de hoy y tiene chofer asignado
+      if (matches.length === 0 && car && car.driverId) {
+        const drv = (appState.drivers || []).find(d => d.id === car.driverId);
+        if (drv) {
+          matches.push({
+            driverId: drv.id,
+            driverName: drv.name,
+            driverPhone: drv.phone || '',
+            startDate: 'Asignación actual',
+            endDate: 'Actualidad',
+            source: 'Conductor actualmente asignado'
+          });
+        }
+      }
+
+      return matches;
+    }
+
+    function runFleetCustodySearch() {
+      const carSel = document.getElementById('fleet-custody-search-car');
+      const dateInput = document.getElementById('fleet-custody-search-date');
+      const resBox = document.getElementById('fleet-custody-search-result');
+      if (!carSel || !dateInput || !resBox) return;
+
+      const carId = carSel.value;
+      const dateVal = dateInput.value;
+      if (!dateVal) {
+        showToast('Selecciona la fecha de la boleta o incidente que deseas consultar', 'warning');
+        return;
+      }
+
+      const targetCars = carId === 'ALL'
+        ? (appState.cars || [])
+        : (appState.cars || []).filter(c => c.id === carId);
+
+      const results = [];
+      targetCars.forEach(car => {
+        const custodians = findCustodianByCarAndDate(car.id, dateVal);
+        custodians.forEach(c => {
+          results.push({ car, custodian: c });
+        });
+      });
+
+      resBox.classList.remove('hidden');
+      if (results.length === 0) {
+        resBox.className = 'p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-bold';
+        resBox.innerHTML = `⚠️ No se encontró ningún conductor asignado en la fecha <strong>${dateVal}</strong>. Puedes abrir el botón <strong>«🕒 Historial Custodia»</strong> del auto para registrar periodos anteriores.`;
+        return;
+      }
+
+      resBox.className = 'p-3.5 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-950 space-y-2 text-xs';
+      resBox.innerHTML = `
+        <div class="flex items-center justify-between border-b border-emerald-200 pb-1.5">
+          <span class="font-black uppercase text-emerald-900">✅ Resultado de Custodia para la fecha ${dateVal}:</span>
+          <button type="button" onclick="document.getElementById('fleet-custody-search-result').classList.add('hidden')" class="text-[11px] font-bold text-slate-500 hover:text-slate-800">Cerrar ✕</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          ${results.map(r => `
+            <div class="p-2.5 rounded-xl bg-white border border-emerald-200 flex items-center justify-between gap-2 shadow-2xs">
+              <div>
+                <span class="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">${r.car.plate} · ${r.car.model}</span>
+                <p class="font-black text-slate-900 text-sm mt-1">👤 ${r.custodian.driverName}</p>
+                <p class="text-[11px] text-slate-500">📞 ${r.custodian.driverPhone || 'Sin tel.'} · Periodo: <strong>${r.custodian.startDate} → ${r.custodian.endDate}</strong></p>
+              </div>
+              <button type="button" onclick="openViewDriverModal('${r.custodian.driverId}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] border border-indigo-200 whitespace-nowrap">
+                Ver Chofer
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function openCarCustodyHistoryModal(carId) {
+      ensureInitialCustodyLogs();
+      const car = (appState.cars || []).find(c => c.id === carId);
+      if (!car) return;
+
+      document.getElementById('custody-modal-car-id').value = car.id;
+      document.getElementById('custody-modal-title').textContent = `Custodia · ${car.model} (${car.plate})`;
+
+      const drvSel = document.getElementById('custody-manual-driver');
+      if (drvSel) {
+        drvSel.innerHTML = (appState.drivers || []).map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+        if (car.driverId) drvSel.value = car.driverId;
+      }
+
+      const startInput = document.getElementById('custody-manual-start');
+      if (startInput && !startInput.value) {
+        startInput.value = new Date().toISOString().split('T')[0];
+      }
+      const endInput = document.getElementById('custody-manual-end');
+      if (endInput) endInput.value = '';
+
+      renderCarCustodyHistoryModalList(car.id);
+      openModal('modal-car-custody-history');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function renderCarCustodyHistoryModalList(carId) {
+      const listEl = document.getElementById('custody-modal-list');
+      if (!listEl) return;
+
+      const logs = (appState.custodyLogs || [])
+        .filter(l => l.carId === carId)
+        .sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+
+      if (logs.length === 0) {
+        listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">No hay registros de custodia para este vehículo todavía.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = logs.map(l => `
+        <div class="p-3 rounded-2xl border ${!l.endDate ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200 bg-white'} flex items-center justify-between gap-2">
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${!l.endDate ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}">
+                ${!l.endDate ? '🟢 EN CUSTODIA ACTUAL' : '📁 HISTÓRICO'}
+              </span>
+              <span class="font-black text-slate-900 text-xs">${l.driverName}</span>
+            </div>
+            <p class="text-[11px] text-slate-600 mt-1 font-semibold">
+              📅 Desde: <strong>${l.startDate || 'Inicio'}</strong>  →  Hasta: <strong>${l.endDate || 'Actualidad (En curso)'}</strong>
+            </p>
+            <p class="text-[10px] text-slate-400">${l.notes || ''}</p>
+          </div>
+          <button type="button" onclick="deleteCustodyLogEntry('${l.id}', '${carId}')" class="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[11px] font-bold">
+            Borrar
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function addManualCustodyRecord() {
+      const carId = document.getElementById('custody-modal-car-id').value;
+      const car = (appState.cars || []).find(c => c.id === carId);
+      const drvId = document.getElementById('custody-manual-driver').value;
+      const drv = (appState.drivers || []).find(d => d.id === drvId);
+      const startDate = document.getElementById('custody-manual-start').value;
+      const endDate = document.getElementById('custody-manual-end').value;
+
+      if (!car || !drv || !startDate) {
+        showToast('Selecciona el conductor y la fecha de inicio', 'warning');
+        return;
+      }
+
+      if (!Array.isArray(appState.custodyLogs)) appState.custodyLogs = [];
+      appState.custodyLogs.unshift({
+        id: 'cust-' + Date.now(),
+        carId: car.id,
+        carPlate: car.plate,
+        carModel: car.model,
+        driverId: drv.id,
+        driverName: drv.name,
+        driverPhone: drv.phone || '',
+        startDate,
+        endDate: endDate || '',
+        notes: 'Registro manual de custodia'
+      });
+
+      saveStateAndBroadcast(true);
+      renderCarCustodyHistoryModalList(car.id);
+      renderAdminView();
+      showToast(`✓ Periodo de custodia de ${drv.name} registrado en ${car.plate}`, 'success');
+    }
+
+    function deleteCustodyLogEntry(logId, carId) {
+      appState.custodyLogs = (appState.custodyLogs || []).filter(l => l.id !== logId);
+      saveStateAndBroadcast(true);
+      renderCarCustodyHistoryModalList(carId);
+      renderAdminView();
+      showToast('Registro de custodia eliminado', 'info');
+    }
+
+    // =========================================================================
+    // DECORADORES NO DESTRUCTIVOS PARA LA SECCIÓN DE FLOTA Y FICHA DEL VEHÍCULO
+    // =========================================================================
+    const origSaveStateForCustody = saveStateAndBroadcast;
+    saveStateAndBroadcast = function(forceCloudWrite = false) {
+      ensureInitialCustodyLogs();
+      origSaveStateForCustody(forceCloudWrite);
+    };
+
+    const origRenderFleetSectionForROI = renderFleetSection;
+    renderFleetSection = function() {
+      ensureInitialCustodyLogs();
+      origRenderFleetSectionForROI();
+
+      const fleetPanel = document.getElementById('panel-tab-fleet');
+      const cardsContainer = document.getElementById('fleet-cards-container');
+      if (!fleetPanel || !cardsContainer) return;
+
+      // 1. Inyectar barra superior de Buscador "¿Quién tenía el auto en esa fecha?"
+      let searchBar = document.getElementById('fleet-custody-finder-bar');
+      if (!searchBar) {
+        searchBar = document.createElement('div');
+        searchBar.id = 'fleet-custody-finder-bar';
+        searchBar.className = 'bg-indigo-50/80 border-2 border-indigo-200 rounded-3xl p-4 shadow-xs space-y-3';
+        fleetPanel.insertBefore(searchBar, cardsContainer);
+      }
+
+      const prevCarVal = document.getElementById('fleet-custody-search-car') ? document.getElementById('fleet-custody-search-car').value : 'ALL';
+      const prevDateVal = document.getElementById('fleet-custody-search-date') ? document.getElementById('fleet-custody-search-date').value : new Date().toISOString().split('T')[0];
+
+      searchBar.innerHTML = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-xs">
+              🔍
+            </div>
+            <div>
+              <h4 class="text-xs sm:text-sm font-black text-indigo-950">Buscador de Custodia: ¿Quién tenía el auto en esa fecha?</h4>
+              <p class="text-[11px] text-indigo-700">Ideal para verificar boletas de tránsito (ATTT), Panapass o daños de fechas anteriores.</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="fleet-custody-search-car" class="text-xs font-bold p-2.5 rounded-xl border border-indigo-300 bg-white">
+              <option value="ALL">🚗 Todos los Autos</option>
+              ${(appState.cars || []).map(c => `<option value="${c.id}" ${c.id === prevCarVal ? 'selected' : ''}>${c.plate} · ${c.model}</option>`).join('')}
+            </select>
+            <input type="date" id="fleet-custody-search-date" value="${prevDateVal}" class="text-xs font-bold p-2.5 rounded-xl border border-indigo-300 bg-white">
+            <button type="button" onclick="runFleetCustodySearch()" class="px-4 py-2.5 rounded-xl custom-primary-bg text-white text-xs font-black shadow-xs whitespace-nowrap">
+              Consultar Fecha
+            </button>
+          </div>
+        </div>
+        <div id="fleet-custody-search-result" class="hidden"></div>
+      `;
+
+      // 2. Inyectar Rentabilidad Real (ROI) y Botón de Historial de Custodia en cada tarjeta de vehículo
+      const carCards = cardsContainer.children;
+      (appState.cars || []).forEach((car, index) => {
+        const cardEl = carCards[index];
+        if (!cardEl || cardEl.querySelector('.car-roi-injected')) return;
+
+        const roi = calculateCarRealProfitability(car);
+        const isPositive = roi.netProfit >= 0;
+
+        const roiBox = document.createElement('div');
+        roiBox.className = 'car-roi-injected pt-2 border-t border-slate-100 space-y-2';
+        roiBox.innerHTML = `
+          <div class="p-3 rounded-2xl ${isPositive ? 'bg-emerald-50/70 border border-emerald-200' : 'bg-rose-50/70 border border-rose-200'} space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-black uppercase ${isPositive ? 'text-emerald-900' : 'text-rose-900'}">📊 Rentabilidad Real del Auto (ROI)</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${isPositive ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}">
+                Neto: ${isPositive ? '+' : ''}$${roi.netProfit.toFixed(2)}
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[11px] pt-0.5">
+              <div><span class="text-slate-500">Producido:</span> <strong class="text-emerald-700">$${roi.collected.toFixed(2)}</strong></div>
+              <div><span class="text-slate-500">Gastos Taller:</span> <strong class="text-rose-600">-$${roi.expenses.toFixed(2)}</strong></div>
+            </div>
+            <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+              <div class="${isPositive ? 'bg-emerald-600' : 'bg-rose-600'} h-full rounded-full" style="width: ${roi.marginPct}%"></div>
+            </div>
+          </div>
+
+          <button type="button" onclick="openCarCustodyHistoryModal('${car.id}')" class="w-full py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-xs flex items-center justify-center space-x-1.5">
+            <span>🕒 Quién tuvo este auto / Historial de Custodia</span>
+          </button>
+        `;
+
+        const topInfoDiv = cardEl.querySelector('.space-y-2');
+        if (topInfoDiv) {
+          topInfoDiv.appendChild(roiBox);
+        } else {
+          cardEl.insertBefore(roiBox, cardEl.lastElementChild);
+        }
+      });
+    };
+
+    const origOpenViewCarModalForROI = openViewCarModal;
+    openViewCarModal = function(carId) {
+      ensureInitialCustodyLogs();
+      origOpenViewCarModalForROI(carId);
+      const car = (appState.cars || []).find(c => c.id === carId);
+      const content = document.getElementById('viewcar-content');
+      if (!car || !content) return;
+
+      const roi = calculateCarRealProfitability(car);
+      const logs = (appState.custodyLogs || [])
+        .filter(l => l.carId === car.id)
+        .sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''))
+        .slice(0, 5);
+
+      const extraWrap = document.createElement('div');
+      extraWrap.className = 'space-y-3 pt-2';
+      extraWrap.innerHTML = `
+        <div class="p-3.5 rounded-2xl border-2 ${roi.netProfit >= 0 ? 'border-emerald-200 bg-emerald-50/50' : 'border-rose-200 bg-rose-50/50'} space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-black uppercase text-slate-800">📊 Balance y Rentabilidad Real de este Auto</span>
+            <span class="text-sm font-black ${roi.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}">
+              Utilidad Neta: $${roi.netProfit.toFixed(2)}
+            </span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center bg-white p-2.5 rounded-xl border border-slate-200">
+            <div>
+              <span class="text-[10px] text-slate-400 font-bold uppercase block">Cobrado (${roi.paymentsCount})</span>
+              <strong class="text-emerald-600 text-xs">$${roi.collected.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-400 font-bold uppercase block">Taller (${roi.expensesCount})</span>
+              <strong class="text-rose-600 text-xs">-$${roi.expenses.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-400 font-bold uppercase block">Margen Real</span>
+              <strong class="text-indigo-600 text-xs">${roi.marginPct}%</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-black uppercase text-slate-800">🕒 Historial de Conductores de este Auto</span>
+            <button type="button" onclick="closeModal('modal-view-car'); openCarCustodyHistoryModal('${car.id}')" class="text-[11px] font-black text-indigo-600 hover:underline">
+              Gestionar Fechas
+            </button>
+          </div>
+          ${logs.length > 0 ? `
+            <div class="space-y-1.5">
+              ${logs.map(l => `
+                <div class="p-2 rounded-xl bg-white border border-slate-200 flex items-center justify-between text-[11px]">
+                  <span class="font-black text-slate-900">👤 ${l.driverName}</span>
+                  <span class="font-mono text-slate-600">${l.startDate || 'Inicio'} → <strong>${l.endDate || 'Actual'}</strong></span>
+                </div>
+              `).join('')}
+            </div>
+          ` : `<p class="text-[11px] text-slate-400">Sin historial registrado.</p>`}
+        </div>
+      `;
+      content.appendChild(extraWrap);
+    };
   </script>
 
   <!-- ==================================================================================== -->
@@ -10709,8 +11617,6 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
 
       if (newStatus === 'Aprobado' || newStatus === 'Rechazado') {
         removePaymentFromCloudInbox(p.id, false);
-      } else if (newStatus === 'Pendiente') {
-        pushSinglePaymentToCloudInbox(p);
       }
 
       syncSinglePaymentStatusToCloud(p);
@@ -10882,174 +11788,6 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
         `;
       }).join('');
     };
-  </script>
-
-  <!-- ==================================================================================== -->
-  <!-- PUENTE EN NUBE GARANTIZADO (CLOUD FIRESTORE BRIDGE CON AUTENTICACIÓN AUTOMÁTICA)      -->
-  <!-- Garantiza que los pagos entre teléfonos pasen siempre aunque Realtime DB esté cerrado -->
-  <!-- ==================================================================================== -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    let fsDb = null;
-    let fsAuth = null;
-    let fsUser = null;
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'autorent-pro-flota-sync';
-
-    async function initGuaranteedCloudBridge() {
-      try {
-        const rawConfig = (typeof __firebase_config !== 'undefined' && __firebase_config)
-          ? JSON.parse(__firebase_config)
-          : window.firebaseConfig;
-
-        if (!rawConfig || !rawConfig.apiKey) return;
-
-        const bridgeApp = initializeApp(rawConfig, "GuaranteedCloudBridgeApp");
-        fsAuth = getAuth(bridgeApp);
-        fsDb = getFirestore(bridgeApp);
-
-        // Regla obligatoria: Autenticar primero antes de cualquier operación en la nube
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          try {
-            await signInWithCustomToken(fsAuth, __initial_auth_token);
-          } catch (e) {
-            await signInAnonymously(fsAuth);
-          }
-        } else {
-          await signInAnonymously(fsAuth);
-        }
-
-        onAuthStateChanged(fsAuth, (user) => {
-          fsUser = user;
-          if (user) {
-            if (typeof window.updateFirebaseStatusBadges === 'function') {
-              window.updateFirebaseStatusBadges(true, 'Firebase Activo');
-            }
-            startRealtimePaymentsListener();
-          }
-        });
-      } catch (err) {
-        console.warn("Aviso inicializando Cloud Bridge:", err);
-      }
-    }
-
-    function startRealtimePaymentsListener() {
-      if (!fsUser || !fsDb) return;
-
-      // 1. Escuchar en vivo cada pago reportado por cualquier chofer desde otro teléfono
-      const paymentsColRef = collection(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments');
-      onSnapshot(
-        paymentsColRef,
-        (snapshot) => {
-          const incomingList = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            if (data && data.id) incomingList.push(data);
-          });
-          if (incomingList.length > 0 && typeof window.mergeIncomingInboxPayments === 'function') {
-            window.mergeIncomingInboxPayments(incomingList, true);
-          }
-        },
-        (error) => {
-          console.warn("Aviso listener pagos en vivo:", error);
-        }
-      );
-
-      // 2. Escuchar cambios globales de choferes/flota/saldos para mantener ambos teléfonos sincronizados
-      const stateDocRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'app_state_sync', 'main_state');
-      onSnapshot(
-        stateDocRef,
-        (docSnap) => {
-          if (!docSnap.exists()) return;
-          const cloudWrapper = docSnap.data();
-          if (cloudWrapper && cloudWrapper.payloadJson) {
-            try {
-              const parsed = JSON.parse(cloudWrapper.payloadJson);
-              if (parsed && Array.isArray(parsed.drivers) && typeof window.mergeDriversPreservingNewest === 'function') {
-                appState.drivers = window.mergeDriversPreservingNewest(parsed.drivers, appState.drivers);
-                if (typeof window.saveFastCoreBackup === 'function') window.saveFastCoreBackup();
-                if (currentSession.role === 'admin') renderAdminView();
-                else if (currentSession.role === 'driver') renderDriverView();
-              }
-              if (parsed && Array.isArray(parsed.payments) && typeof window.mergeIncomingInboxPayments === 'function') {
-                window.mergeIncomingInboxPayments(parsed.payments, false);
-              }
-            } catch (e) {}
-          }
-        },
-        (err) => {
-          console.warn("Aviso listener estado general:", err);
-        }
-      );
-    }
-
-    // Función global para subir un pago de un conductor sin fallar jamás por reglas de raíz
-    window.pushPaymentToFirestoreBridge = async function(paymentObj) {
-      if (!paymentObj || !paymentObj.id) return false;
-      if (!fsDb) await initGuaranteedCloudBridge();
-      if (!fsAuth?.currentUser) {
-        try { await signInAnonymously(fsAuth); } catch (e) {}
-      }
-      if (!fsDb) return false;
-
-      const payload = Object.assign({}, paymentObj, { syncedAt: Date.now() });
-      const payRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments', String(paymentObj.id));
-      await setDoc(payRef, payload);
-      return true;
-    };
-
-    // Función global para actualizar o eliminar un pago en el puente cuando el Admin cambia su estado
-    window.removePaymentFromFirestoreBridge = async function(paymentId, permanentDelete = false) {
-      if (!paymentId || !fsDb) return;
-      const activeUser = fsAuth?.currentUser || fsUser;
-      if (!activeUser) return;
-      if (permanentDelete) {
-        const payRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments', String(paymentId));
-        await deleteDoc(payRef);
-      }
-    };
-
-    // Función global para traer pagos pendientes bajo demanda (botón Sincronizar)
-    window.pullPaymentsFromFirestoreBridge = async function() {
-      if (!fsDb) return 0;
-      const activeUser = fsAuth?.currentUser || fsUser;
-      if (!activeUser) return 0;
-      const paymentsColRef = collection(fsDb, 'artifacts', appId, 'public', 'data', 'reported_payments');
-      const snap = await getDocs(paymentsColRef);
-      const list = [];
-      snap.forEach((d) => {
-        const val = d.data();
-        if (val && val.id) list.push(val);
-      });
-      if (list.length > 0 && typeof window.mergeIncomingInboxPayments === 'function') {
-        return window.mergeIncomingInboxPayments(list, true);
-      }
-      return 0;
-    };
-
-    // Respaldo ligero del estado general (sin fotos pesadas para respetar el límite de 1MB por documento)
-    window.pushFullStateToFirestoreBridge = async function(fullState) {
-      if (!fsDb || !fullState) return;
-      const activeUser = fsAuth?.currentUser || fsUser;
-      if (!activeUser) return;
-      try {
-        const lightCopy = JSON.parse(JSON.stringify(fullState));
-        (lightCopy.payments || []).forEach(p => {
-          if (p.receiptImage && p.receiptImage.length > 500) {
-            delete p.receiptImage;
-          }
-        });
-        const stateDocRef = doc(fsDb, 'artifacts', appId, 'public', 'data', 'app_state_sync', 'main_state');
-        await setDoc(stateDocRef, {
-          updatedAt: Date.now(),
-          payloadJson: JSON.stringify(lightCopy)
-        });
-      } catch (e) {}
-    };
-
-    initGuaranteedCloudBridge();
   </script>
 </body>
 </html>
