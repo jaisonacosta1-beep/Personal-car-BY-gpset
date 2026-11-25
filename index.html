@@ -3139,6 +3139,58 @@
     }
 
     let lastFirebaseErrorInfo = { code: '', message: '' };
+    let firebaseServerTimeOffset = 0;
+    const approvingPaymentIds = new Set();
+
+    // Escritura atómica multi-ruta en Firebase (actualiza pagos, saldos y limpia el buzón en una sola operación)
+    function commitAtomicCloudPatch(patchObj) {
+      const nowTs = Date.now() + (Number(firebaseServerTimeOffset) || 0);
+      const cleanPatch = {};
+      Object.keys(patchObj || {}).forEach(k => {
+        cleanPatch[k] = patchObj[k] === null ? null : JSON.parse(JSON.stringify(patchObj[k]));
+      });
+      cleanPatch.updatedAt = nowTs;
+      appState.updatedAt = nowTs;
+
+      saveFastCoreBackup();
+      try {
+        localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState));
+      } catch (e) {}
+
+      const baseUrl = getCleanFirebaseDbUrl();
+      if (isFirebaseReady && db) {
+        return db.ref('rentFlotaEnterpriseV2').update(cleanPatch)
+          .then(() => {
+            updateFirebaseStatusBadges(true, 'Firebase Conectado');
+            return true;
+          })
+          .catch((err) => {
+            console.warn('Error en update atómico SDK, intentando REST PATCH:', err);
+            if (!baseUrl) return false;
+            return fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanPatch)
+            }, 12000).then(r => !!(r && r.ok)).catch(() => false);
+          });
+      }
+
+      if (baseUrl) {
+        return fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cleanPatch)
+        }, 12000).then(r => {
+          if (r && r.ok) {
+            updateFirebaseStatusBadges(true, 'Firebase Conectado');
+            return true;
+          }
+          return false;
+        }).catch(() => false);
+      }
+
+      return Promise.resolve(false);
+    }
 
     function showFirebaseErrorDetails(ev) {
       if (ev && ev.stopPropagation) ev.stopPropagation();
@@ -3315,16 +3367,16 @@
 
       incoming.forEach(pay => {
         if (!pay || !pay.id) return;
-        if (processedIds.includes(pay.id)) return;
-        appState.inbox[pay.id] = pay;
+        if (processedIds.includes(pay.id) || approvingPaymentIds.has(pay.id)) return;
         const existing = existingMap.get(pay.id);
+        if (existing && existing.status && existing.status !== 'Pendiente') {
+          return;
+        }
+        appState.inbox[pay.id] = pay;
         if (!existing) {
           appState.payments.unshift(pay);
           existingMap.set(pay.id, pay);
           addedCount++;
-        } else if (existing.status === 'Pendiente' && pay.status && pay.status !== 'Pendiente') {
-          Object.assign(existing, pay);
-          updatedCount++;
         } else if ((!existing.receiptImage || existing.receiptImage === DEFAULT_PLACEHOLDER_RECEIPT) && pay.receiptImage && pay.receiptImage.startsWith('data:image')) {
           existing.receiptImage = pay.receiptImage;
           updatedCount++;
@@ -3639,7 +3691,21 @@
       delete cloudPayload.inbox;
 
       if (isFirebaseReady && db) {
-        db.ref('rentFlotaEnterpriseV2').update(cloudPayload).catch(err => console.error(err));
+        db.ref('rentFlotaEnterpriseV2').update(cloudPayload)
+          .then(() => updateFirebaseStatusBadges(true, 'Firebase Conectado'))
+          .catch(err => {
+            console.error('Error guardando con SDK, intentando respaldo REST:', err);
+            if (baseUrl) {
+              fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cloudPayload)
+              }, 12000).then(r => {
+                if (r && r.ok) updateFirebaseStatusBadges(true, 'Firebase Conectado');
+              }).catch(() => {});
+            }
+          });
+        return;
       }
 
       if (baseUrl) {
@@ -3655,6 +3721,10 @@
 
     function setupFirebaseCloudSync() {
       if (!isFirebaseReady || !db) return;
+
+      db.ref('.info/serverTimeOffset').on('value', (snap) => {
+        firebaseServerTimeOffset = Number(snap.val()) || 0;
+      });
 
       db.ref('.info/connected').on('value', (snap) => {
         if (snap.val() === true && lastFirebaseErrorInfo.code !== 'PERMISSION_DENIED') {
@@ -3776,9 +3846,92 @@
       showToast('Historial de accesos vaciado', 'info');
     }
 
+    // Funciones auxiliares de estado de cuenta, vehículo, referencias y odómetro
+    function getDriverAssignedCar(driverId) {
+      if (!driverId) return null;
+      return (appState.cars || []).find(c => c && c.driverId === driverId) || null;
+    }
+
+    function formatDriverBalanceInfo(driver) {
+      const bal = Number(driver ? driver.balance : 0) || 0;
+      if (bal > 0) {
+        return {
+          type: 'debt',
+          label: 'Saldo pendiente:',
+          text: `Debe $${bal.toFixed(2)}`,
+          badgeText: `Debe $${bal.toFixed(2)}`,
+          colorClass: 'text-rose-600'
+        };
+      }
+      if (bal < 0) {
+        const fav = Math.abs(bal);
+        return {
+          type: 'credit',
+          label: 'Saldo a favor:',
+          text: `A favor +$${fav.toFixed(2)}`,
+          badgeText: `A favor +$${fav.toFixed(2)}`,
+          colorClass: 'text-emerald-600'
+        };
+      }
+      return {
+        type: 'ok',
+        label: 'Estado de cuenta:',
+        text: 'Al Día ($0.00)',
+        badgeText: 'Al Día ($0.00)',
+        colorClass: 'text-emerald-600'
+      };
+    }
+
+    function getOwedDateForDriver(driver) {
+      const { todayIso, yesterdayIso } = getPanamaDateParts();
+      if (!driver) return todayIso;
+      const info = getDriverOverdueInfo(driver);
+      if (info.overdueBalance > 0) return yesterdayIso;
+      return todayIso;
+    }
+
+    function normalizeRefCode(ref) {
+      return String(ref || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    }
+
+    function isReferenceDuplicated(ref) {
+      const clean = normalizeRefCode(ref);
+      if (!clean || clean.length < 4 || clean === 'EFECTIVO' || clean === 'SR') return false;
+      return (appState.payments || []).some(p => {
+        if (!p || p.status === 'Rechazado') return false;
+        return normalizeRefCode(p.concept) === clean;
+      });
+    }
+
+    function validateCoherentMileage(rawVal, car) {
+      const str = String(rawVal || '').trim();
+      if (!str) {
+        return { valid: false, km: 0, message: '⚠️ Debes ingresar el kilometraje actual del tablero.' };
+      }
+      const km = parseInt(str, 10);
+      if (isNaN(km) || km <= 0 || km > 2000000) {
+        return { valid: false, km: 0, message: '⚠️ Kilometraje inválido. Ingresa un número real del odómetro.' };
+      }
+      const currentKm = car ? (Number(car.km) || 0) : 0;
+      if (currentKm > 0 && km < currentKm) {
+        return { valid: false, km, message: `⚠️ No puede ser menor al kilometraje actual (${currentKm.toLocaleString()} Km).` };
+      }
+      if (currentKm > 0 && (km - currentKm) > 15000) {
+        return { valid: false, km, message: `⚠️ El salto (+${(km - currentKm).toLocaleString()} Km) es demasiado alto respecto a ${currentKm.toLocaleString()} Km. Verifica el tablero.` };
+      }
+      const diff = currentKm > 0 ? (km - currentKm) : 0;
+      return {
+        valid: true,
+        km,
+        message: currentKm > 0
+          ? `✓ Kilometraje válido (+${diff.toLocaleString()} Km recorridos)`
+          : `✓ Kilometraje válido (${km.toLocaleString()} Km)`
+      };
+    }
+
     // AUTOMATIZACIÓN DE CUOTA A LA 1:00 AM (HORA DE PANAMÁ) & CONTROL DE DÍA CORRIENTE VS DÍA ANTERIOR
     function getPanamaDateParts() {
-      const now = new Date();
+      const now = new Date(Date.now() + (Number(firebaseServerTimeOffset) || 0));
       const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Panama',
         year: 'numeric',
@@ -3795,7 +3948,29 @@
       const hour = rawHour === 24 ? 0 : rawHour;
       const minute = parseInt(map.minute, 10) || 0;
       const todayIso = `${map.year}-${map.month}-${map.day}`;
-      return { todayIso, hour, minute };
+
+      const yDate = new Date(todayIso + 'T12:00:00');
+      yDate.setDate(yDate.getDate() - 1);
+      const yesterdayIso = yDate.toISOString().split('T')[0];
+      const effectiveBillingDate = hour >= 1 ? todayIso : yesterdayIso;
+
+      return { todayIso, yesterdayIso, effectiveBillingDate, hour, minute };
+    }
+
+    function countChargeableDaysBetween(startIso, endIso, skipSunday) {
+      if (!startIso || !endIso || startIso >= endIso) return 0;
+      const startDate = new Date(startIso + 'T12:00:00');
+      const endDate = new Date(endIso + 'T12:00:00');
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return 0;
+      const totalDiffDays = Math.min(Math.max(0, Math.round((endDate - startDate) / 86400000)), 60);
+      let chargeable = 0;
+      for (let i = 1; i <= totalDiffDays; i++) {
+        const stepDate = new Date(startDate);
+        stepDate.setDate(stepDate.getDate() + i);
+        if (skipSunday && stepDate.getDay() === 0) continue;
+        chargeable++;
+      }
+      return chargeable;
     }
 
     function getDriverOverdueInfo(driver) {
@@ -3817,7 +3992,7 @@
         !driver.billingPaused &&
         !(skipSunday && isSunday) &&
         hour >= 1 &&
-        appState.lastDailyFeeDate === todayIso
+        (appState.lastDailyFeeDate === todayIso || driver.lastAutoBilledDate === todayIso)
       );
 
       const runningQuota = isBilledToday ? Math.min(totalBalance, rate) : 0;
@@ -3828,273 +4003,108 @@
 
     let dailyFeeAutomationInFlight = false;
     function checkDailyFeeAutomation() {
-      if (!hasInitialCloudSync || dailyFeeAutomationInFlight) return;
-      const { todayIso, hour } = getPanamaDateParts();
+      if (!hasInitialCloudSync || dailyFeeAutomationInFlight || !isFirebaseReady || !db) return;
+      const { effectiveBillingDate } = getPanamaDateParts();
+      if (!effectiveBillingDate) return;
 
-      // Si aún no existe fecha base guardada en la nube, inicializarla una sola vez sin cobrar retroactivamente
-      if (!appState.lastDailyFeeDate) {
-        let initialDate = todayIso;
-        if (hour < 1) {
-          const yesterday = new Date(todayIso + 'T12:00:00');
-          yesterday.setDate(yesterday.getDate() - 1);
-          initialDate = yesterday.toISOString().split('T')[0];
-        }
-        appState.lastDailyFeeDate = initialDate;
-        if (isFirebaseReady && db) {
-          db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').set(initialDate).catch(() => {});
-        }
+      // Si ya se cobró hasta la fecha efectiva más reciente (hoy desde la 1:00 AM, o ayer antes de la 1:00 AM), no hacer nada
+      if (appState.lastDailyFeeDate && appState.lastDailyFeeDate >= effectiveBillingDate) {
         return;
       }
 
-      // Ejecutar desde la 1:00 AM (hora de Panamá) si la última fecha cobrada es distinta a hoy
-      if (hour < 1 || appState.lastDailyFeeDate === todayIso) return;
+      dailyFeeAutomationInFlight = true;
+      let capturedPrevDate = null;
 
-      const applyFeesForRange = (previousDateStr) => {
-        if (!previousDateStr || previousDateStr === todayIso) return false;
-        const lastDate = new Date(previousDateStr + 'T12:00:00');
-        const currDate = new Date(todayIso + 'T12:00:00');
-        const rawDiffDays = Math.round((currDate - lastDate) / (1000 * 60 * 60 * 24));
-        const totalDiffDays = Math.min(Math.max(0, rawDiffDays), 60);
-        if (totalDiffDays <= 0) return false;
-
-        const nowTs = Date.now();
-        let anyDriverUpdated = false;
-        (appState.drivers || []).forEach(driver => {
-          const car = getDriverAssignedCar(driver.id);
-          if (car && car.status === 'Alquilado' && !driver.billingPaused) {
-            let driverChargeableDays = 0;
-            const skipSundayForThisDriver = !!(appState.skipSundays || driver.freeSundays);
-
-            for (let i = 1; i <= totalDiffDays; i++) {
-              const stepDate = new Date(lastDate);
-              stepDate.setDate(stepDate.getDate() + i);
-              const isSunday = stepDate.getDay() === 0;
-              if (skipSundayForThisDriver && isSunday) continue;
-              driverChargeableDays++;
-            }
-
-            if (driverChargeableDays > 0) {
-              const rate = Number(driver.dailyRate) || 25;
-              driver.balance = Number(((Number(driver.balance) || 0) + (rate * driverChargeableDays)).toFixed(2));
-              driver.balanceUpdatedAt = nowTs;
-              driver.updatedAt = nowTs;
-              anyDriverUpdated = true;
-            }
-          }
-        });
-
-        appState.lastDailyFeeDate = todayIso;
-        appState.updatedAt = nowTs;
-        return anyDriverUpdated || true;
-      };
-
-      // Usar transacción atómica en Firebase para que el cobro diario de la 1:00 AM se aplique una sola vez y llegue a todos los teléfonos
-      if (isFirebaseReady && db) {
-        dailyFeeAutomationInFlight = true;
-        let capturedPrevDate = appState.lastDailyFeeDate;
-        db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').transaction((currentCloudDate) => {
-          if (currentCloudDate === todayIso) {
-            return; // Abortar: otro dispositivo ya aplicó el cobro de hoy
-          }
-          capturedPrevDate = currentCloudDate || appState.lastDailyFeeDate;
-          return todayIso;
-        }, (error, committed) => {
+      // PASO 1: Transacción atómica sobre lastDailyFeeDate (solo un dispositivo gana el turno; jamás retrocede ni duplica)
+      db.ref('rentFlotaEnterpriseV2/lastDailyFeeDate').transaction((currentCloudDate) => {
+        if (currentCloudDate && currentCloudDate >= effectiveBillingDate) {
+          return; // Abortar: el cobro de hoy ya fue aplicado en la nube
+        }
+        capturedPrevDate = currentCloudDate || null;
+        return effectiveBillingDate;
+      }, (error, committed) => {
+        if (error || !committed) {
           dailyFeeAutomationInFlight = false;
-          if (!error && committed) {
-            applyFeesForRange(capturedPrevDate);
-            const driversSnapshot = JSON.parse(JSON.stringify(appState.drivers || []));
-            const patchObj = {
-              drivers: driversSnapshot,
-              lastDailyFeeDate: todayIso,
-              updatedAt: Date.now()
-            };
-            db.ref('rentFlotaEnterpriseV2').update(patchObj).catch(() => {});
-            const baseUrl = getCleanFirebaseDbUrl();
-            if (baseUrl) {
-              fetchWithTimeout(`${baseUrl}/rentFlotaEnterpriseV2.json`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(patchObj)
-              }, 10000).catch(() => {});
+          return;
+        }
+
+        // Si nunca existió una fecha base en Firebase, solo inicializamos sin cobrar días retroactivos
+        if (!capturedPrevDate) {
+          appState.lastDailyFeeDate = effectiveBillingDate;
+          dailyFeeAutomationInFlight = false;
+          return;
+        }
+
+        const nowTs = Date.now() + (Number(firebaseServerTimeOffset) || 0);
+        let chargedCount = 0;
+
+        // PASO 2: Transacción atómica directa sobre drivers para leer los saldos más recientes y blindar por chofer (lastAutoBilledDate)
+        db.ref('rentFlotaEnterpriseV2/drivers').transaction((cloudDrivers) => {
+          if (!cloudDrivers) return cloudDrivers;
+          const list = Array.isArray(cloudDrivers)
+            ? cloudDrivers.map(d => (d ? Object.assign({}, d) : d))
+            : Object.values(cloudDrivers).filter(Boolean).map(d => Object.assign({}, d));
+
+          chargedCount = 0;
+          list.forEach(driver => {
+            if (!driver || !driver.id) return;
+            const driverLastBilled = (driver.lastAutoBilledDate && driver.lastAutoBilledDate > capturedPrevDate)
+              ? driver.lastAutoBilledDate
+              : capturedPrevDate;
+
+            // Blindaje por conductor: si ya se le aplicó el cobro automático hasta effectiveBillingDate, jamás duplicar
+            if (driverLastBilled >= effectiveBillingDate) {
+              return;
             }
+
+            const car = getDriverAssignedCar(driver.id);
+            if (car && car.status === 'Alquilado' && !driver.billingPaused) {
+              const skipSundayForThisDriver = !!(appState.skipSundays || driver.freeSundays);
+              const driverChargeableDays = countChargeableDaysBetween(driverLastBilled, effectiveBillingDate, skipSundayForThisDriver);
+
+              if (driverChargeableDays > 0) {
+                const rate = Number(driver.dailyRate) || 25;
+                driver.balance = Number(((Number(driver.balance) || 0) + (rate * driverChargeableDays)).toFixed(2));
+                driver.balanceUpdatedAt = nowTs;
+                driver.updatedAt = nowTs;
+                chargedCount++;
+              }
+            }
+            driver.lastAutoBilledDate = effectiveBillingDate;
+          });
+
+          return list;
+        }, (drvErr, drvCommitted, drvSnap) => {
+          dailyFeeAutomationInFlight = false;
+          if (!drvErr && drvCommitted) {
+            const updatedDrivers = normalizeCloudList(drvSnap ? drvSnap.val() : appState.drivers);
+            if (updatedDrivers.length > 0) appState.drivers = updatedDrivers;
+            appState.lastDailyFeeDate = effectiveBillingDate;
+            appState.updatedAt = nowTs;
+
+            // Registro de auditoría en la nube para confirmar que el día quedó cobrado
+            db.ref('rentFlotaEnterpriseV2/dailyBillingLog/' + effectiveBillingDate).set({
+              date: effectiveBillingDate,
+              fromDate: capturedPrevDate,
+              chargedDrivers: chargedCount,
+              executedAt: new Date(nowTs).toISOString()
+            }).catch(() => {});
+
             saveFastCoreBackup();
             try { localStorage.setItem('autorent_enterprise_db_v2', JSON.stringify(appState)); } catch (e) {}
-            if (currentSession.role === 'admin') renderAdminView();
-            else if (currentSession.role === 'driver') renderDriverView();
-            else if (currentSession.role === 'partner') renderPartnerView();
+
+            if (currentSession.role === 'admin') {
+              renderAdminView();
+              if (chargedCount > 0) {
+                showToast(`⏰ Cobro automático diario aplicado (${effectiveBillingDate}) a ${chargedCount} conductor(es)`, 'info');
+              }
+            } else if (currentSession.role === 'driver') {
+              renderDriverView();
+            } else if (currentSession.role === 'partner') {
+              renderPartnerView();
+            }
           }
         });
-      }
-    }
-
-    // FORMATEADOR DE ESTADO DE CUENTA (DEUDA ANTERIOR, DÍA CORRIENTE, AL DÍA O SALDO A FAVOR)
-    function getOwedDateForDriver(driver) {
-      const { todayIso } = getPanamaDateParts();
-      if (!driver) return todayIso;
-      const rate = Number(driver.dailyRate) || 25;
-      const info = getDriverOverdueInfo(driver);
-      if (info.overdueBalance <= 0 || rate <= 0) return todayIso;
-
-      const skipSunday = !!(appState.skipSundays || driver.freeSundays);
-      const targetDate = new Date(todayIso + 'T12:00:00');
-      let chargeableDaysBack = Math.max(1, Math.ceil((info.overdueBalance - 0.01) / rate));
-
-      while (chargeableDaysBack > 0) {
-        targetDate.setDate(targetDate.getDate() - 1);
-        if (skipSunday && targetDate.getDay() === 0) {
-          continue;
-        }
-        chargeableDaysBack--;
-      }
-
-      return targetDate.toISOString().split('T')[0];
-    }
-
-    function formatDriverBalanceInfo(driver) {
-      const bal = Number(driver.balance) || 0;
-      const rate = Number(driver.dailyRate) || 25;
-      const info = getDriverOverdueInfo(driver);
-
-      if (bal > 0) {
-        if (info.overdueBalance <= 0) {
-          return {
-            type: 'current_day',
-            amount: bal,
-            overdueAmount: 0,
-            label: 'Estado Cuenta:',
-            text: `Al Día · Día Corriente ($${bal.toFixed(2)})`,
-            badgeText: `Al Día (Hoy: $${bal.toFixed(2)})`,
-            colorClass: 'text-emerald-600'
-          };
-        }
-        return {
-          type: 'debt',
-          amount: info.overdueBalance,
-          totalAmount: bal,
-          label: 'Deuda Anterior:',
-          text: `$${info.overdueBalance.toFixed(2)} Pendiente${info.runningQuota > 0 ? ` (+ $${info.runningQuota.toFixed(2)} hoy)` : ''}`,
-          badgeText: `Deuda: $${info.overdueBalance.toFixed(2)}`,
-          colorClass: 'text-rose-600'
-        };
-      } else if (bal < 0) {
-        const credit = Math.abs(bal);
-        const daysCredit = (credit / rate).toFixed(1).replace(/\.0$/, '');
-        return {
-          type: 'credit',
-          amount: credit,
-          days: daysCredit,
-          label: 'Saldo a Favor:',
-          text: `+$${credit.toFixed(2)} (${daysCredit}d)`,
-          badgeText: `A Favor: +$${credit.toFixed(2)}`,
-          colorClass: 'text-emerald-600'
-        };
-      } else {
-        return {
-          type: 'even',
-          amount: 0,
-          label: 'Estado Cuenta:',
-          text: 'Al Día ($0.00 · Hoy Pagado)',
-          badgeText: 'Al Día ($0.00)',
-          colorClass: 'text-emerald-600'
-        };
-      }
-    }
-
-    // VALIDADOR DE KILOMETRAJE OBLIGATORIO Y COHERENTE
-    function validateCoherentMileage(rawVal, car) {
-      const strVal = String(rawVal || '').trim();
-      if (!strVal) {
-        return {
-          valid: false,
-          message: '⚠️ El kilometraje es obligatorio para poder enviar el reporte.'
-        };
-      }
-      const enteredKm = Number(strVal);
-      if (isNaN(enteredKm) || !Number.isFinite(enteredKm) || enteredKm <= 0) {
-        return {
-          valid: false,
-          message: '⚠️ Ingresa un número de kilometraje válido mayor a 0.'
-        };
-      }
-      const currentKm = car ? (Number(car.km) || 0) : 0;
-      if (enteredKm < currentKm) {
-        return {
-          valid: false,
-          message: `⚠️ Kilometraje inválido: ${enteredKm.toLocaleString()} Km es menor al kilometraje actual del auto (${currentKm.toLocaleString()} Km).`
-        };
-      }
-      // Evitar números al azar desproporcionados (máximo +2,500 Km por reporte con respecto al último registro)
-      if (currentKm > 0 && (enteredKm - currentKm) > 2500) {
-        return {
-          valid: false,
-          message: `⚠️ Kilometraje incoherente: ${enteredKm.toLocaleString()} Km supera por más de 2,500 Km el registro actual (${currentKm.toLocaleString()} Km). Verifica el tablero.`
-        };
-      }
-      return {
-        valid: true,
-        km: Math.round(enteredKm),
-        diff: Math.round(enteredKm - currentKm),
-        message: `✓ Kilometraje coherente (+${Math.round(enteredKm - currentKm).toLocaleString()} Km recorridos)`
-      };
-    }
-
-    // HELPER PARA OBTENER EL AUTO ASIGNADO A UN CHOFER SIN FALLOS DE VÍNCULO
-    function getDriverAssignedCar(driverId) {
-      if (!driverId) return null;
-      let car = appState.cars.find(c => c.driverId === driverId);
-      if (!car) {
-        const insp = (appState.inspections || []).find(i => i.driverId === driverId);
-        if (insp) {
-          car = appState.cars.find(c => c.id === insp.carId);
-          if (car) car.driverId = driverId;
-        }
-      }
-      if (!car && appState.cars.length === 1 && appState.drivers.length === 1) {
-        car = appState.cars[0];
-        car.driverId = driverId;
-      }
-      return car || null;
-    }
-
-    // VERIFICADOR DE NÚMERO DE REFERENCIA DUPLICADO
-    function normalizeRefCode(ref) {
-      return String(ref || '')
-        .trim()
-        .toUpperCase()
-        .replace(/^#/, '')
-        .replace(/[\s\-._:]/g, '');
-    }
-
-    function normalizeRefOcrCanonical(ref) {
-      return normalizeRefCode(ref)
-        .replace(/[OQ]/g, '0')
-        .replace(/[IL]/g, '1')
-        .replace(/S/g, '5');
-    }
-
-    function isReferenceDuplicated(refStr, excludePaymentId = null) {
-      const clean = normalizeRefCode(refStr);
-      if (!clean || clean.length < 4) return false;
-      const ignored = ['EFECTIVO', 'SR', 'SINREFERENCIA', 'MANUALADMIN', 'COBRODIRECTODECUOTA'];
-      if (ignored.includes(clean)) return false;
-
-      const cleanCanon = normalizeRefOcrCanonical(refStr);
-      const cleanDigits = cleanCanon.replace(/\D/g, '');
-
-      return (appState.payments || []).some(p => {
-        if (!p || (excludePaymentId && p.id === excludePaymentId)) return false;
-        const pClean = normalizeRefCode(p.concept);
-        if (!pClean || pClean.length < 4 || ignored.includes(pClean)) return false;
-        if (pClean === clean) return true;
-
-        const pCanon = normalizeRefOcrCanonical(p.concept);
-        if (pCanon === cleanCanon) return true;
-
-        const pDigits = pCanon.replace(/\D/g, '');
-        if (cleanDigits.length >= 6 && pDigits.length >= 6 && cleanDigits === pDigits) {
-          return true;
-        }
-        return false;
       });
     }
 
@@ -5001,18 +5011,25 @@
     const DEFAULT_PLACEHOLDER_RECEIPT = 'https://placehold.co/400x400/e2e8f0/475569?text=Sin+Foto';
 
     function approvePayment(paymentId) {
-      const p = appState.payments.find(x => x.id === paymentId);
-      if (!p || p.status === 'Aprobado') return;
-      const nowTs = Date.now();
+      const p = (appState.payments || []).find(x => x && x.id === paymentId);
+      if (!p || p.status === 'Aprobado' || approvingPaymentIds.has(paymentId)) return;
+
+      approvingPaymentIds.add(paymentId);
+      const nowTs = Date.now() + (Number(firebaseServerTimeOffset) || 0);
       p.status = 'Aprobado';
+      p.approvedAt = nowTs;
       p.updatedAt = nowTs;
 
-      const driver = appState.drivers.find(d => d.id === p.driverId);
-      const car = getDriverAssignedCar(p.driverId);
+      let driver = (appState.drivers || []).find(d => d && String(d.id) === String(p.driverId));
+      if (!driver && p.driverName) {
+        driver = (appState.drivers || []).find(d => d && (d.name || '').toLowerCase() === String(p.driverName).toLowerCase());
+      }
+      const car = driver ? getDriverAssignedCar(driver.id) : getDriverAssignedCar(p.driverId);
       const amt = Number(p.amount) || 0;
 
       if (driver) {
-        driver.balance = Number(((Number(driver.balance) || 0) - amt).toFixed(2));
+        const currentBal = Number(driver.balance) || 0;
+        driver.balance = Number((currentBal - amt).toFixed(2));
         driver.balanceUpdatedAt = nowTs;
         driver.updatedAt = nowTs;
         if (driver.isRentToOwn) {
@@ -5025,19 +5042,52 @@
         car.km = Number(p.reportedKm);
       }
 
-      removePaymentFromCloudInbox(paymentId, false);
-      syncSinglePaymentStatusToCloud(p);
-      saveStateAndBroadcast(true);
+      if (appState.inbox && appState.inbox[paymentId]) {
+        delete appState.inbox[paymentId];
+      }
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
+
+      const atomicPatch = {
+        payments: appState.payments,
+        drivers: appState.drivers,
+        cars: appState.cars
+      };
+      atomicPatch['inbox/' + paymentId] = null;
+
       renderAdminView();
-      showToast('Pago aprobado y descontado del saldo del conductor', 'success');
+      showToast(`✅ Pago de $${amt.toFixed(2)} aprobado y descontado del saldo`, 'success');
+
+      commitAtomicCloudPatch(atomicPatch).finally(() => {
+        setTimeout(() => approvingPaymentIds.delete(paymentId), 3000);
+      });
     }
 
     function rejectPayment(paymentId) {
-      appState.payments = appState.payments.filter(x => x.id !== paymentId);
-      removePaymentFromCloudInbox(paymentId, true);
-      saveStateAndBroadcast(true);
+      if (!paymentId || approvingPaymentIds.has(paymentId)) return;
+      approvingPaymentIds.add(paymentId);
+
+      appState.payments = (appState.payments || []).filter(x => x && x.id !== paymentId);
+      if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
+      if (!appState.processedInboxIds.includes(paymentId)) {
+        appState.processedInboxIds.push(paymentId);
+        if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
+      }
+      if (appState.inbox && appState.inbox[paymentId]) {
+        delete appState.inbox[paymentId];
+      }
+
+      const atomicPatch = {
+        payments: appState.payments,
+        processedInboxIds: appState.processedInboxIds
+      };
+      atomicPatch['inbox/' + paymentId] = null;
+
       renderAdminView();
       showToast('Reporte de pago rechazado y retirado de la bandeja', 'warning');
+
+      commitAtomicCloudPatch(atomicPatch).finally(() => {
+        setTimeout(() => approvingPaymentIds.delete(paymentId), 3000);
+      });
     }
 
     function openEditPaymentModal(paymentId) {
@@ -5052,21 +5102,36 @@
       document.getElementById('edit-payment-ref').value = p.concept || '';
 
       document.getElementById('btn-delete-payment-in-modal').onclick = () => {
-        const nowTs = Date.now();
+        const nowTs = Date.now() + (Number(firebaseServerTimeOffset) || 0);
         if (p.status === 'Aprobado') {
-          const drv = appState.drivers.find(d => d.id === p.driverId);
+          const drv = (appState.drivers || []).find(d => d && String(d.id) === String(p.driverId));
           if (drv) {
             drv.balance = Number(((Number(drv.balance) || 0) + Number(p.amount || 0)).toFixed(2));
             drv.balanceUpdatedAt = nowTs;
             drv.updatedAt = nowTs;
           }
         }
-        appState.payments = appState.payments.filter(x => x.id !== p.id);
-        removePaymentFromCloudInbox(p.id, true);
-        saveStateAndBroadcast(true);
+        appState.payments = (appState.payments || []).filter(x => x && x.id !== p.id);
+        if (!Array.isArray(appState.processedInboxIds)) appState.processedInboxIds = [];
+        if (!appState.processedInboxIds.includes(p.id)) {
+          appState.processedInboxIds.push(p.id);
+          if (appState.processedInboxIds.length > 400) appState.processedInboxIds.shift();
+        }
+        if (appState.inbox && appState.inbox[p.id]) {
+          delete appState.inbox[p.id];
+        }
+
+        const atomicPatch = {
+          payments: appState.payments,
+          drivers: appState.drivers,
+          processedInboxIds: appState.processedInboxIds
+        };
+        atomicPatch['inbox/' + p.id] = null;
+
         closeModal('modal-edit-payment');
         renderAdminView();
         showToast('Pago eliminado', 'info');
+        commitAtomicCloudPatch(atomicPatch);
       };
 
       openModal('modal-edit-payment');
@@ -5075,16 +5140,16 @@
     document.getElementById('form-edit-payment-admin').addEventListener('submit', (e) => {
       e.preventDefault();
       const id = document.getElementById('edit-payment-id').value;
-      const p = appState.payments.find(x => x.id === id);
+      const p = (appState.payments || []).find(x => x && x.id === id);
       if (!p) return;
 
-      const nowTs = Date.now();
+      const nowTs = Date.now() + (Number(firebaseServerTimeOffset) || 0);
       const oldStatus = p.status;
       const oldAmount = Number(p.amount) || 0;
       const newAmount = parseFloat(document.getElementById('edit-payment-amount').value) || 0;
       const newStatus = document.getElementById('edit-payment-status').value;
 
-      const drv = appState.drivers.find(d => d.id === p.driverId);
+      const drv = (appState.drivers || []).find(d => d && String(d.id) === String(p.driverId));
       if (drv) {
         if (oldStatus === 'Aprobado') drv.balance = Number(((Number(drv.balance) || 0) + oldAmount).toFixed(2));
         if (newStatus === 'Aprobado') drv.balance = Number(((Number(drv.balance) || 0) - newAmount).toFixed(2));
@@ -5100,12 +5165,19 @@
       p.concept = document.getElementById('edit-payment-ref').value.trim();
       p.updatedAt = nowTs;
 
-      syncSinglePaymentStatusToCloud(p);
-      if (newStatus === 'Aprobado') removePaymentFromCloudInbox(p.id, false);
-      saveStateAndBroadcast(true);
+      const atomicPatch = {
+        payments: sortPaymentsNewestFirst(appState.payments),
+        drivers: appState.drivers
+      };
+      if (newStatus !== 'Pendiente') {
+        if (appState.inbox && appState.inbox[p.id]) delete appState.inbox[p.id];
+        atomicPatch['inbox/' + p.id] = null;
+      }
+
       closeModal('modal-edit-payment');
       renderAdminView();
       showToast('Pago actualizado correctamente', 'success');
+      commitAtomicCloudPatch(atomicPatch);
     });
 
     function renderDashboardMaintenanceAlerts() {
@@ -5648,14 +5720,17 @@
       const nowTs = Date.now();
       const editId = document.getElementById('edit-driver-id').value;
       const drvId = editId || ('drv-' + nowTs);
+      const existingDrv = editId ? (appState.drivers || []).find(x => x.id === editId) : null;
+      const { effectiveBillingDate } = getPanamaDateParts();
       const rate = parseFloat(document.getElementById('newdriver-rate').value) || 25;
       const paidDays = parseFloat(document.getElementById('driver-rto-prev-days').value) || 0;
-      const selectedCarId = document.getElementById('newdriver-car-select').value;
+      const selectedCarId = document.getElementById('newdriver-car-select').value || '';
       const drvObj = {
         id: drvId,
         updatedAt: nowTs,
         balanceUpdatedAt: nowTs,
-        accessToken: editId ? ((appState.drivers.find(x => x.id === editId) || {}).accessToken || ('tk_' + Math.random().toString(36).substring(2, 12))) : ('tk_' + Math.random().toString(36).substring(2, 12)),
+        lastAutoBilledDate: (existingDrv && existingDrv.lastAutoBilledDate) ? existingDrv.lastAutoBilledDate : effectiveBillingDate,
+        accessToken: editId ? ((existingDrv || {}).accessToken || ('tk_' + Math.random().toString(36).substring(2, 12))) : ('tk_' + Math.random().toString(36).substring(2, 12)),
         name: document.getElementById('newdriver-name').value.trim(),
         phone: document.getElementById('newdriver-phone').value.trim(),
         username: document.getElementById('newdriver-username').value.trim().toLowerCase(),
@@ -8609,7 +8684,7 @@
     }
 
     setInterval(updateDriverGraceTimer, 1000);
-    setInterval(checkDailyFeeAutomation, 60000);
+    setInterval(checkDailyFeeAutomation, 30000);
     setInterval(checkAndPlayAdminPeriodicSounds, 10000);
     setInterval(() => {
       if (currentSession.role === 'admin' || currentSession.role === 'partner') {
@@ -8617,16 +8692,24 @@
       }
     }, 20000);
 
-    window.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        checkDailyFeeAutomation();
+      }
+    });
+    window.addEventListener('focus', () => {
+      checkDailyFeeAutomation();
+    });
+
+    // Arranque oficial de la aplicación: estilos, iconos, PWA y conexión en tiempo real con Firebase
+    document.addEventListener('DOMContentLoaded', () => {
       applyBrandingUI();
       populateSettingsForms();
+      updateSelects();
       initPWAInstallSupport();
       initFirebase();
-      updateSelects();
       checkUrlParameters();
-      if (!currentSession.role) showView('auth');
-      lucide.createIcons();
-      setTimeout(() => { getFastOcrWorker(); }, 1200);
+      if (window.lucide) lucide.createIcons();
     });
 
     /* ==========================================
@@ -11572,14 +11655,18 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
 
     // Permite cambiar el estado de cualquier reporte ("Pendiente", "Aprobado", "Rechazado") ajustando el saldo automáticamente
     function changeDriverReportStatusByAdmin(paymentId, newStatus, currentDriverId) {
-      const p = (appState.payments || []).find(x => x.id === paymentId);
-      if (!p) return;
+      const p = (appState.payments || []).find(x => x && x.id === paymentId);
+      if (!p || approvingPaymentIds.has(paymentId)) return;
 
       const oldStatus = p.status || 'Pendiente';
       if (oldStatus === newStatus) return;
 
-      const drv = (appState.drivers || []).find(d => d.id === p.driverId);
-      const car = getDriverAssignedCar(p.driverId);
+      approvingPaymentIds.add(paymentId);
+      let drv = (appState.drivers || []).find(d => d && String(d.id) === String(p.driverId));
+      if (!drv && p.driverName) {
+        drv = (appState.drivers || []).find(d => d && (d.name || '').toLowerCase() === String(p.driverName).toLowerCase());
+      }
+      const car = drv ? getDriverAssignedCar(drv.id) : getDriverAssignedCar(p.driverId);
       const amt = Number(p.amount) || 0;
 
       if (drv) {
@@ -11607,7 +11694,7 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
         car.km = Number(p.reportedKm);
       }
 
-      const nowTs = Date.now();
+      const nowTs = Date.now() + (Number(firebaseServerTimeOffset) || 0);
       p.status = newStatus;
       p.updatedAt = nowTs;
       if (drv) {
@@ -11615,12 +11702,16 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
         drv.updatedAt = nowTs;
       }
 
+      appState.payments = sortPaymentsNewestFirst(appState.payments);
+      const atomicPatch = {
+        payments: appState.payments,
+        drivers: appState.drivers,
+        cars: appState.cars
+      };
       if (newStatus === 'Aprobado' || newStatus === 'Rechazado') {
-        removePaymentFromCloudInbox(p.id, false);
+        if (appState.inbox && appState.inbox[p.id]) delete appState.inbox[p.id];
+        atomicPatch['inbox/' + p.id] = null;
       }
-
-      syncSinglePaymentStatusToCloud(p);
-      saveStateAndBroadcast(true);
 
       if (currentDriverId && !document.getElementById('modal-admin-driver-reports').classList.contains('hidden')) {
         openAdminDriverReportsModal(currentDriverId);
@@ -11632,6 +11723,10 @@ Responde ÚNICAMENTE con este objeto JSON exacto sin markdown:
       }
 
       showToast(`✓ Estado del pago cambiado a: ${newStatus}`, 'success');
+
+      commitAtomicCloudPatch(atomicPatch).finally(() => {
+        setTimeout(() => approvingPaymentIds.delete(paymentId), 3000);
+      });
     }
 
     // Abre el modal donde el Admin ve todos los reportes de ese chofer (Pendientes, Aprobados, Rechazados)
